@@ -1,0 +1,37 @@
+{
+  "camera": {
+    "url": "rtsp://admin:dc31l1ng@192.168.2.2:555/h264Preview_01_main",
+    "use_substream": false,
+    "rotate_180": false,
+    "mounting_height_cm": 100,
+    "tilt_angle_degrees": 0,
+    "min_detection_y": null,
+    "max_detection_y": null,
+    "comment": "Reolink camera via PoE switch with Internet Sharing DHCP",
+    "comment_mounting": "Adjust mounting_height_cm and tilt_angle_degrees to match your test setup"
+  },
+  
+  "model": {
+    "name": "yolov8n.pt",
+    "confidence": 0.5,
+    "device": "mps",
+    "comment": "mps uses Apple Silicon GPU acceleration"
+  },
+  
+  "tracking": {
+    "history_length": 30
+  },
+  
+  "display": {
+    "show_video": true,
+    "show_paths": true,
+    "show_info": true
+  },
+  
+  "osc": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8000,
+    "comment": "OSC disabled for quick testing"
+  }
+}
