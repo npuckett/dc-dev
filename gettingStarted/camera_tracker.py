@@ -19,7 +19,7 @@ from ultralytics import YOLO
 RTSP_URL = "rtsp://admin:dc31l1ng@192.168.2.2:555/h264Preview_01_main"
 
 # YOLO settings
-MODEL_NAME = "yolov8n.pt"  # nano model - fast
+MODEL_NAME = "yolo11n.pt"  # YOLO11 nano - fastest and most accurate
 CONFIDENCE_THRESHOLD = 0.4
 PERSON_CLASS_ID = 0  # COCO class 0 = person
 
