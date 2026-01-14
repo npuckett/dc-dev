@@ -40,6 +40,10 @@ FPS = 30
 # This prevents over-driving the LED panels
 MAX_DMX_VALUE = 212
 
+# Minimum DMX value (1 = panels never fully turn off)
+# Workaround for panels that won't reliably turn off at 0
+MIN_DMX_VALUE = 1
+
 # =============================================================================
 # ART-NET SETUP
 # =============================================================================
@@ -55,8 +59,12 @@ except Exception as e:
     sys.exit(1)
 
 # Store current channel values (0-255 DMX range)
-channel_values = [0] * TOTAL_CHANNELS
+channel_values = [MIN_DMX_VALUE] * TOTAL_CHANNELS
 sliders = []  # Store slider references for master controls
+
+# Send initial LOW values to all channels on startup
+artnet.set(channel_values)
+print(f"✓ Sent initial LOW value ({MIN_DMX_VALUE}) to all {TOTAL_CHANNELS} channels")
 
 
 def send_artnet():
@@ -100,10 +108,10 @@ def fade_all(target, duration_ms=1000, steps=30):
 def chase_effect():
     """Simple chase effect through all panels"""
     def chase_step(channel):
-        set_all(0)
+        set_all(MIN_DMX_VALUE)
         if channel < TOTAL_CHANNELS:
             sliders[channel].set(MAX_DMX_VALUE)
-            root.after(100, lambda: chase_step(channel + 1))
+            root.after(480, lambda: chase_step(channel + 1))
     chase_step(0)
 
 
@@ -112,7 +120,7 @@ random_fade_active = False
 random_fade_id = None
 
 def random_fade_mode():
-    """Toggle random fade mode - panels slowly fade between random values 0-50"""
+    """Toggle random fade mode - panels slowly fade between random values 1-50"""
     global random_fade_active, random_fade_id
     
     if random_fade_active:
@@ -129,7 +137,7 @@ def random_fade_mode():
     random_btn.config(text="Stop Random")
     
     # Store current and target values for smooth fading
-    targets = [random.randint(0, 50) for _ in range(TOTAL_CHANNELS)]
+    targets = [random.randint(MIN_DMX_VALUE, 50) for _ in range(TOTAL_CHANNELS)]
     
     def fade_step():
         global random_fade_id
@@ -152,7 +160,7 @@ def random_fade_mode():
         # If all reached their targets, pick new random targets
         if all_reached:
             for i in range(TOTAL_CHANNELS):
-                targets[i] = random.randint(0, 50)
+                targets[i] = random.randint(MIN_DMX_VALUE, 50)
         
         # Schedule next step (50ms = slow smooth fade)
         random_fade_id = root.after(50, fade_step)
@@ -163,7 +171,7 @@ def random_fade_mode():
 def on_closing():
     """Clean shutdown"""
     print("Shutting down Art-Net...")
-    set_all(0)
+    set_all(MIN_DMX_VALUE)
     artnet.stop()
     root.destroy()
 
@@ -214,7 +222,7 @@ for unit in range(NUM_UNITS):
         ).pack(side="left")
         
         # Value display
-        value_var = tk.StringVar(value="0")
+        value_var = tk.StringVar(value=str(MIN_DMX_VALUE))
         value_label = ttk.Label(panel_frame, textvariable=value_var, width=4)
         value_label.pack(side="right", padx=(5, 0))
         
@@ -227,7 +235,7 @@ for unit in range(NUM_UNITS):
         
         slider = ttk.Scale(
             panel_frame,
-            from_=0,
+            from_=MIN_DMX_VALUE,
             to=MAX_DMX_VALUE,
             orient="horizontal",
             command=make_callback(channel, value_var),
@@ -245,9 +253,9 @@ button_frame.pack(fill="x")
 
 ttk.Button(button_frame, text="All ON (100%)", command=lambda: set_all(MAX_DMX_VALUE)).pack(side="left", padx=5)
 ttk.Button(button_frame, text="All 50%", command=lambda: set_all(MAX_DMX_VALUE // 2)).pack(side="left", padx=5)
-ttk.Button(button_frame, text="All OFF", command=lambda: set_all(0)).pack(side="left", padx=5)
+ttk.Button(button_frame, text="All Low", command=lambda: set_all(MIN_DMX_VALUE)).pack(side="left", padx=5)
 ttk.Button(button_frame, text="Fade In", command=lambda: fade_all(MAX_DMX_VALUE)).pack(side="left", padx=5)
-ttk.Button(button_frame, text="Fade Out", command=lambda: fade_all(0)).pack(side="left", padx=5)
+ttk.Button(button_frame, text="Fade Out", command=lambda: fade_all(MIN_DMX_VALUE)).pack(side="left", padx=5)
 ttk.Button(button_frame, text="Chase", command=chase_effect).pack(side="left", padx=5)
 random_btn = ttk.Button(button_frame, text="Random Fade", command=random_fade_mode)
 random_btn.pack(side="left", padx=5)
@@ -257,7 +265,7 @@ master_frame = ttk.Frame(control_frame)
 master_frame.pack(fill="x", pady=(10, 0))
 
 ttk.Label(master_frame, text="Master:").pack(side="left")
-master_value = tk.StringVar(value="0")
+master_value = tk.StringVar(value=str(MIN_DMX_VALUE))
 ttk.Label(master_frame, textvariable=master_value, width=4).pack(side="right")
 
 def master_callback(val):
@@ -266,7 +274,7 @@ def master_callback(val):
 
 master_slider = ttk.Scale(
     master_frame,
-    from_=0,
+    from_=MIN_DMX_VALUE,
     to=MAX_DMX_VALUE,
     orient="horizontal",
     command=master_callback,
