@@ -35,24 +35,28 @@ from ultralytics import YOLO
 CAMERAS = [
     {
         'name': 'Camera 1',
-        'url': 'rtsp://admin:dc31l1ng@10.42.0.76:555/h264Preview_01_main',
-        'fps': 30,
+        'url': 'rtsp://admin:dc31l1ng@10.42.0.75:555/h264Preview_01_main',
+        'fps': 25,  # Target output FPS (matches camera setting)
         'enabled': True,
     },
     {
         'name': 'Camera 2', 
-        'url': 'rtsp://admin:dc31l1ng@10.42.0.173:555/h264Preview_01_main',
-        'fps': 30,
+        'url': 'rtsp://admin:dc31l1ng@10.42.0.172:555/h264Preview_01_main',
+        'fps': 25,
         'enabled': True,
     },
-    # Add more cameras as needed:
-    # {
-    #     'name': 'Camera 3',
-    #     'url': 'rtsp://admin:dc31l1ng@10.42.0.XXX:555/h264Preview_01_main',
-    #     'fps': 30,
-    #     'enabled': True,
-    # },
+    {
+        'name': 'Camera 3',
+        'url': 'rtsp://admin:dc31l1ng@10.42.0.111:555/h264Preview_01_main',
+        'fps': 25,
+        'enabled': True,
+    },
 ]
+
+# Camera network info (for reference):
+# - RTSP: port 555
+# - HTTPS: port 443
+# - ONVIF: port 8000
 
 # Calibration file path (created by calibration mode)
 CALIBRATION_FILE = 'camera_calibration.json'
@@ -70,6 +74,18 @@ PERSON_CLASS_ID = 0
 # Performance settings
 PROCESS_WIDTH = 416
 DISPLAY_WIDTH = 960
+
+# Camera sync settings
+# When True, processes all cameras together at a synchronized rate
+# Essential for multi-camera tracking fusion
+SYNC_CAMERAS = True
+TARGET_FPS = 25  # Target synchronized frame rate (matches camera max)
+
+# Reliability settings
+CONNECTION_TIMEOUT = 10.0  # Seconds to wait for initial connection
+RECONNECT_DELAY = 2.0      # Seconds between reconnection attempts
+MAX_FRAME_AGE = 0.5        # Max age (seconds) before frame considered stale
+FRAME_CACHE_ENABLED = True # Cache last good frame for display continuity
 
 # CUDA settings
 CUDA_DEVICE = 0
@@ -646,80 +662,235 @@ class CalibrationMode:
         print(f"✅ Generated {num_markers} markers in {output_dir}/")
 
 
-class LowLatencyCamera:
+class RobustCamera:
     """
-    Low-latency camera capture optimized for 25fps.
-    Uses aggressive buffer flushing to minimize latency.
+    Reliable camera capture with automatic reconnection and frame caching.
+    Optimized for multi-camera synchronized tracking.
+    
+    Features:
+    - Automatic reconnection on stream failure
+    - Frame caching for display continuity
+    - Health monitoring and statistics
+    - Thread-safe frame access
+    - Configurable timeouts and retry logic
     """
-    def __init__(self, src, target_fps=25):
+    def __init__(self, name, src, target_fps=25):
+        self.name = name
         self.src = src
         self.target_fps = target_fps
         self.frame_interval = 1.0 / target_fps
         
+        # Frame storage
         self.frame = None
-        self.frame_time = time.time()
-        self.grabbed = False
+        self.cached_frame = None  # Last good frame for display continuity
+        self.frame_time = 0
+        self.frame_number = 0
+        self.last_returned_frame_number = -1
+        
+        # State
         self.running = True
+        self.connected = False
         self.lock = threading.Lock()
-        self.frames_dropped = 0
         
-        # Set FFmpeg environment for low latency
-        os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp|fflags;nobuffer|flags;low_delay'
+        # Statistics
+        self.stats = {
+            'frames_received': 0,
+            'frames_dropped': 0,
+            'reconnect_count': 0,
+            'last_error': None,
+            'connect_time': None,
+        }
         
-        # Use OpenCV with FFmpeg backend and minimal buffering
-        self.cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        # Get stream properties
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Connection
+        self.cap = None
+        self.width = 0
+        self.height = 0
         
         # Start capture thread
-        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True, name=f"Camera-{name}")
         self.thread.start()
     
-    def _capture_loop(self):
-        """Capture frames and always keep the latest one"""
-        while self.running:
-            grabbed, frame = self.cap.read()
+    def _connect(self):
+        """Establish connection to camera with proper settings"""
+        try:
+            # Set FFmpeg options for low latency RTSP
+            os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = (
+                'rtsp_transport;tcp|'
+                'fflags;nobuffer+discardcorrupt|'
+                'flags;low_delay|'
+                'max_delay;500000|'
+                'stimeout;5000000'
+            )
             
-            if grabbed:
-                with self.lock:
-                    self.grabbed = True
-                    self.frame = frame
-                    self.frame_time = time.time()
-                
-                # Flush any buffered frames - always use the latest
-                flush_count = 0
-                while flush_count < 5:
-                    grabbed2, frame2 = self.cap.read()
-                    if grabbed2:
-                        self.frames_dropped += 1
-                        flush_count += 1
+            if self.cap is not None:
+                self.cap.release()
+            
+            self.cap = cv2.VideoCapture(self.src, cv2.CAP_FFMPEG)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
+            # Wait for connection with timeout
+            start_time = time.time()
+            while time.time() - start_time < CONNECTION_TIMEOUT:
+                if self.cap.isOpened():
+                    ret, frame = self.cap.read()
+                    if ret and frame is not None:
+                        self.width = frame.shape[1]
+                        self.height = frame.shape[0]
+                        self.connected = True
+                        self.stats['connect_time'] = time.time()
+                        print(f"   ✓ {self.name} connected: {self.width}x{self.height}")
+                        
+                        # Store initial frame
                         with self.lock:
-                            self.frame = frame2
+                            self.frame = frame
+                            self.cached_frame = frame.copy()
                             self.frame_time = time.time()
-                    else:
-                        break
-            else:
-                time.sleep(0.001)
+                            self.frame_number = 1
+                            self.stats['frames_received'] = 1
+                        return True
+                time.sleep(0.1)
+            
+            self.stats['last_error'] = "Connection timeout"
+            return False
+            
+        except Exception as e:
+            self.stats['last_error'] = str(e)
+            print(f"   ✗ {self.name} connection error: {e}")
+            return False
+    
+    def _capture_loop(self):
+        """Main capture loop with automatic reconnection"""
+        # Initial connection
+        if not self._connect():
+            print(f"   ✗ {self.name} failed initial connection, will retry...")
+        
+        consecutive_failures = 0
+        
+        while self.running:
+            if not self.connected:
+                # Attempt reconnection
+                time.sleep(RECONNECT_DELAY)
+                self.stats['reconnect_count'] += 1
+                print(f"   🔄 {self.name} reconnecting (attempt {self.stats['reconnect_count']})...")
+                if self._connect():
+                    consecutive_failures = 0
+                continue
+            
+            # Read frame
+            try:
+                grabbed, frame = self.cap.read()
+                
+                if grabbed and frame is not None:
+                    consecutive_failures = 0
+                    
+                    with self.lock:
+                        self.frame = frame
+                        self.cached_frame = frame.copy()
+                        self.frame_time = time.time()
+                        self.frame_number += 1
+                        self.stats['frames_received'] += 1
+                    
+                    # Flush buffer - read any queued frames to get latest
+                    flush_count = 0
+                    while flush_count < 3:
+                        grabbed2, frame2 = self.cap.read()
+                        if grabbed2 and frame2 is not None:
+                            self.stats['frames_dropped'] += 1
+                            flush_count += 1
+                            with self.lock:
+                                self.frame = frame2
+                                self.cached_frame = frame2.copy()
+                                self.frame_time = time.time()
+                        else:
+                            break
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures > 30:  # ~1 second of failures
+                        print(f"   ⚠️ {self.name} stream lost, reconnecting...")
+                        self.connected = False
+                        consecutive_failures = 0
+                    time.sleep(0.01)
+                    
+            except Exception as e:
+                self.stats['last_error'] = str(e)
+                consecutive_failures += 1
+                if consecutive_failures > 10:
+                    self.connected = False
+                time.sleep(0.01)
     
     def read(self):
-        """Get the most recent frame with latency measurement"""
+        """
+        Get the most recent frame.
+        Returns: (success, frame, latency_ms)
+        """
         with self.lock:
-            if self.frame is None:
-                return False, None, 0
+            if self.frame is not None:
+                age = time.time() - self.frame_time
+                if age < MAX_FRAME_AGE:
+                    latency_ms = age * 1000
+                    return True, self.frame.copy(), latency_ms
             
-            latency_ms = (time.time() - self.frame_time) * 1000
-            return self.grabbed, self.frame.copy(), latency_ms
+            # Return cached frame if available (for display continuity)
+            if FRAME_CACHE_ENABLED and self.cached_frame is not None:
+                return True, self.cached_frame.copy(), -1  # -1 indicates cached
+            
+            return False, None, 0
+    
+    def read_new(self):
+        """
+        Get frame only if it's new since last read_new() call.
+        Essential for synchronized multi-camera processing.
+        Returns: (success, frame, latency_ms, is_new)
+        """
+        with self.lock:
+            # Check if we have a new frame
+            is_new = self.frame_number > self.last_returned_frame_number
+            
+            if self.frame is not None:
+                age = time.time() - self.frame_time
+                
+                if age < MAX_FRAME_AGE:
+                    if is_new:
+                        self.last_returned_frame_number = self.frame_number
+                    latency_ms = age * 1000
+                    return True, self.frame.copy(), latency_ms, is_new
+            
+            # Return cached frame for display (but mark as not new)
+            if FRAME_CACHE_ENABLED and self.cached_frame is not None:
+                return True, self.cached_frame.copy(), -1, False
+            
+            return False, None, 0, False
+    
+    def is_healthy(self):
+        """Check if camera is connected and receiving frames"""
+        with self.lock:
+            if not self.connected:
+                return False
+            age = time.time() - self.frame_time
+            return age < MAX_FRAME_AGE * 2
+    
+    def get_stats(self):
+        """Get camera statistics"""
+        with self.lock:
+            return {
+                'name': self.name,
+                'connected': self.connected,
+                'frames_received': self.stats['frames_received'],
+                'frames_dropped': self.stats['frames_dropped'],
+                'reconnect_count': self.stats['reconnect_count'],
+                'frame_age': time.time() - self.frame_time if self.frame_time > 0 else -1,
+                'last_error': self.stats['last_error'],
+            }
     
     def isOpened(self):
-        return self.cap.isOpened()
+        return self.connected or self.cached_frame is not None
     
     def release(self):
         self.running = False
-        self.thread.join(timeout=2)
-        self.cap.release()
+        if self.thread.is_alive():
+            self.thread.join(timeout=2)
+        if self.cap is not None:
+            self.cap.release()
 
 
 class CUDAFrameProcessor:
@@ -798,19 +969,27 @@ def main():
     camera_configs = []
     raw_frames = {}  # Store raw frames for calibration
     
+    print(f"\n📹 Connecting to {len(CAMERAS)} cameras...")
+    
     for cam_cfg in CAMERAS:
         if not cam_cfg.get('enabled', True):
             continue
         
         name = cam_cfg['name']
         url = cam_cfg['url']
-        fps = cam_cfg.get('fps', 30)
+        fps = cam_cfg.get('fps', 25)
         
-        print(f"\n📹 Connecting to {name} (target: {fps} FPS)...")
-        cap = LowLatencyCamera(url, target_fps=fps)
-        time.sleep(1)
+        # Use RobustCamera for reliable capture with auto-reconnection
+        cap = RobustCamera(name, url, target_fps=fps)
         
-        if cap.isOpened():
+        # Wait for initial connection
+        connect_start = time.time()
+        while time.time() - connect_start < CONNECTION_TIMEOUT:
+            if cap.isOpened() and cap.width > 0:
+                break
+            time.sleep(0.1)
+        
+        if cap.isOpened() and cap.width > 0:
             cameras.append(cap)
             camera_configs.append({
                 'name': name,
@@ -822,11 +1001,27 @@ def main():
                 'track_colors': {},
                 'fps_history': [],
                 'last_boxes': [],
+                'current_fps': 0,
+                'current_latency': 0,
             })
-            print(f"✅ {name} connected! Stream: {cap.width}x{cap.height}")
+            print(f"   ✅ {name} ready: {cap.width}x{cap.height}")
         else:
-            print(f"⚠️  {name} not available, skipping")
-            cap.release()
+            print(f"   ⚠️ {name} initial connection pending (will auto-reconnect)")
+            # Still add it - RobustCamera will keep trying
+            cameras.append(cap)
+            camera_configs.append({
+                'name': name,
+                'fps': fps,
+                'width': 1920,  # Default until connected
+                'height': 1080,
+                'scale': PROCESS_WIDTH / 1920,
+                'process_height': int(1080 * (PROCESS_WIDTH / 1920)),
+                'track_colors': {},
+                'fps_history': [],
+                'last_boxes': [],
+                'current_fps': 0,
+                'current_latency': 0,
+            })
     
     if len(cameras) == 0:
         print("❌ ERROR: No cameras available")
@@ -920,9 +1115,12 @@ def main():
     frame_count = 0
     start_time = time.time()
     
-    # Frame pacing
-    max_fps = max(cfg['fps'] for cfg in camera_configs)
-    frame_interval = 1.0 / max_fps
+    # Frame pacing - use TARGET_FPS for synchronized mode
+    if SYNC_CAMERAS:
+        frame_interval = 1.0 / TARGET_FPS
+    else:
+        max_fps = max(cfg['fps'] for cfg in camera_configs)
+        frame_interval = 1.0 / max_fps
     last_process_time = 0
     
     while True:
@@ -942,53 +1140,69 @@ def main():
         total_people = 0
         
         # Process each camera
+        frames_ready = []
         for cam_idx, (cap, cfg) in enumerate(zip(cameras, camera_configs)):
-            ret, frame, latency_ms = cap.read()
+            # Use read_new() for synchronized multi-camera processing
+            # This returns cached frames for display continuity but tracks new frames for processing
+            ret, frame, latency_ms, is_new = cap.read_new()
             
             if not ret or frame is None:
                 raw_frames[cfg['name']] = None
                 cfg['last_boxes'] = []
                 continue
             
+            # Update camera config dimensions if they changed (e.g., after reconnection)
+            if cap.width > 0 and cap.width != cfg['width']:
+                cfg['width'] = cap.width
+                cfg['height'] = cap.height
+                cfg['scale'] = PROCESS_WIDTH / cap.width
+                cfg['process_height'] = int(cap.height * cfg['scale'])
+            
             raw_frames[cfg['name']] = frame.copy()
             
-            # Run YOLO tracking
-            small_frame = processor.resize(frame, (PROCESS_WIDTH, cfg['process_height']))
-            
-            results = model.track(
-                small_frame,
-                persist=True,
-                classes=[PERSON_CLASS_ID],
-                conf=CONFIDENCE_THRESHOLD,
-                verbose=False,
-                imgsz=PROCESS_WIDTH,
-                tracker="bytetrack.yaml",
-                device=device
-            )
-            
-            # Extract detections
-            cfg['last_boxes'] = []
-            if results[0].boxes is not None and len(results[0].boxes) > 0:
-                for box in results[0].boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                    x1, x2 = int(x1 / cfg['scale']), int(x2 / cfg['scale'])
-                    y1, y2 = int(y1 / cfg['scale']), int(y2 / cfg['scale'])
-                    conf = float(box.conf[0])
-                    track_id = int(box.id[0]) if box.id is not None else -1
-                    cfg['last_boxes'].append((x1, y1, x2, y2, conf, track_id))
+            # Only run YOLO on new frames (saves GPU cycles, maintains sync)
+            if is_new:
+                # Run YOLO tracking
+                small_frame = processor.resize(frame, (PROCESS_WIDTH, cfg['process_height']))
+                
+                results = model.track(
+                    small_frame,
+                    persist=True,
+                    classes=[PERSON_CLASS_ID],
+                    conf=CONFIDENCE_THRESHOLD,
+                    verbose=False,
+                    imgsz=PROCESS_WIDTH,
+                    tracker="bytetrack.yaml",
+                    device=device
+                )
+                
+                # Extract detections
+                cfg['last_boxes'] = []
+                if results[0].boxes is not None and len(results[0].boxes) > 0:
+                    for box in results[0].boxes:
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        x1, x2 = int(x1 / cfg['scale']), int(x2 / cfg['scale'])
+                        y1, y2 = int(y1 / cfg['scale']), int(y2 / cfg['scale'])
+                        conf = float(box.conf[0])
+                        track_id = int(box.id[0]) if box.id is not None else -1
+                        cfg['last_boxes'].append((x1, y1, x2, y2, conf, track_id))
             
             all_detections.append((cfg['name'], cfg['last_boxes']))
             total_people += len(cfg['last_boxes'])
             
-            # Calculate FPS
-            process_time = time.time() - frame_start
-            instant_fps = 1.0 / max(process_time, 0.001)
-            cfg['fps_history'].append(instant_fps)
-            if len(cfg['fps_history']) > cfg['fps']:
-                cfg['fps_history'].pop(0)
-            fps = sum(cfg['fps_history']) / len(cfg['fps_history'])
-            cfg['current_fps'] = fps
-            cfg['current_latency'] = latency_ms
+            # Calculate FPS (only count new frames)
+            if is_new:
+                process_time = time.time() - frame_start
+                instant_fps = 1.0 / max(process_time, 0.001)
+                cfg['fps_history'].append(instant_fps)
+                if len(cfg['fps_history']) > 25:  # Use fixed window
+                    cfg['fps_history'].pop(0)
+                fps = sum(cfg['fps_history']) / len(cfg['fps_history'])
+                cfg['current_fps'] = fps
+            
+            # Update latency (even for cached frames, show last known)
+            if latency_ms >= 0:
+                cfg['current_latency'] = latency_ms
         
         # Render based on view mode
         if view_mode == ViewMode.INDIVIDUAL:
@@ -1178,11 +1392,13 @@ def main():
     print(f"\n🛑 Stopped")
     print(f"   Frames processed: {frame_count}")
     print(f"   Average FPS: {frame_count/elapsed:.1f}")
+    print("\\n📊 Camera Statistics:")
     for i, cap in enumerate(cameras):
-        print(f"   Camera {i+1} frames dropped: {cap.frames_dropped}")
+        stats = cap.get_stats()
+        print(f"   {stats['name']}: {stats['frames_received']} received, {stats['frames_dropped']} dropped, {stats['reconnect_count']} reconnects")
 
 
-def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, compact=False):
+def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, compact=False, is_cached=False):
     """Render a single camera frame with detections and overlays"""
     import random
     
@@ -1195,6 +1411,10 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
             display_frame, 0, padding, 0, 0, 
             cv2.BORDER_CONSTANT, value=(0, 0, 0)
         )
+    
+    # If showing cached frame, add indicator
+    if is_cached:
+        cv2.rectangle(display_frame, (0, 0), (display_frame.shape[1]-1, display_frame.shape[0]-1), (0, 100, 255), 3)
     
     # Draw detections
     for (x1, y1, x2, y2, conf, track_id) in cfg['last_boxes']:
@@ -1231,7 +1451,8 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
     
     if compact:
         # Minimal overlay for thumbnails
-        cv2.putText(display_frame, f"{cfg['name']}: {person_count}p", (5, 15),
+        status = "⚠" if is_cached else ""
+        cv2.putText(display_frame, f"{cfg['name']}: {person_count}p {status}", (5, 15),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
     else:
         info_bg = display_frame.copy()
@@ -1239,6 +1460,11 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
         display_frame = cv2.addWeighted(display_frame, 1, info_bg, 0.5, 0)
         
         latency_color = (0, 255, 0) if latency_ms < 50 else (0, 255, 255) if latency_ms < 100 else (0, 100, 255)
+        if is_cached or latency_ms < 0:
+            latency_color = (0, 100, 255)
+            latency_text = "Cached"
+        else:
+            latency_text = f"{latency_ms:.0f}ms"
         
         cv2.putText(display_frame, cfg['name'], (10, 22),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
@@ -1246,7 +1472,7 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(display_frame, f"Latency: {latency_ms:.0f}ms", (10, 78),
+        cv2.putText(display_frame, f"Latency: {latency_text}", (10, 78),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, latency_color, 1)
     
     return display_frame
