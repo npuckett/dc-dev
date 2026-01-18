@@ -70,6 +70,13 @@ SYNTH_METERS_PER_PIXEL = 0.05  # 5cm per pixel = 40m x 30m coverage
 MODEL_NAME = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.4
 PERSON_CLASS_ID = 0
+BICYCLE_CLASS_ID = 1  # Bicycles in COCO dataset
+CAR_CLASS_ID = 2  # Cars in COCO dataset
+CYCLIST_CLASS_ID = -1  # Synthetic class: person + bicycle overlap
+TRACKED_CLASSES = [PERSON_CLASS_ID, BICYCLE_CLASS_ID, CAR_CLASS_ID]  # Track people, bicycles, and cars
+
+# Cyclist detection settings
+CYCLIST_IOU_THRESHOLD = 0.3  # Minimum overlap to consider person+bicycle as cyclist
 
 # Performance settings
 PROCESS_WIDTH = 416
@@ -103,6 +110,90 @@ class ViewMode(Enum):
     INDIVIDUAL = 'individual'
     SYNTHESIZED = 'synthesized'
     CALIBRATION = 'calibration'
+
+
+def compute_iou(box1, box2):
+    """
+    Compute Intersection over Union (IoU) between two boxes.
+    Boxes are in format (x1, y1, x2, y2, ...)
+    """
+    x1_1, y1_1, x2_1, y2_1 = box1[:4]
+    x1_2, y1_2, x2_2, y2_2 = box2[:4]
+    
+    # Calculate intersection
+    xi1 = max(x1_1, x1_2)
+    yi1 = max(y1_1, y1_2)
+    xi2 = min(x2_1, x2_2)
+    yi2 = min(y2_1, y2_2)
+    
+    if xi2 <= xi1 or yi2 <= yi1:
+        return 0.0
+    
+    inter_area = (xi2 - xi1) * (yi2 - yi1)
+    
+    # Calculate union
+    box1_area = (x2_1 - x1_1) * (y2_1 - y1_1)
+    box2_area = (x2_2 - x1_2) * (y2_2 - y1_2)
+    union_area = box1_area + box2_area - inter_area
+    
+    if union_area <= 0:
+        return 0.0
+    
+    return inter_area / union_area
+
+
+def merge_cyclists(detections):
+    """
+    Merge overlapping person + bicycle detections into cyclist detections.
+    Returns a new list of detections with cyclists properly labeled.
+    
+    Logic:
+    - Find all person-bicycle pairs with IoU > threshold
+    - Create a cyclist detection using the person's bounding box and track ID
+    - Remove the matched bicycle detection
+    - Keep unmatched persons as pedestrians, unmatched bicycles as standalone
+    """
+    persons = [d for d in detections if d[6] == PERSON_CLASS_ID]
+    bicycles = [d for d in detections if d[6] == BICYCLE_CLASS_ID]
+    others = [d for d in detections if d[6] not in (PERSON_CLASS_ID, BICYCLE_CLASS_ID)]
+    
+    matched_persons = set()
+    matched_bicycles = set()
+    cyclists = []
+    
+    # Find person-bicycle pairs
+    for pi, person in enumerate(persons):
+        best_iou = 0
+        best_bi = -1
+        
+        for bi, bicycle in enumerate(bicycles):
+            if bi in matched_bicycles:
+                continue
+            
+            iou = compute_iou(person, bicycle)
+            if iou > best_iou:
+                best_iou = iou
+                best_bi = bi
+        
+        if best_iou >= CYCLIST_IOU_THRESHOLD and best_bi >= 0:
+            # Create cyclist detection using person's box and track ID
+            # but with the synthetic CYCLIST_CLASS_ID
+            x1, y1, x2, y2, conf, track_id, _ = person
+            bicycle = bicycles[best_bi]
+            # Use higher confidence of the two
+            cyclist_conf = max(conf, bicycle[4])
+            cyclists.append((x1, y1, x2, y2, cyclist_conf, track_id, CYCLIST_CLASS_ID))
+            matched_persons.add(pi)
+            matched_bicycles.add(best_bi)
+    
+    # Collect unmatched persons (pedestrians)
+    pedestrians = [p for pi, p in enumerate(persons) if pi not in matched_persons]
+    
+    # Collect unmatched bicycles (parked bikes, etc.)
+    standalone_bicycles = [b for bi, b in enumerate(bicycles) if bi not in matched_bicycles]
+    
+    # Combine all detections
+    return pedestrians + cyclists + standalone_bicycles + others
 
 
 class CalibrationManager:
@@ -1168,7 +1259,7 @@ def main():
                 results = model.track(
                     small_frame,
                     persist=True,
-                    classes=[PERSON_CLASS_ID],
+                    classes=TRACKED_CLASSES,
                     conf=CONFIDENCE_THRESHOLD,
                     verbose=False,
                     imgsz=PROCESS_WIDTH,
@@ -1177,7 +1268,7 @@ def main():
                 )
                 
                 # Extract detections
-                cfg['last_boxes'] = []
+                raw_detections = []
                 if results[0].boxes is not None and len(results[0].boxes) > 0:
                     for box in results[0].boxes:
                         x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -1185,9 +1276,13 @@ def main():
                         y1, y2 = int(y1 / cfg['scale']), int(y2 / cfg['scale'])
                         conf = float(box.conf[0])
                         track_id = int(box.id[0]) if box.id is not None else -1
-                        cfg['last_boxes'].append((x1, y1, x2, y2, conf, track_id))
+                        class_id = int(box.cls[0])  # Get the detected class
+                        raw_detections.append((x1, y1, x2, y2, conf, track_id, class_id))
+                
+                # Merge person + bicycle detections into cyclists
+                cfg['last_boxes'] = merge_cyclists(raw_detections)
             
-            all_detections.append((cfg['name'], cfg['last_boxes']))
+            all_detections.append((cfg['name'], cfg['last_boxes'])
             total_people += len(cfg['last_boxes'])
             
             # Calculate FPS (only count new frames)
@@ -1417,46 +1512,77 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
         cv2.rectangle(display_frame, (0, 0), (display_frame.shape[1]-1, display_frame.shape[0]-1), (0, 100, 255), 3)
     
     # Draw detections
-    for (x1, y1, x2, y2, conf, track_id) in cfg['last_boxes']:
+    for detection in cfg['last_boxes']:
+        # Handle both old format (6 elements) and new format (7 elements with class_id)
+        if len(detection) == 7:
+            x1, y1, x2, y2, conf, track_id, class_id = detection
+        else:
+            x1, y1, x2, y2, conf, track_id = detection
+            class_id = PERSON_CLASS_ID  # Default to person for backward compatibility
+        
         dx1 = int(x1 * dcfg['scale'])
         dy1 = int(y1 * dcfg['scale'])
         dx2 = int(x2 * dcfg['scale'])
         dy2 = int(y2 * dcfg['scale'])
         
+        # Determine label prefix and base color by class
+        if class_id == CYCLIST_CLASS_ID:
+            label_prefix = "Cy"  # Cyclist
+            base_color = (255, 150, 0)  # Orange for cyclists
+        elif class_id == BICYCLE_CLASS_ID:
+            label_prefix = "B"  # Standalone bicycle (parked, etc.)
+            base_color = (200, 200, 0)  # Yellow for bikes
+        elif class_id == CAR_CLASS_ID:
+            label_prefix = "Ca"  # Car
+            base_color = (255, 100, 50)  # Blue-ish for cars
+        else:
+            label_prefix = "P"  # Pedestrian (person not on bike)
+            base_color = (50, 255, 50)  # Green-ish for people
+        
         # Unique color per track ID (offset by camera to avoid collisions)
-        color_key = f"{cfg['name']}_{track_id}"
+        color_key = f"{cfg['name']}_{class_id}_{track_id}"
         if color_key not in track_colors:
             random.seed(hash(color_key))
+            # Blend base color with random variation
             track_colors[color_key] = (
-                random.randint(50, 255),
-                random.randint(50, 255),
-                random.randint(50, 255)
+                min(255, base_color[0] + random.randint(-30, 30)),
+                min(255, base_color[1] + random.randint(-30, 30)),
+                min(255, base_color[2] + random.randint(-30, 30))
             )
         
-        color = track_colors.get(color_key, (0, 255, 0))
+        color = track_colors.get(color_key, base_color)
         thickness = 1 if compact else 2
         cv2.rectangle(display_frame, (dx1, dy1), (dx2, dy2), color, thickness)
         
         if not compact:
-            label = f"P{track_id} ({conf:.0%})"
+            label = f"{label_prefix}{track_id} ({conf:.0%})"
             label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
             cv2.rectangle(display_frame, (dx1, dy1 - 16), (dx1 + label_size[0], dy1), color, -1)
             cv2.putText(display_frame, label, (dx1, dy1 - 4),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     
     # Draw info overlay
-    person_count = len(cfg['last_boxes'])
+    # Count by category
+    pedestrian_count = sum(1 for d in cfg['last_boxes'] if (len(d) < 7 or d[6] == PERSON_CLASS_ID))
+    cyclist_count = sum(1 for d in cfg['last_boxes'] if len(d) == 7 and d[6] == CYCLIST_CLASS_ID)
+    car_count = sum(1 for d in cfg['last_boxes'] if len(d) == 7 and d[6] == CAR_CLASS_ID)
+    bike_count = sum(1 for d in cfg['last_boxes'] if len(d) == 7 and d[6] == BICYCLE_CLASS_ID)  # Standalone bikes
     fps = cfg.get('current_fps', 0)
     latency_ms = cfg.get('current_latency', 0)
     
     if compact:
         # Minimal overlay for thumbnails
         status = "⚠" if is_cached else ""
-        cv2.putText(display_frame, f"{cfg['name']}: {person_count}p {status}", (5, 15),
+        count_text = f"{pedestrian_count}p"
+        if cyclist_count > 0:
+            count_text += f" {cyclist_count}cy"
+        if car_count > 0:
+            count_text += f" {car_count}ca"
+        cv2.putText(display_frame, f"{cfg['name']}: {count_text} {status}", (5, 15),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
     else:
         info_bg = display_frame.copy()
-        cv2.rectangle(info_bg, (5, 5), (180, 90), (0, 0, 0), -1)
+        cv2.rectangle(info_bg, (5, 5), (180, 126), (0, 0, 0), -1)
         display_frame = cv2.addWeighted(display_frame, 1, info_bg, 0.5, 0)
         
         latency_color = (0, 255, 0) if latency_ms < 50 else (0, 255, 255) if latency_ms < 100 else (0, 100, 255)
@@ -1468,11 +1594,15 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
         
         cv2.putText(display_frame, cfg['name'], (10, 22),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-        cv2.putText(display_frame, f"People: {person_count}", (10, 42),
+        cv2.putText(display_frame, f"Pedestrians: {pedestrian_count}", (10, 42),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 60),
+        cv2.putText(display_frame, f"Cyclists: {cyclist_count}", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 150, 0), 1)
+        cv2.putText(display_frame, f"Cars: {car_count}", (10, 78),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 100, 50), 1)
+        cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 96),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(display_frame, f"Latency: {latency_text}", (10, 78),
+        cv2.putText(display_frame, f"Latency: {latency_text}", (10, 114),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, latency_color, 1)
     
     return display_frame
