@@ -115,11 +115,11 @@ class PointLight:
     brightness_min: int = 5
     brightness_max: int = 40
     pulse_speed: float = 2000
-    falloff_radius: float = 200
+    falloff_radius: float = 50
     
     target_brightness_min: int = 5
     target_brightness_max: int = 40
-    target_falloff_radius: float = 200
+    target_falloff_radius: float = 50
     
     move_speed: float = 50
     property_lerp_speed: float = 2.0
@@ -136,10 +136,7 @@ class PointLight:
         if dist > 0.1:
             self.position += (diff / dist) * min(self.move_speed * dt, dist)
         
-        lerp = min(1.0, self.property_lerp_speed * dt)
-        self.brightness_min += int((self.target_brightness_min - self.brightness_min) * lerp)
-        self.brightness_max += int((self.target_brightness_max - self.brightness_max) * lerp)
-        self.falloff_radius += (self.target_falloff_radius - self.falloff_radius) * lerp
+        # Note: falloff_radius is now controlled directly by slider, no lerping
 
 
 @dataclass
@@ -170,28 +167,35 @@ class PanelSystem:
                     'dmx_value': DMX_MIN,
                 }
     
-    def calculate_brightness(self, light: PointLight):
+    def calculate_brightness(self, light: PointLight, use_normals: bool = False):
         intensity = light.get_brightness()
         
         for key, panel in self.panels.items():
             diff = panel['center'] - light.position
             distance = np.linalg.norm(diff)
             
-            # Linear falloff
-            falloff = max(0, 1.0 - distance / light.falloff_radius) if light.falloff_radius > 0 else 0
-            
-            # Normal factor
-            if distance > 0.01:
-                light_dir = -diff / distance
-                normal_factor = max(0, np.dot(panel['normal'], light_dir))
+            # Linear falloff: 1.0 at distance=0, 0.0 at distance=falloff_radius
+            if light.falloff_radius > 0:
+                falloff = max(0.0, 1.0 - (distance / light.falloff_radius))
             else:
-                normal_factor = 1.0
+                falloff = 0.0
             
-            brightness = falloff * normal_factor * intensity
-            panel['brightness'] = max(0, min(1, brightness))
+            # Optional: Factor in panel normal direction
+            # This makes panels facing the light brighter
+            if use_normals and distance > 0.01:
+                light_dir = -diff / distance  # Direction from panel to light
+                normal_factor = max(0.0, np.dot(panel['normal'], light_dir))
+                # Blend: 50% distance, 50% normal-weighted
+                brightness = falloff * (0.5 + 0.5 * normal_factor) * intensity
+            else:
+                # Simple distance-only calculation
+                brightness = falloff * intensity
             
+            panel['brightness'] = max(0.0, min(1.0, brightness))
+            
+            # DMX output
             dmx_range = light.brightness_max - light.brightness_min
-            panel['dmx_value'] = int(light.brightness_min + brightness * dmx_range)
+            panel['dmx_value'] = int(light.brightness_min + panel['brightness'] * dmx_range)
             panel['dmx_value'] = max(DMX_MIN, min(DMX_MAX, panel['dmx_value']))
     
     def get_dmx_values(self) -> List[int]:
@@ -219,8 +223,25 @@ class WanderBehavior:
             return
         
         if person and person.enabled:
-            self.light.target_position = person.get_center().copy()
-            self.light.target_falloff_radius = max(200, person.position[2] + 50)
+            # Map person's X and Z to the light, but clamp to wander box
+            person_center = person.get_center()
+            
+            # Clamp X to wander box
+            target_x = max(self.wander_box['min_x'], 
+                          min(self.wander_box['max_x'], person_center[0]))
+            
+            # Keep Y within wander box (use current target or middle)
+            target_y = self.light.target_position[1]
+            target_y = max(self.wander_box['min_y'], 
+                          min(self.wander_box['max_y'], target_y))
+            
+            # Map person's Z to wander box range
+            # Person is in trackzone (positive Z), light stays in wander box (negative Z typically)
+            # Simple approach: mirror the person's Z relative to panels
+            target_z = max(self.wander_box['min_z'], 
+                          min(self.wander_box['max_z'], -person_center[2] * 0.1))
+            
+            self.light.target_position = np.array([target_x, target_y, target_z])
             return
         
         self.wander_timer += dt
@@ -229,9 +250,9 @@ class WanderBehavior:
         if dist < 10 or self.wander_timer > self.wander_interval:
             self.wander_target = self._random_point()
             self.wander_timer = 0
-            self.light.target_brightness_min = random.randint(3, 10)
-            self.light.target_brightness_max = random.randint(30, 45)
-            self.light.target_falloff_radius = random.uniform(150, 300)
+            # Only change position, not falloff - let slider control falloff
+            # self.light.target_brightness_min = random.randint(3, 10)
+            # self.light.target_brightness_max = random.randint(30, 45)
         
         self.light.target_position = self.wander_target.copy()
 
@@ -305,6 +326,43 @@ def draw_sphere(center, radius, color, segments=12):
     quadric = gluNewQuadric()
     gluSphere(quadric, radius, segments, segments)
     gluDeleteQuadric(quadric)
+    
+    glPopMatrix()
+
+
+def draw_sphere_wireframe(center, radius, color, segments=16):
+    """Draw a wireframe sphere to show falloff radius"""
+    glPushMatrix()
+    glTranslatef(*center)
+    glColor4f(*color)
+    glLineWidth(1)
+    
+    # Draw latitude circles
+    for i in range(segments // 2 + 1):
+        lat = math.pi * i / (segments // 2) - math.pi / 2
+        r = radius * math.cos(lat)
+        y = radius * math.sin(lat)
+        
+        glBegin(GL_LINE_LOOP)
+        for j in range(segments):
+            lon = 2 * math.pi * j / segments
+            x = r * math.cos(lon)
+            z = r * math.sin(lon)
+            glVertex3f(x, y, z)
+        glEnd()
+    
+    # Draw longitude circles
+    for j in range(segments // 2):
+        lon = math.pi * j / (segments // 2)
+        
+        glBegin(GL_LINE_LOOP)
+        for i in range(segments):
+            lat = 2 * math.pi * i / segments
+            x = radius * math.cos(lat) * math.cos(lon)
+            y = radius * math.sin(lat)
+            z = radius * math.cos(lat) * math.sin(lon)
+            glVertex3f(x, y, z)
+        glEnd()
     
     glPopMatrix()
 
@@ -482,7 +540,7 @@ def main():
         'brightness_min': Slider(slider_x, 700, slider_w, slider_h, 1, 50, light.brightness_min, "Brightness Min"),
         'brightness_max': Slider(slider_x, 650, slider_w, slider_h, 1, 50, light.brightness_max, "Brightness Max"),
         'pulse_speed': Slider(slider_x, 600, slider_w, slider_h, 500, 5000, light.pulse_speed, "Pulse Speed (ms)"),
-        'falloff_radius': Slider(slider_x, 550, slider_w, slider_h, 50, 3000, light.falloff_radius, "Falloff Radius (cm)"),
+        'falloff_radius': Slider(slider_x, 550, slider_w, slider_h, 1, 200, light.falloff_radius, "Falloff Radius (cm)"),
         'wander_speed': Slider(slider_x, 500, slider_w, slider_h, 10, 200, light.move_speed, "Wander Speed (cm/s)"),
         'wander_min_x': Slider(slider_x, 430, slider_w, slider_h, -100, 100, wander_box['min_x'], "Wander Min X"),
         'wander_max_x': Slider(slider_x, 380, slider_w, slider_h, 200, 400, wander_box['max_x'], "Wander Max X"),
@@ -645,6 +703,9 @@ def main():
         brightness = light.get_brightness()
         radius = 8 + brightness * 7
         draw_sphere(light.position, radius, (1, 1, brightness, 1))
+        
+        # Draw falloff radius wireframe sphere
+        draw_sphere_wireframe(light.position, light.falloff_radius, (1, 0.8, 0, 0.3), segments=24)
         
         # Draw person
         draw_person(person.position, person.size, person.enabled)
