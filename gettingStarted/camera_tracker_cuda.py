@@ -59,12 +59,15 @@ CAMERAS = [
 # - ONVIF: port 8000
 
 # Calibration file path (created by calibration mode)
-CALIBRATION_FILE = 'camera_calibration.json'
+# Use absolute path relative to script location so it works from any directory
+import os as _os
+_SCRIPT_DIR = _os.path.dirname(_os.path.abspath(__file__))
+CALIBRATION_FILE = _os.path.join(_SCRIPT_DIR, 'camera_calibration.json')
 
-# Synthesized view settings
+# Synthesized view settings (all units in CENTIMETERS)
 SYNTH_VIEW_WIDTH = 800   # Width of bird's eye view in pixels
 SYNTH_VIEW_HEIGHT = 600  # Height of bird's eye view
-SYNTH_METERS_PER_PIXEL = 0.05  # 5cm per pixel = 40m x 30m coverage
+SYNTH_CM_PER_PIXEL = 1.0  # 1cm per pixel = 8m x 6m coverage (good for storefront)
 
 # YOLO settings
 MODEL_NAME = "yolo11n.pt"
@@ -238,8 +241,9 @@ class CalibrationManager:
             'cameras': {},
             'synth_width': SYNTH_VIEW_WIDTH,
             'synth_height': SYNTH_VIEW_HEIGHT,
-            'meters_per_pixel': SYNTH_METERS_PER_PIXEL,
+            'cm_per_pixel': SYNTH_CM_PER_PIXEL,
             'calibration_type': '3d_pose',
+            'units': 'centimeters',
         }
         for name, calib in self.calibrations.items():
             data['cameras'][name] = {
@@ -264,10 +268,15 @@ class CalibrationManager:
         }
         self.is_calibrated = True
     
-    def image_to_floor(self, camera_name, img_x, img_y, floor_z=0.0):
+    def image_to_floor(self, camera_name, img_x, img_y, floor_y=0.0):
         """
-        Project image point to floor plane (z=floor_z) using ray intersection.
-        Returns (world_x, world_y) in meters, or None if invalid.
+        Project image point to floor plane (y=floor_y) using ray intersection.
+        Returns (world_x, world_z) in cm, or None if invalid.
+        
+        Coordinate system:
+        - X: left-right along panels
+        - Y: height (floor = 0)
+        - Z: depth from panels
         """
         if camera_name not in self.calibrations:
             return None
@@ -297,15 +306,15 @@ class CalibrationManager:
         # Transform ray to world coordinates
         ray_world = R.T @ ray_cam
         
-        # Intersect ray with floor plane z = floor_z
+        # Intersect ray with floor plane y = floor_y
         # Ray: P = camera_pos + t * ray_world
-        # Plane: z = floor_z
-        # Solve: camera_pos[2] + t * ray_world[2] = floor_z
+        # Plane: y = floor_y
+        # Solve: camera_pos[1] + t * ray_world[1] = floor_y
         
-        if abs(ray_world[2]) < 1e-6:
+        if abs(ray_world[1]) < 1e-6:
             return None  # Ray parallel to floor
         
-        t = (floor_z - camera_pos[2]) / ray_world[2]
+        t = (floor_y - camera_pos[1]) / ray_world[1]
         
         if t < 0:
             return None  # Intersection behind camera
@@ -313,21 +322,31 @@ class CalibrationManager:
         # World intersection point
         world_pt = camera_pos + t * ray_world
         
-        return float(world_pt[0]), float(world_pt[1])
+        # Return X and Z (the floor plane coordinates)
+        return float(world_pt[0]), float(world_pt[2])
     
     def transform_bbox_center(self, camera_name, x1, y1, x2, y2, person_height_estimate=0.0):
         """
         Transform bounding box to floor position.
         Uses bottom center of bbox (feet) projected to floor plane.
+        Returns (world_x, world_z) in cm.
         """
         foot_x = (x1 + x2) / 2
         foot_y = y2  # Bottom of bounding box
-        return self.image_to_floor(camera_name, foot_x, foot_y, floor_z=person_height_estimate)
+        return self.image_to_floor(camera_name, foot_x, foot_y, floor_y=person_height_estimate)
     
-    def world_to_synth_pixels(self, world_x, world_y):
-        """Convert world coordinates (meters) to synthesized view pixels"""
-        px = int(world_x / SYNTH_METERS_PER_PIXEL)
-        py = int(world_y / SYNTH_METERS_PER_PIXEL)
+    def world_to_synth_pixels(self, world_x, world_z):
+        """
+        Convert world coordinates (cm) to synthesized view pixels.
+        world_x -> pixel x, world_z -> pixel y (depth becomes vertical in bird's eye)
+        """
+        # Offset so panels (X=0-240, Z=0) appear at a reasonable position
+        # Add offset to center the view
+        offset_x = 150  # pixels from left edge for X=0
+        offset_y = 50   # pixels from top edge for Z=0
+        
+        px = int(offset_x + world_x / SYNTH_CM_PER_PIXEL)
+        py = int(offset_y + world_z / SYNTH_CM_PER_PIXEL)
         return px, py
     
     def get_camera_position(self, camera_name):
@@ -353,7 +372,7 @@ class SynthesizedView:
         self.load_or_create_background()
     
     def load_or_create_background(self):
-        """Load floor plan image or create grid"""
+        """Load floor plan image or create grid for centimeter-based coordinate system"""
         try:
             self.background = cv2.imread('floor_plan.png')
             if self.background is not None:
@@ -366,25 +385,45 @@ class SynthesizedView:
         self.background = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         self.background[:] = (40, 40, 40)  # Dark gray
         
-        # Draw grid lines (1 meter spacing at default scale)
-        grid_spacing = int(1.0 / SYNTH_METERS_PER_PIXEL)
-        for x in range(0, self.width, grid_spacing):
-            cv2.line(self.background, (x, 0), (x, self.height), (60, 60, 60), 1)
-            # Label every 5 meters
-            meters = x * SYNTH_METERS_PER_PIXEL
-            if meters % 5 == 0 and meters > 0:
-                cv2.putText(self.background, f"{int(meters)}m", (x + 2, 12),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.3, (80, 80, 80), 1)
-        for y in range(0, self.height, grid_spacing):
-            cv2.line(self.background, (0, y), (self.width, y), (60, 60, 60), 1)
-            meters = y * SYNTH_METERS_PER_PIXEL
-            if meters % 5 == 0 and meters > 0:
-                cv2.putText(self.background, f"{int(meters)}m", (2, y - 2),
+        # Offset for coordinate system (panels at X=0-240, Z=0)
+        offset_x = 150  # pixels from left for X=0
+        offset_y = 50   # pixels from top for Z=0
+        
+        # Draw grid lines every 100cm (1 meter)
+        grid_spacing_cm = 100
+        grid_spacing_px = int(grid_spacing_cm / SYNTH_CM_PER_PIXEL)
+        
+        # Vertical lines (X axis)
+        for x_cm in range(-100, 400, grid_spacing_cm):
+            x_px = int(offset_x + x_cm / SYNTH_CM_PER_PIXEL)
+            if 0 <= x_px < self.width:
+                cv2.line(self.background, (x_px, 0), (x_px, self.height), (60, 60, 60), 1)
+                if x_cm % 100 == 0:
+                    cv2.putText(self.background, f"X={x_cm}", (x_px + 2, 15),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (80, 80, 80), 1)
+        
+        # Horizontal lines (Z axis - depth)
+        for z_cm in range(0, 400, grid_spacing_cm):
+            y_px = int(offset_y + z_cm / SYNTH_CM_PER_PIXEL)
+            if 0 <= y_px < self.height:
+                cv2.line(self.background, (0, y_px), (self.width, y_px), (60, 60, 60), 1)
+                cv2.putText(self.background, f"Z={z_cm}", (5, y_px - 2),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.3, (80, 80, 80), 1)
         
+        # Draw panel positions (X=0 to 240, Z=0)
+        panel_y = int(offset_y)
+        for unit in range(4):
+            unit_x = unit * 80  # 80cm spacing
+            px = int(offset_x + unit_x / SYNTH_CM_PER_PIXEL)
+            cv2.rectangle(self.background, (px - 25, panel_y - 5), (px + 25, panel_y + 5), 
+                         (100, 100, 150), -1)
+        cv2.putText(self.background, "PANELS", (offset_x + 60, panel_y - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 200), 1)
+        
         # Mark origin
-        cv2.circle(self.background, (0, 0), 5, (100, 100, 100), -1)
-        cv2.putText(self.background, "Origin", (8, 12),
+        origin_px = (offset_x, offset_y)
+        cv2.circle(self.background, origin_px, 5, (100, 100, 100), -1)
+        cv2.putText(self.background, "(0,0)", (offset_x + 8, offset_y + 4),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (100, 100, 100), 1)
     
     def render(self, all_detections, track_colors):
@@ -401,11 +440,12 @@ class SynthesizedView:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
             return frame
         
-        # Draw camera positions
+        # Draw camera positions (X -> px, Z -> py in bird's eye view)
         for cam_name in self.calibration.calibrations:
             cam_pos = self.calibration.get_camera_position(cam_name)
             if cam_pos is not None:
-                px, py = self.calibration.world_to_synth_pixels(cam_pos[0], cam_pos[1])
+                # cam_pos is (X, Y, Z) in cm; bird's eye uses X and Z
+                px, py = self.calibration.world_to_synth_pixels(cam_pos[0], cam_pos[2])
                 if 0 <= px < self.width and 0 <= py < self.height:
                     cv2.drawMarker(frame, (px, py), (0, 200, 255), cv2.MARKER_DIAMOND, 15, 2)
                     cv2.putText(frame, cam_name, (px + 10, py),
@@ -413,13 +453,21 @@ class SynthesizedView:
         
         # Draw all detected people
         for camera_name, boxes in all_detections:
-            for (x1, y1, x2, y2, conf, track_id) in boxes:
+            for box in boxes:
+                # Handle both 6-value and 7-value formats
+                x1, y1, x2, y2, conf, track_id = box[:6]
+                class_id = box[6] if len(box) > 6 else PERSON_CLASS_ID
+                
+                # Only draw persons/cyclists on synthesized view (skip standalone bikes/cars)
+                if class_id not in (PERSON_CLASS_ID, CYCLIST_CLASS_ID):
+                    continue
+                
                 world_pos = self.calibration.transform_bbox_center(camera_name, x1, y1, x2, y2)
                 if world_pos is None:
                     continue
                 
-                world_x, world_y = world_pos
-                px, py = self.calibration.world_to_synth_pixels(world_x, world_y)
+                world_x, world_z = world_pos  # Returns (X, Z) floor coordinates
+                px, py = self.calibration.world_to_synth_pixels(world_x, world_z)
                 
                 # Clamp to view bounds
                 px = max(0, min(self.width - 1, px))
@@ -448,7 +496,7 @@ class SynthesizedView:
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
         # Show scale
-        scale_text = f"Scale: {SYNTH_METERS_PER_PIXEL*100:.0f}cm/px"
+        scale_text = f"Scale: {SYNTH_CM_PER_PIXEL:.0f} cm/px"
         cv2.putText(frame, scale_text, (10, self.height - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
         
@@ -459,7 +507,22 @@ class CalibrationMode:
     """
     Interactive 3D calibration using ArUco markers.
     Place markers at known 3D positions, detect them, compute camera pose via solvePnP.
+    
+    LIMITED VISIBILITY CALIBRATION:
+    Designed for setups where each camera can only see 3 markers.
+    Marker 1 is the SHARED marker visible from all camera views.
+    This provides a common reference frame for multi-camera fusion.
+    
+    Setup (5 markers on floor, all at Y=0):
+    - Front row (Z=90cm): markers 0, 1, 2
+    - Back row (Z=141cm): markers 3, 4
+    - Camera 1 sees: Marker 0, 1, 3 (left + shared)
+    - Camera 2 sees: Marker 1, 2, 4 (right + shared)
+    - Each camera needs 3 markers minimum (3 markers × 4 corners = 12 points for solvePnP)
     """
+    # Minimum markers required per camera (3 markers × 4 corners = 12 points)
+    MIN_MARKERS_REQUIRED = 3
+    
     def __init__(self, calibration_manager, synth_width, synth_height):
         self.calibration = calibration_manager
         self.synth_width = synth_width
@@ -470,24 +533,39 @@ class CalibrationMode:
         self.aruco_params = cv2.aruco.DetectorParameters()
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         
-        # Physical marker size in meters (outer edge length)
-        self.marker_size_meters = 0.15  # 15cm markers
+        # Physical marker size in CENTIMETERS (outer edge length)
+        self.marker_size_cm = 15.0  # 15cm markers
         
         # Marker 3D world positions in METERS (x, y, z)
-        # Z = height above floor (0 = on floor)
-        # Configure these based on your physical setup!
+        # Coordinates in CENTIMETERS matching pointLightController3D system
+        # X = left-right along panel array (panels at X=0 to X=240)
+        # Y = height (storefront floor = 0)
+        # Z = depth from panels (Z=90 front row, Z=141 back row)
+        #
+        # LIMITED VISIBILITY SETUP:
+        # - Marker 1 is the SHARED reference marker (must be visible from all cameras)
+        # - Place markers on tile lines for easy alignment
+        # - Each camera sees marker 1 plus 2 additional markers in its zone
         self.marker_world_positions_3d = {
-            0: (2.0, 2.0, 0.0),      # Floor marker, 2m from origin in x and y
-            1: (8.0, 2.0, 0.0),      # Floor marker
-            2: (2.0, 8.0, 0.0),      # Floor marker
-            3: (8.0, 8.0, 0.0),      # Floor marker
-            4: (5.0, 5.0, 0.0),      # Floor marker, center
-            5: (2.0, 5.0, 1.5),      # Wall marker at 1.5m height
-            6: (8.0, 5.0, 1.5),      # Wall marker at 1.5m height
-            7: (5.0, 2.0, 1.0),      # Marker on stand at 1m height
-            8: (5.0, 8.0, 1.0),      # Marker on stand at 1m height
-            # Add more markers for better coverage
+            # FRONT ROW (Z = 90 cm - on tile line)
+            0: (-40.0, 0.0, 90.0),     # Left front - left tile seam
+            1: (120.0, 0.0, 90.0),     # Center front - SHARED REFERENCE
+            2: (280.0, 0.0, 90.0),     # Right front - right tile seam
+            
+            # BACK ROW (Z = 141 cm - one tile further out)
+            3: (-40.0, 0.0, 141.0),    # Left back
+            4: (280.0, 0.0, 141.0),    # Right back
         }
+        
+        # Define which markers each camera should see
+        # This helps validate calibration and guide marker placement
+        self.camera_marker_visibility = {
+            'Camera 1': [1, 0, 3],   # Shared marker 1 + left markers 0, 3
+            'Camera 2': [1, 2, 4],   # Shared marker 1 + right markers 2, 4
+        }
+        
+        # The shared marker ID that must be visible from all cameras
+        self.shared_marker_id = 1
         
         # Camera intrinsics storage (per camera)
         self.camera_intrinsics = {}  # camera_name -> {matrix, dist_coeffs, size}
@@ -496,18 +574,28 @@ class CalibrationMode:
         self.detected_markers = {}  # camera_name -> {marker_id: corner_points}
         self.active_camera = 0
         self.instructions = [
-            "3D CALIBRATION MODE",
-            "-------------------",
-            "1. Print ArUco markers and place at known 3D positions",
-            "2. Measure marker positions in meters (x, y, z)",
-            "3. Update marker_world_positions_3d in code",
-            "4. Press 1-9 to select camera",
+            "3D CALIBRATION - LIMITED VISIBILITY MODE",
+            "----------------------------------------",
+            "Each camera sees only 3 markers.",
+            "Marker 1 (center) is SHARED between cameras.",
+            "",
+            "Front row (Z=90):  0--1--2",
+            "Back row (Z=141):  3-----4",
+            "",
+            "Camera 1: markers 0, 1, 3 (left side)",
+            "Camera 2: markers 1, 2, 4 (right side)",
+            "",
+            "Steps:",
+            "1. Place markers on tile lines",
+            "2. Press 1 to select Camera 1",
+            "3. Press SPACE to detect markers",
+            "4. Press 2 to select Camera 2",
             "5. Press SPACE to detect markers",
-            "6. Press ENTER to compute 3D pose (need 4+ markers)",
+            "6. Press ENTER to compute pose",
             "7. Press S to save calibration",
             "8. Press ESC to exit",
             "",
-            f"Marker size: {self.marker_size_meters*100:.0f}cm",
+            f"Marker size: {self.marker_size_cm:.0f} cm",
         ]
     
     def estimate_camera_intrinsics(self, image_size):
@@ -565,7 +653,11 @@ class CalibrationMode:
         return corners, ids
     
     def compute_3d_pose(self, camera_name):
-        """Compute camera 3D pose using solvePnP"""
+        """Compute camera 3D pose using solvePnP.
+        
+        Works with 3+ markers (3 markers × 4 corners = 12 points).
+        For limited visibility setups, validates that the shared marker is detected.
+        """
         if camera_name not in self.detected_markers:
             return False, "No markers detected for this camera"
         
@@ -573,8 +665,20 @@ class CalibrationMode:
             return False, "Camera intrinsics not available"
         
         markers = self.detected_markers[camera_name]
-        if len(markers) < 4:
-            return False, f"Need 4+ markers, have {len(markers)}"
+        if len(markers) < self.MIN_MARKERS_REQUIRED:
+            return False, f"Need {self.MIN_MARKERS_REQUIRED}+ markers, have {len(markers)}"
+        
+        # Check if shared marker is detected (required for multi-camera consistency)
+        if self.shared_marker_id not in markers:
+            return False, f"SHARED marker {self.shared_marker_id} not detected! Required for multi-camera calibration."
+        
+        # Validate expected markers for this camera if configured
+        if camera_name in self.camera_marker_visibility:
+            expected = set(self.camera_marker_visibility[camera_name])
+            detected = set(markers.keys())
+            missing = expected - detected
+            if missing:
+                print(f"⚠️ Warning: {camera_name} missing expected markers: {missing}")
         
         intrinsics = self.camera_intrinsics[camera_name]
         camera_matrix = intrinsics['matrix']
@@ -582,24 +686,28 @@ class CalibrationMode:
         image_size = intrinsics['size']
         
         # Build 3D-2D point correspondences using marker corners
-        object_points = []  # 3D world points
+        object_points = []  # 3D world points (in cm)
         image_points = []   # 2D image points
         
-        half_size = self.marker_size_meters / 2
+        # Half size in cm (matching our coordinate system)
+        half_size = self.marker_size_cm / 2
         
         for marker_id, corners in markers.items():
-            # Get marker center in world coordinates
+            # Get marker center in world coordinates (cm)
             world_pos = self.marker_world_positions_3d[marker_id]
             wx, wy, wz = world_pos
             
             # Define 4 corners of marker in world coordinates
-            # Corners are: top-left, top-right, bottom-right, bottom-left
-            # Assuming marker lies in XY plane at height wz, facing up (or facing camera)
+            # Markers lie FLAT on the floor (XZ plane) at height Y, facing UP toward cameras
+            # ArUco corner order: top-left, top-right, bottom-right, bottom-left
+            # When looking DOWN at marker from above:
+            #   - "top" is toward negative Z (closer to panels)
+            #   - "left" is toward negative X
             marker_corners_3d = np.array([
-                [wx - half_size, wy - half_size, wz],  # Top-left
-                [wx + half_size, wy - half_size, wz],  # Top-right
-                [wx + half_size, wy + half_size, wz],  # Bottom-right
-                [wx - half_size, wy + half_size, wz],  # Bottom-left
+                [wx - half_size, wy, wz - half_size],  # Top-left (toward panels, left)
+                [wx + half_size, wy, wz - half_size],  # Top-right (toward panels, right)
+                [wx + half_size, wy, wz + half_size],  # Bottom-right (away from panels, right)
+                [wx - half_size, wy, wz + half_size],  # Bottom-left (away from panels, left)
             ], dtype=np.float64)
             
             # corners is 4x2 array of image points
@@ -642,7 +750,7 @@ class CalibrationMode:
         
         return True, (f"3D pose computed from {len(markers)} markers, "
                      f"reproj error: {reproj_error:.2f}px, "
-                     f"camera at ({camera_pos[0]:.1f}, {camera_pos[1]:.1f}, {camera_pos[2]:.1f})m")
+                     f"camera at ({camera_pos[0]:.0f}, {camera_pos[1]:.0f}, {camera_pos[2]:.0f}) cm")
     
     def render_overlay(self, frame, camera_name, detected_corners, detected_ids):
         """Render calibration overlay on frame"""
@@ -661,34 +769,61 @@ class CalibrationMode:
         
         # Show detection count
         count = len(self.detected_markers.get(camera_name, {}))
-        status_color = (0, 255, 0) if count >= 4 else (0, 255, 255)
-        cv2.putText(frame, f"Markers: {count}/4+", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+        detected_ids = list(self.detected_markers.get(camera_name, {}).keys())
+        has_shared = self.shared_marker_id in detected_ids
+        status_color = (0, 255, 0) if count >= self.MIN_MARKERS_REQUIRED and has_shared else (0, 255, 255)
+        cv2.putText(frame, f"Markers: {count}/{self.MIN_MARKERS_REQUIRED}+ (IDs: {detected_ids})", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+        
+        # Show shared marker status
+        shared_status = "SHARED #1 detected" if has_shared else "SHARED #1 MISSING!"
+        shared_color = (0, 255, 0) if has_shared else (0, 0, 255)
+        cv2.putText(frame, shared_status, (10, 52),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, shared_color, 2)
         
         # Show calibration status
         if camera_name in self.calibration.calibrations:
-            cv2.putText(frame, "3D CALIBRATED", (10, 55),
+            cv2.putText(frame, "3D CALIBRATED", (10, 75),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
-            # Show camera position
+            # Show camera position in cm
             cam_pos = self.calibration.get_camera_position(camera_name)
             if cam_pos is not None:
-                pos_text = f"Cam pos: ({cam_pos[0]:.1f}, {cam_pos[1]:.1f}, {cam_pos[2]:.1f})m"
-                cv2.putText(frame, pos_text, (10, 80),
+                pos_text = f"Cam pos: ({cam_pos[0]:.0f}, {cam_pos[1]:.0f}, {cam_pos[2]:.0f}) cm"
+                cv2.putText(frame, pos_text, (10, 98),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        
+        # Show expected markers for this camera
+        if camera_name in self.camera_marker_visibility:
+            expected = self.camera_marker_visibility[camera_name]
+            cv2.putText(frame, f"Expected markers: {expected}", (10, frame.shape[0] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
         
         return frame
     
     def render_instructions(self, width, height):
-        """Render instruction panel"""
-        panel = np.zeros((height, 400, 3), dtype=np.uint8)
+        """Render instruction panel for limited visibility calibration"""
+        panel = np.zeros((height, 450, 3), dtype=np.uint8)
         panel[:] = (30, 30, 30)
         
         y = 30
         for line in self.instructions:
             cv2.putText(panel, line, (10, y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
-            y += 20
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
+            y += 16
+        
+        # Show camera-marker assignments
+        y += 10
+        cv2.putText(panel, "Camera -> Marker Assignments:", (10, y),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
+        y += 20
+        
+        for cam_name, markers in self.camera_marker_visibility.items():
+            # Highlight shared marker
+            marker_str = ', '.join([f"*{m}*" if m == self.shared_marker_id else str(m) for m in markers])
+            cv2.putText(panel, f"  {cam_name}: [{marker_str}]", (10, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 200, 150), 1)
+            y += 16
         
         # Show marker positions
         y += 10
@@ -696,64 +831,98 @@ class CalibrationMode:
                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
         y += 20
         
+        # Show shared marker first with highlight
+        if self.shared_marker_id in self.marker_world_positions_3d:
+            pos = self.marker_world_positions_3d[self.shared_marker_id]
+            cv2.putText(panel, f"  ID {self.shared_marker_id} [SHARED]: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f})", (10, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 255), 1)
+            y += 16
+        
+        # Show other markers
         for marker_id, pos in sorted(self.marker_world_positions_3d.items()):
+            if marker_id == self.shared_marker_id:
+                continue
             cv2.putText(panel, f"  ID {marker_id}: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f})", (10, y),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1)
             y += 16
-            if y > height - 80:
+            if y > height - 100:
                 break
         
         # Show detected markers summary
         y += 10
-        cv2.putText(panel, "Detected:", (10, y),
+        cv2.putText(panel, "Detection Status:", (10, y),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)
         y += 20
         
         for cam_name, markers in self.detected_markers.items():
             marker_ids = sorted(markers.keys())
-            cv2.putText(panel, f"  {cam_name}: {marker_ids}", (10, y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1)
+            has_shared = self.shared_marker_id in marker_ids
+            status_icon = "✓" if has_shared and len(marker_ids) >= self.MIN_MARKERS_REQUIRED else "○"
+            color = (0, 255, 0) if has_shared else (0, 150, 255)
+            cv2.putText(panel, f"  {status_icon} {cam_name}: {marker_ids}", (10, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1)
             y += 16
         
         return panel
     
     @staticmethod
-    def generate_markers(output_dir='aruco_markers', num_markers=9):
-        """Generate printable ArUco marker images with 3D position labels"""
+    def generate_markers(output_dir='aruco_markers', num_markers=5):
+        """Generate printable ArUco marker images with 3D position labels.
+        
+        LIMITED VISIBILITY SETUP (coordinates in cm):
+        - Marker 1 is the SHARED marker (visible from all cameras)
+        - Markers 0, 2 are for Camera 1 only (left side)
+        - Markers 3, 4 are for Camera 2 only (right side)
+        """
         import os
         os.makedirs(output_dir, exist_ok=True)
         
         aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         
-        # Default 3D positions (should match marker_world_positions_3d)
+        # Positions in CENTIMETERS - aligned to tile lines
         default_positions = {
-            0: (2.0, 2.0, 0.0),
-            1: (8.0, 2.0, 0.0),
-            2: (2.0, 8.0, 0.0),
-            3: (8.0, 8.0, 0.0),
-            4: (5.0, 5.0, 0.0),
-            5: (2.0, 5.0, 1.5),
-            6: (8.0, 5.0, 1.5),
-            7: (5.0, 2.0, 1.0),
-            8: (5.0, 8.0, 1.0),
+            # Front row (Z = 90 cm)
+            0: (-40.0, 0.0, 90.0),     # Left front
+            1: (120.0, 0.0, 90.0),     # Center front - SHARED
+            2: (280.0, 0.0, 90.0),     # Right front
+            # Back row (Z = 141 cm)
+            3: (-40.0, 0.0, 141.0),    # Left back
+            4: (280.0, 0.0, 141.0),    # Right back
+        }
+        
+        # Camera assignments for labeling
+        camera_assignments = {
+            0: "Camera 1 (left front)",
+            1: "SHARED (ALL CAMERAS)",
+            2: "Camera 2 (right front)",
+            3: "Camera 1 (left back)",
+            4: "Camera 2 (right back)",
         }
         
         for marker_id in range(num_markers):
             marker_img = cv2.aruco.generateImageMarker(aruco_dict, marker_id, 400)
             # Add white border for printing
-            bordered = cv2.copyMakeBorder(marker_img, 50, 80, 50, 50,
+            bordered = cv2.copyMakeBorder(marker_img, 50, 100, 50, 50,
                                          cv2.BORDER_CONSTANT, value=255)
             # Add ID label
             cv2.putText(bordered, f"ID: {marker_id}", (180, 480),
                        cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
-            # Add suggested position
+            # Add camera assignment
+            if marker_id in camera_assignments:
+                cv2.putText(bordered, camera_assignments[marker_id],
+                           (100, 510), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 0, 2)
+            # Add suggested position (in cm)
             if marker_id in default_positions:
                 pos = default_positions[marker_id]
-                cv2.putText(bordered, f"Default: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f})m", 
-                           (80, 510), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0, 1)
+                cv2.putText(bordered, f"Pos: ({pos[0]:.0f}, {pos[1]:.0f}, {pos[2]:.0f}) cm", 
+                           (80, 540), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0, 1)
             cv2.imwrite(f"{output_dir}/marker_{marker_id}.png", bordered)
         
         print(f"✅ Generated {num_markers} markers in {output_dir}/")
+        print(f"   Front row (Z=90): Marker 0 @ X=-40, Marker 1 @ X=120 (SHARED), Marker 2 @ X=280")
+        print(f"   Back row (Z=141): Marker 3 @ X=-40, Marker 4 @ X=280")
+        print(f"   Camera 1 sees: 0, 1, 3 (left side)")
+        print(f"   Camera 2 sees: 1, 2, 4 (right side)")
 
 
 class RobustCamera:
@@ -1441,22 +1610,7 @@ def main():
         
         if key == ord('q'):
             break
-        elif key == ord('s'):
-            view_mode = ViewMode.SIDE_BY_SIDE
-            display_configs = calculate_display_configs(view_mode)
-        elif key == ord('g'):
-            view_mode = ViewMode.GRID
-            display_configs = calculate_display_configs(view_mode)
-        elif key == ord('t'):
-            view_mode = ViewMode.SYNTHESIZED
-            display_configs = calculate_display_configs(view_mode)
-        elif key == ord('c'):
-            view_mode = ViewMode.CALIBRATION
-            display_configs = calculate_display_configs(view_mode)
-        elif key == 27:  # ESC - exit calibration
-            if view_mode == ViewMode.CALIBRATION:
-                view_mode = ViewMode.SIDE_BY_SIDE
-                display_configs = calculate_display_configs(view_mode)
+        # Calibration mode specific keys (check FIRST before generic view switching)
         elif key == ord(' ') and view_mode == ViewMode.CALIBRATION:
             # Capture markers for active camera
             cam_name = camera_configs[calib_mode.active_camera]['name']
@@ -1468,8 +1622,31 @@ def main():
             cam_name = camera_configs[calib_mode.active_camera]['name']
             success, msg = calib_mode.compute_3d_pose(cam_name)
             print(f"{'✅' if success else '❌'} {msg}")
+            if success:
+                print(f"   Calibrated cameras: {list(calibration.calibrations.keys())}")
         elif key == ord('s') and view_mode == ViewMode.CALIBRATION:
-            calibration.save()
+            # Save calibration (in calibration mode only)
+            if len(calibration.calibrations) > 0:
+                calibration.save()
+            else:
+                print("❌ No calibrations to save! Press ENTER after detecting markers to compute pose first.")
+        elif key == 27:  # ESC - exit calibration
+            if view_mode == ViewMode.CALIBRATION:
+                view_mode = ViewMode.SIDE_BY_SIDE
+                display_configs = calculate_display_configs(view_mode)
+        # Generic view mode switching (only when NOT in calibration mode)
+        elif key == ord('s') and view_mode != ViewMode.CALIBRATION:
+            view_mode = ViewMode.SIDE_BY_SIDE
+            display_configs = calculate_display_configs(view_mode)
+        elif key == ord('g'):
+            view_mode = ViewMode.GRID
+            display_configs = calculate_display_configs(view_mode)
+        elif key == ord('t'):
+            view_mode = ViewMode.SYNTHESIZED
+            display_configs = calculate_display_configs(view_mode)
+        elif key == ord('c'):
+            view_mode = ViewMode.CALIBRATION
+            display_configs = calculate_display_configs(view_mode)
         elif ord('1') <= key <= ord('9'):
             cam_num = key - ord('1')  # 0-indexed
             if cam_num < num_cameras:
