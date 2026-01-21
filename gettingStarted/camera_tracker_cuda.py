@@ -49,7 +49,7 @@ CAMERAS = [
         'name': 'Camera 3',
         'url': 'rtsp://admin:dc31l1ng@10.42.0.111:555/h264Preview_01_main',
         'fps': 25,
-        'enabled': True,
+        'enabled': False,  # Disabled - using only cameras 1 and 2
     },
 ]
 
@@ -96,6 +96,9 @@ FRAME_CACHE_ENABLED = True # Cache last good frame for display continuity
 
 # CUDA settings
 CUDA_DEVICE = 0
+
+# GUI overlay settings
+SHOW_GUI_OVERLAY = True  # Set to False to hide all overlays for clean screenshots
 
 # ==============================================================================
 # VIEW MODES
@@ -1060,7 +1063,8 @@ def main():
     camera_configs = []
     raw_frames = {}  # Store raw frames for calibration
     
-    print(f"\n📹 Connecting to {len(CAMERAS)} cameras...")
+    enabled_cameras = [c for c in CAMERAS if c.get('enabled', True)]
+    print(f"\n📹 Connecting to {len(enabled_cameras)} cameras...")
     
     for cam_cfg in CAMERAS:
         if not cam_cfg.get('enabled', True):
@@ -1282,7 +1286,7 @@ def main():
                 # Merge person + bicycle detections into cyclists
                 cfg['last_boxes'] = merge_cyclists(raw_detections)
             
-            all_detections.append((cfg['name'], cfg['last_boxes'])
+            all_detections.append((cfg['name'], cfg['last_boxes']))
             total_people += len(cfg['last_boxes'])
             
             # Calculate FPS (only count new frames)
@@ -1418,15 +1422,16 @@ def main():
             
             combined = cv2.hconcat([thumb_column, instr_panel])
         
-        # Add global status bar at bottom
-        mode_name = view_mode.value.replace('_', ' ').title()
-        status_bar = np.zeros((30, combined.shape[1], 3), dtype=np.uint8)
-        status_text = f"Mode: {mode_name} | People: {total_people} | Cameras: {num_cameras}"
-        if view_mode == ViewMode.INDIVIDUAL:
-            status_text += f" | Showing: {camera_configs[individual_cam_idx]['name']}"
-        status_text += " | Keys: 1-9/S/G/T/C/Q"
-        cv2.putText(status_bar, status_text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-        combined = cv2.vconcat([combined, status_bar])
+        # Add global status bar at bottom (only if overlay is enabled)
+        if SHOW_GUI_OVERLAY:
+            mode_name = view_mode.value.replace('_', ' ').title()
+            status_bar = np.zeros((30, combined.shape[1], 3), dtype=np.uint8)
+            status_text = f"Mode: {mode_name} | People: {total_people} | Cameras: {num_cameras}"
+            if view_mode == ViewMode.INDIVIDUAL:
+                status_text += f" | Showing: {camera_configs[individual_cam_idx]['name']}"
+            status_text += " | Keys: 1-9/S/G/T/C/Q"
+            cv2.putText(status_bar, status_text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+            combined = cv2.vconcat([combined, status_bar])
         
         window_title = "Multi-Camera Person Tracker"
         cv2.imshow(window_title, combined)
@@ -1506,6 +1511,10 @@ def render_camera_frame(frame, cfg, dcfg, processor, cam_idx, track_colors, comp
             display_frame, 0, padding, 0, 0, 
             cv2.BORDER_CONSTANT, value=(0, 0, 0)
         )
+    
+    # If GUI overlay is disabled, return clean frame
+    if not SHOW_GUI_OVERLAY:
+        return display_frame
     
     # If showing cached frame, add indicator
     if is_cached:
