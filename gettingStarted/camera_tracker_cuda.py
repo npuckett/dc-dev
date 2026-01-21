@@ -69,6 +69,10 @@ SYNTH_VIEW_WIDTH = 800   # Width of bird's eye view in pixels
 SYNTH_VIEW_HEIGHT = 600  # Height of bird's eye view
 SYNTH_CM_PER_PIXEL = 1.0  # 1cm per pixel = 8m x 6m coverage (good for storefront)
 
+# Street level relative to storefront floor (cm)
+# The street is 66 cm below the storefront floor level
+STREET_LEVEL_Y = -66.0
+
 # YOLO settings
 MODEL_NAME = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.4
@@ -268,16 +272,21 @@ class CalibrationManager:
         }
         self.is_calibrated = True
     
-    def image_to_floor(self, camera_name, img_x, img_y, floor_y=0.0):
+    def image_to_floor(self, camera_name, img_x, img_y, floor_y=None):
         """
         Project image point to floor plane (y=floor_y) using ray intersection.
         Returns (world_x, world_z) in cm, or None if invalid.
         
         Coordinate system:
         - X: left-right along panels
-        - Y: height (floor = 0)
+        - Y: height (storefront floor = 0, street level = -66)
         - Z: depth from panels
+        
+        If floor_y is None, uses STREET_LEVEL_Y (default for people walking on street)
         """
+        if floor_y is None:
+            floor_y = STREET_LEVEL_Y
+            
         if camera_name not in self.calibrations:
             return None
         
@@ -325,15 +334,17 @@ class CalibrationManager:
         # Return X and Z (the floor plane coordinates)
         return float(world_pt[0]), float(world_pt[2])
     
-    def transform_bbox_center(self, camera_name, x1, y1, x2, y2, person_height_estimate=0.0):
+    def transform_bbox_center(self, camera_name, x1, y1, x2, y2, floor_y=None):
         """
         Transform bounding box to floor position.
         Uses bottom center of bbox (feet) projected to floor plane.
         Returns (world_x, world_z) in cm.
+        
+        If floor_y is None, uses STREET_LEVEL_Y (people walking on street).
         """
         foot_x = (x1 + x2) / 2
         foot_y = y2  # Bottom of bounding box
-        return self.image_to_floor(camera_name, foot_x, foot_y, floor_y=person_height_estimate)
+        return self.image_to_floor(camera_name, foot_x, foot_y, floor_y=floor_y)
     
     def world_to_synth_pixels(self, world_x, world_z):
         """
@@ -536,25 +547,29 @@ class CalibrationMode:
         # Physical marker size in CENTIMETERS (outer edge length)
         self.marker_size_cm = 15.0  # 15cm markers
         
-        # Marker 3D world positions in METERS (x, y, z)
-        # Coordinates in CENTIMETERS matching pointLightController3D system
+        # Marker 3D world positions in CENTIMETERS (x, y, z)
+        # Coordinates matching pointLightController3D system
         # X = left-right along panel array (panels at X=0 to X=240)
-        # Y = height (storefront floor = 0)
+        # Y = height (storefront floor = 0, street level = STREET_LEVEL_Y)
         # Z = depth from panels (Z=90 front row, Z=141 back row)
+        #
+        # IMPORTANT: Street level is 66 cm below storefront floor
+        # Markers are placed ON THE STREET, so Y = STREET_LEVEL_Y
         #
         # LIMITED VISIBILITY SETUP:
         # - Marker 1 is the SHARED reference marker (must be visible from all cameras)
         # - Place markers on tile lines for easy alignment
         # - Each camera sees marker 1 plus 2 additional markers in its zone
+        
         self.marker_world_positions_3d = {
-            # FRONT ROW (Z = 90 cm - on tile line)
-            0: (-40.0, 0.0, 90.0),     # Left front - left tile seam
-            1: (120.0, 0.0, 90.0),     # Center front - SHARED REFERENCE
-            2: (280.0, 0.0, 90.0),     # Right front - right tile seam
+            # FRONT ROW (Z = 90 cm - on tile line, Y = street level)
+            0: (-40.0, STREET_LEVEL_Y, 90.0),     # Left front - left tile seam
+            1: (120.0, STREET_LEVEL_Y, 90.0),     # Center front - SHARED REFERENCE
+            2: (280.0, STREET_LEVEL_Y, 90.0),     # Right front - right tile seam
             
-            # BACK ROW (Z = 141 cm - one tile further out)
-            3: (-40.0, 0.0, 141.0),    # Left back
-            4: (280.0, 0.0, 141.0),    # Right back
+            # BACK ROW (Z = 141 cm - one tile further out, Y = street level)
+            3: (-40.0, STREET_LEVEL_Y, 141.0),    # Left back
+            4: (280.0, STREET_LEVEL_Y, 141.0),    # Right back
         }
         
         # Define which markers each camera should see

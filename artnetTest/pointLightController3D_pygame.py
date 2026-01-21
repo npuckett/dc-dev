@@ -35,6 +35,7 @@ import numpy as np
 import math
 import time
 import random
+import os
 from dataclasses import dataclass, field
 from typing import Tuple, Dict, List, Optional
 
@@ -104,6 +105,32 @@ WANDER_BOX = {
     'min_y': 0, 'max_y': 150,
     'min_z': -32, 'max_z': 28,
 }
+
+# =============================================================================
+# CALIBRATION MARKERS (from MARKER_PLACEMENT_DIAGRAM.md)
+# Coordinate system: X=left-right, Y=height (floor=0, street=-66), Z=depth from panels (Z=0 at panels)
+# =============================================================================
+
+MARKER_SIZE = 15  # cm - ArUco marker size
+
+# Street level is 66 cm below storefront floor
+STREET_LEVEL_Y = -66
+
+# Marker positions: (X, Y, Z) in centimeters
+# Y = STREET_LEVEL_Y means markers are on the street (66 cm below storefront floor)
+MARKER_POSITIONS = {
+    0: {'pos': (-40, STREET_LEVEL_Y, 90), 'desc': 'Left front', 'camera': 'Cam 1'},
+    1: {'pos': (120, STREET_LEVEL_Y, 90), 'desc': 'Center front (SHARED)', 'camera': 'Both'},
+    2: {'pos': (280, STREET_LEVEL_Y, 90), 'desc': 'Right front', 'camera': 'Cam 2'},
+    3: {'pos': (-40, STREET_LEVEL_Y, 141), 'desc': 'Left back', 'camera': 'Cam 1'},
+    4: {'pos': (280, STREET_LEVEL_Y, 141), 'desc': 'Right back', 'camera': 'Cam 2'},
+}
+
+# Marker image files
+MARKER_IMAGE_PATH = '/Users/npmac/Documents/GitHub/dc-dev/marker_{}.png'
+
+# Toggle for marker visibility
+SHOW_MARKERS = True
 
 
 @dataclass
@@ -413,6 +440,118 @@ def draw_floor(y_level, color, size=400):
     glEnd()
 
 
+def load_marker_textures() -> Dict[int, int]:
+    """Load ArUco marker images as OpenGL textures"""
+    textures = {}
+    
+    for marker_id in MARKER_POSITIONS.keys():
+        path = MARKER_IMAGE_PATH.format(marker_id)
+        if not os.path.exists(path):
+            print(f"Warning: Marker image not found: {path}")
+            continue
+        
+        try:
+            # Load image with pygame
+            surface = pygame.image.load(path)
+            # Convert to RGBA
+            surface = surface.convert_alpha()
+            # Flip vertically for OpenGL
+            surface = pygame.transform.flip(surface, False, True)
+            
+            width = surface.get_width()
+            height = surface.get_height()
+            data = pygame.image.tostring(surface, "RGBA", True)
+            
+            # Create OpenGL texture
+            tex_id = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data)
+            
+            textures[marker_id] = tex_id
+            print(f"Loaded marker {marker_id} texture")
+        except Exception as e:
+            print(f"Error loading marker {marker_id}: {e}")
+    
+    return textures
+
+
+def draw_marker(marker_id: int, position: Tuple[float, float, float], size: float, 
+                texture_id: Optional[int], font):
+    """
+    Draw a calibration marker as a textured plane on the floor.
+    Markers lie flat on the floor (Y=0), facing upward.
+    """
+    x, y, z = position
+    half = size / 2
+    
+    glPushMatrix()
+    glTranslatef(x, y + 0.5, z)  # Slightly above floor to avoid z-fighting
+    
+    # Rotate to lie flat on the floor (facing up)
+    glRotatef(-90, 1, 0, 0)
+    
+    if texture_id is not None:
+        # Draw textured quad
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glColor4f(1, 1, 1, 1)  # Full brightness, no tint
+        
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 0); glVertex3f(-half, -half, 0)
+        glTexCoord2f(1, 0); glVertex3f(half, -half, 0)
+        glTexCoord2f(1, 1); glVertex3f(half, half, 0)
+        glTexCoord2f(0, 1); glVertex3f(-half, half, 0)
+        glEnd()
+        
+        glDisable(GL_TEXTURE_2D)
+    else:
+        # Draw white placeholder with number
+        glColor4f(1, 1, 1, 0.9)
+        glBegin(GL_QUADS)
+        glVertex3f(-half, -half, 0)
+        glVertex3f(half, -half, 0)
+        glVertex3f(half, half, 0)
+        glVertex3f(-half, half, 0)
+        glEnd()
+    
+    # Draw border
+    glColor4f(0, 0, 0, 1)
+    glLineWidth(2)
+    glBegin(GL_LINE_LOOP)
+    glVertex3f(-half, -half, 0.1)
+    glVertex3f(half, -half, 0.1)
+    glVertex3f(half, half, 0.1)
+    glVertex3f(-half, half, 0.1)
+    glEnd()
+    
+    glPopMatrix()
+    
+    # Draw marker ID label floating above
+    # We'll draw this in the 3D scene as a small indicator
+    glPushMatrix()
+    glTranslatef(x, y + 5, z)  # 5cm above floor
+    
+    # Billboard - always face camera (simple version: just vertical text)
+    glColor4f(1, 1, 0, 1)  # Yellow
+    
+    # Draw a small sphere as position indicator
+    quadric = gluNewQuadric()
+    gluSphere(quadric, 2, 8, 8)
+    gluDeleteQuadric(quadric)
+    
+    glPopMatrix()
+
+
+def draw_marker_labels(marker_positions: Dict, font, cam_target: np.ndarray):
+    """
+    Draw 2D labels for markers (called in HUD/2D rendering phase)
+    This is a placeholder - actual 3D->2D projection would be needed for accurate positioning
+    """
+    pass  # Labels are drawn in HUD section instead
+
+
 def draw_text(x, y, text, font, color=(255, 255, 255)):
     """Draw text on screen"""
     text_surface = font.render(text, True, color)
@@ -560,6 +699,10 @@ def main():
         except Exception as e:
             print(f"Art-Net failed: {e}")
     
+    # Load marker textures
+    marker_textures = load_marker_textures()
+    show_markers = SHOW_MARKERS
+    
     clock = pygame.time.Clock()
     last_time = time.time()
     mouse_down = False
@@ -581,6 +724,9 @@ def main():
                 elif event.key == K_SPACE:
                     wander.enabled = not wander.enabled
                     print(f"Wandering {'enabled' if wander.enabled else 'disabled'}")
+                elif event.key == K_m:
+                    show_markers = not show_markers
+                    print(f"Markers {'visible' if show_markers else 'hidden'}")
             
             # Handle slider events first
             slider_active = False
@@ -699,6 +845,13 @@ def main():
         for (unit, panel_num), panel in panel_system.panels.items():
             draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
         
+        # Draw calibration markers
+        if show_markers:
+            for marker_id, marker_data in MARKER_POSITIONS.items():
+                pos = marker_data['pos']
+                tex_id = marker_textures.get(marker_id)
+                draw_marker(marker_id, pos, MARKER_SIZE, tex_id, font)
+        
         # Draw light
         brightness = light.get_brightness()
         radius = 8 + brightness * 7
@@ -747,11 +900,12 @@ def main():
             slider.draw(font_small)
         
         # Status info at bottom of GUI
+        draw_text(view_width + 20, 150, f"Markers: {'ON' if show_markers else 'OFF'}", font_small)
         draw_text(view_width + 20, 130, f"Wander: {'ON' if wander.enabled else 'OFF'}", font_small)
         draw_text(view_width + 20, 110, f"Person: {'ON' if person.enabled else 'OFF'}", font_small)
         draw_text(view_width + 20, 80, "KEYS:", font_small)
-        draw_text(view_width + 20, 60, "SPACE = toggle wander", font_small)
-        draw_text(view_width + 20, 40, "P = toggle person", font_small)
+        draw_text(view_width + 20, 60, "SPACE=wander P=person M=markers", font_small)
+        draw_text(view_width + 20, 40, "Arrows/W/S = move light", font_small)
         draw_text(view_width + 20, 20, "Q/ESC = quit", font_small)
         
         # HUD text in 3D view
@@ -763,6 +917,17 @@ def main():
         
         for i, line in enumerate(info_lines):
             draw_text(10, display[1] - 25 - i * 20, line, font)
+        
+        # Draw marker legend if markers are visible
+        if show_markers:
+            draw_text(10, 140, "CALIBRATION MARKERS:", font_small, (255, 255, 0))
+            y_offset = 120
+            for marker_id, marker_data in MARKER_POSITIONS.items():
+                pos = marker_data['pos']
+                desc = marker_data['desc']
+                cam = marker_data['camera']
+                draw_text(10, y_offset, f"  [{marker_id}] ({pos[0]}, {pos[1]}, {pos[2]}) - {desc} ({cam})", font_small)
+                y_offset -= 18
         
         glEnable(GL_DEPTH_TEST)
         glMatrixMode(GL_PROJECTION)
