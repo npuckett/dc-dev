@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Drop Ceiling</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="header">
+        <h1>Drop Ceiling</h1>
+    </div>
+    
+    <div id="container">
+        <canvas id="viewer"></canvas>
+    </div>
+    
+    <div id="status">
+        <span id="status-text">Connecting...</span>
+    </div>
+    
+    <div id="mode-display">
+        <span id="mode-label"></span>
+    </div>
+    
+    <div id="connect-overlay" class="hidden">
+        <div id="connect-dialog">
+            <h2>Connect to Installation</h2>
+            <p>Enter the installation's IP address:</p>
+            <input type="text" id="ip-input" placeholder="192.168.1.100" />
+            <button id="connect-btn">Connect</button>
+            <p class="hint">Ask staff for the current IP address</p>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="viewer.js"></script>
+</body>
+</html>

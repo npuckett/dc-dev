@@ -59,6 +59,16 @@ except ImportError:
     ARTNET_AVAILABLE = False
     print("stupidArtnet not available - running in visualization-only mode")
 
+# Try to import websockets library for public viewer
+try:
+    import asyncio
+    import websockets
+    import json
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    print("websockets not available - public viewer disabled (pip install websockets)")
+
 # =============================================================================
 # CONFIGURATION (all units in centimeters)
 # =============================================================================
@@ -66,6 +76,10 @@ except ImportError:
 # OSC settings
 OSC_IP = "0.0.0.0"  # Listen on all interfaces
 OSC_PORT = 7000
+
+# WebSocket settings (for public viewer)
+WEBSOCKET_PORT = 8765
+WEBSOCKET_ENABLED = True
 
 # Art-Net settings
 TARGET_IP = "10.42.0.200"
@@ -304,6 +318,116 @@ class TrackedPersonManager:
         """Get positions of people in active zone"""
         with self.lock:
             return [p.get_position() for p in self.people.values() if p.is_in_active_zone()]
+
+
+# =============================================================================
+# WEBSOCKET BROADCASTER (for public viewer)
+# =============================================================================
+
+class WebSocketBroadcaster:
+    """Broadcasts installation state to web clients"""
+    
+    def __init__(self, port: int = 8765):
+        self.port = port
+        self.clients = set()
+        self.loop = None
+        self.server = None
+        self.thread = None
+        self.current_state = {}
+        self.running = False
+    
+    async def handler(self, websocket, path):
+        """Handle a WebSocket connection"""
+        self.clients.add(websocket)
+        client_ip = websocket.remote_address[0]
+        print(f"🌐 WebSocket client connected: {client_ip}")
+        
+        try:
+            # Send current state immediately
+            if self.current_state:
+                await websocket.send(json.dumps(self.current_state))
+            
+            # Keep connection alive
+            async for message in websocket:
+                pass  # We don't expect messages from clients
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            self.clients.discard(websocket)
+            print(f"🌐 WebSocket client disconnected: {client_ip}")
+    
+    async def broadcast(self, state: dict):
+        """Broadcast state to all connected clients"""
+        if not self.clients:
+            return
+        
+        message = json.dumps(state)
+        # Send to all clients, removing dead connections
+        dead_clients = set()
+        for client in self.clients:
+            try:
+                await client.send(message)
+            except:
+                dead_clients.add(client)
+        
+        self.clients -= dead_clients
+    
+    def update_state(self, state: dict):
+        """Update the current state (called from main thread)"""
+        self.current_state = state
+        
+        if self.loop and self.running:
+            # Schedule broadcast on the event loop
+            asyncio.run_coroutine_threadsafe(
+                self.broadcast(state),
+                self.loop
+            )
+    
+    async def _run_server(self):
+        """Run the WebSocket server"""
+        self.server = await websockets.serve(
+            self.handler,
+            "0.0.0.0",
+            self.port
+        )
+        print(f"🌐 WebSocket server started on port {self.port}")
+        
+        # Get local IP for display
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            print(f"   Public viewer URL: http://{local_ip}:8080")
+        except:
+            print(f"   Public viewer: connect to port {self.port}")
+        
+        await self.server.wait_closed()
+    
+    def _thread_main(self):
+        """Main function for the WebSocket thread"""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.running = True
+        
+        try:
+            self.loop.run_until_complete(self._run_server())
+        except Exception as e:
+            print(f"WebSocket server error: {e}")
+        finally:
+            self.running = False
+            self.loop.close()
+    
+    def start(self):
+        """Start the WebSocket server in a background thread"""
+        self.thread = threading.Thread(target=self._thread_main, daemon=True)
+        self.thread.start()
+    
+    def stop(self):
+        """Stop the WebSocket server"""
+        self.running = False
+        if self.server:
+            self.server.close()
 
 
 # =============================================================================
@@ -935,6 +1059,12 @@ def main():
     osc_thread.start()
     print(f"📡 OSC server listening on {OSC_IP}:{OSC_PORT}")
     
+    # WebSocket broadcaster for public viewer
+    ws_broadcaster = None
+    if WEBSOCKET_AVAILABLE and WEBSOCKET_ENABLED:
+        ws_broadcaster = WebSocketBroadcaster(port=WEBSOCKET_PORT)
+        ws_broadcaster.start()
+    
     # Create sliders
     slider_x = view_width + 20
     slider_w = gui_width - 40
@@ -1146,6 +1276,27 @@ def main():
         light.update(dt)
         panel_system.calculate_brightness(light)
         
+        # Broadcast state to WebSocket clients
+        if ws_broadcaster:
+            state = {
+                'light': {
+                    'x': light.x,
+                    'y': light.y,
+                    'z': light.z,
+                    'brightness': light.brightness,
+                    'falloff_radius': light.falloff_radius
+                },
+                'panels': panel_system.get_dmx_values()[:12],  # First 12 values (panel brightnesses)
+                'people': [
+                    {'id': pid, 'x': p['x'], 'y': p['y'], 'z': p['z']}
+                    for pid, p in tracked_people.items()
+                ],
+                'mode': behavior_system.mode.name if behavior_system else 'UNKNOWN',
+                'gesture': behavior_system.current_gesture.name if behavior_system and behavior_system.current_gesture else None,
+                'status': behavior_text
+            }
+            ws_broadcaster.update_state(state)
+        
         # Send Art-Net
         if artnet:
             artnet.set(panel_system.get_dmx_values())
@@ -1169,9 +1320,9 @@ def main():
         
         gluLookAt(cam_x, cam_y, cam_z, *cam_target, 0, 1, 0)
         
-        # Draw floor - only storefront level, stopping at front of active zone
-        active_zone_front = TRACKZONE['offset_z'] + TRACKZONE['depth']
-        draw_floor(0, (0.25, 0.25, 0.3, 0.5), z_max=active_zone_front)
+        # Draw floor - only storefront level, stopping at near edge of active zone
+        active_zone_near = TRACKZONE['offset_z']  # Near edge at Z=78
+        draw_floor(0, (0.25, 0.25, 0.3, 0.5), z_max=active_zone_near)
         
         # Draw trackzone (active - cyan)
         tz = TRACKZONE
@@ -1341,6 +1492,9 @@ def main():
     osc_server_instance.shutdown()
     if artnet:
         artnet.stop()
+    if ws_broadcaster:
+        ws_broadcaster.stop()
+        print("🌐 WebSocket server stopped.")
     tracking_db.close()
     print("📊 Tracking database saved.")
     pygame.quit()

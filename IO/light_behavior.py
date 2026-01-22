@@ -48,6 +48,7 @@ class GestureType(Enum):
     THINKING = "thinking"        # Slow drift pause, as if contemplating
     HESITANT = "hesitant"        # Partial approach then retreat
     PLAYFUL = "playful"          # Quick zig-zag movement
+    BLOOM = "bloom"              # Expand radius to illuminate all panels
 
 
 @dataclass
@@ -121,6 +122,11 @@ class BehaviorState:
     # Boredom tracking
     last_interaction_time: float = 0.0
     is_bored: bool = False
+    
+    # Bloom tracking (full-panel illumination moments)
+    bloom_active: bool = False
+    bloom_progress: float = 0.0  # 0-1 for smooth transition
+    last_bloom_time: float = 0.0
     
     # Status text
     status_text: str = "..."
@@ -245,6 +251,11 @@ class BehaviorSystem:
             "Flow mode. Matching crowd direction.",
             "Passive zone busy. No active engagement.",
         ],
+        ('bloom', 'default'): [
+            "Bloom moment. Full panel illumination.",
+            "Expanding to embrace entire space.",
+            "Radiance spreading across all panels.",
+        ],
     }
     
     def __init__(self, meta: MetaParameters = None, database = None):
@@ -281,6 +292,12 @@ class BehaviorSystem:
         
         # Flow threshold
         self.flow_threshold = 3  # people per minute in passive zone
+        
+        # Bloom settings (full-panel illumination)
+        self.bloom_radius = 300  # Radius large enough to cover all panels
+        self.bloom_cooldown = 45.0  # Minimum seconds between blooms
+        self.bloom_duration = 3.0  # How long bloom lasts
+        self.bloom_chance_per_minute = 0.15  # ~15% chance per minute in eligible states
     
     def get_time_of_day_modifier(self) -> TimeOfDayModifier:
         """Get modifier based on current hour"""
@@ -376,6 +393,51 @@ class BehaviorSystem:
         time_since_interaction = time.time() - self.state.last_interaction_time
         return time_since_interaction > boredom_threshold
     
+    def _update_bloom(self, dt: float, now: float, active_count: int):
+        """Update bloom state - occasional full-panel illumination moments"""
+        
+        # Update bloom progress (smooth transition in/out)
+        if self.state.bloom_active:
+            # Bloom is on - check if it should end
+            bloom_elapsed = now - self.state.last_bloom_time
+            if bloom_elapsed < self.bloom_duration * 0.3:
+                # Ramp up (first 30% of duration)
+                self.state.bloom_progress = min(1.0, self.state.bloom_progress + dt * 2.0)
+            elif bloom_elapsed > self.bloom_duration * 0.7:
+                # Ramp down (last 30% of duration)
+                self.state.bloom_progress = max(0.0, self.state.bloom_progress - dt * 2.0)
+            
+            if bloom_elapsed >= self.bloom_duration:
+                self.state.bloom_active = False
+                self.state.bloom_progress = 0.0
+        else:
+            # Bloom is off - maybe trigger one
+            time_since_bloom = now - self.state.last_bloom_time
+            if time_since_bloom < self.bloom_cooldown:
+                return  # Still in cooldown
+            
+            # Bloom chance varies by context
+            base_chance = self.bloom_chance_per_minute / 60.0  # per second
+            
+            # Higher chance during dwell (rewarding engagement)
+            if self.state.current_dwell_bonus > 0:
+                base_chance *= 2.0
+            
+            # Higher chance in crowd mode
+            if self.state.mode == BehaviorMode.CROWD:
+                base_chance *= 1.5
+            
+            # Lower chance if bored (save the bloom for when people arrive)
+            if self.state.is_bored:
+                base_chance *= 0.3
+            
+            # Roll for bloom
+            if random.random() < base_chance * dt:
+                self.state.bloom_active = True
+                self.state.last_bloom_time = now
+                self.state.bloom_progress = 0.0
+                self.trigger_gesture(GestureType.BLOOM, duration=self.bloom_duration)
+
     def on_person_entered(self, person_id: int, position: np.ndarray, is_active_zone: bool):
         """Called when a new person is detected"""
         self.known_people[person_id] = time.time()
@@ -573,6 +635,14 @@ class BehaviorSystem:
             self.current_wander_box['min_x'] = self.base_wander_box['min_x'] + flow_bias
             self.current_wander_box['max_x'] = self.base_wander_box['max_x'] + flow_bias
         
+        # Apply bloom effect (smooth transition to full-panel radius)
+        if self.state.bloom_active or self.state.bloom_progress > 0:
+            base_radius = params.get('falloff_radius', 50)
+            # Lerp between normal radius and bloom radius
+            params['falloff_radius'] = base_radius + (self.bloom_radius - base_radius) * self.state.bloom_progress
+            # Also boost brightness during bloom
+            params['brightness_max'] = params.get('brightness_max', 30) * (1 + 0.5 * self.state.bloom_progress)
+        
         self.current_params = params
         return params
     
@@ -584,7 +654,9 @@ class BehaviorSystem:
         
         key = None
         
-        if self.state.gesture != GestureType.NONE:
+        if self.state.bloom_active:
+            key = ('bloom', 'default')
+        elif self.state.gesture != GestureType.NONE:
             key = ('idle', 'gesture')
         elif self.state.mode == BehaviorMode.IDLE:
             if self.state.is_bored:
@@ -674,6 +746,9 @@ class BehaviorSystem:
                 ])
                 target = np.array([edge_x, 30, 0])
                 self.trigger_gesture(GestureType.ACKNOWLEDGE, target, duration=1.5)
+        
+        # Update bloom state
+        self._update_bloom(dt, now, active_count)
         
         # Calculate parameters
         params = self.calculate_parameters(

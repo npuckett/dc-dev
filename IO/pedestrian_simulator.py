@@ -82,6 +82,53 @@ DIRECTION_RIGHT_TO_LEFT = -1
 
 
 # =============================================================================
+# SIMULATION MODES
+# =============================================================================
+
+class SimulationMode(Enum):
+    """Different simulation modes"""
+    NORMAL = auto()      # Original mode - constant traffic
+    LONG_RUN = auto()    # Hours-long realistic simulation with gaps
+
+
+# Long run traffic patterns (time in simulated hours since start)
+# Each entry: (hour_start, hour_end, passive_rate, curious_rate, active_rate, description)
+LONG_RUN_PATTERNS = [
+    # Early morning - very quiet
+    (0, 2, 5, 0.2, 0.0, "quiet night"),
+    # Pre-dawn lull
+    (2, 5, 2, 0.1, 0.0, "dead of night"),
+    # Early commuters
+    (5, 7, 15, 0.5, 0.1, "early morning"),
+    # Morning rush
+    (7, 9, 45, 1.5, 0.3, "morning rush"),
+    # Late morning
+    (9, 11, 25, 2.0, 0.5, "mid-morning"),
+    # Lunch time surge
+    (11, 13, 40, 3.0, 0.8, "lunch rush"),
+    # Afternoon
+    (13, 16, 30, 2.5, 0.6, "afternoon"),
+    # Evening rush
+    (16, 19, 50, 2.0, 0.4, "evening rush"),
+    # Evening casual
+    (19, 21, 35, 3.5, 1.0, "evening leisure"),
+    # Late night
+    (21, 24, 15, 1.0, 0.3, "late night"),
+]
+
+# Gap patterns for long run (makes traffic more realistic)
+# Probability and duration of random quiet periods
+GAP_SETTINGS = {
+    'gap_probability': 0.02,     # Chance per second of starting a gap
+    'min_gap_duration': 5,       # Minimum gap in seconds
+    'max_gap_duration': 45,      # Maximum gap in seconds
+    'lull_probability': 0.005,   # Chance per second of extended lull
+    'min_lull_duration': 60,     # 1 minute minimum lull
+    'max_lull_duration': 180,    # 3 minute maximum lull
+}
+
+
+# =============================================================================
 # PEDESTRIAN STATES
 # =============================================================================
 
@@ -281,9 +328,10 @@ class SimulatedPerson:
 class PedestrianSimulator:
     """Manages simulated pedestrians"""
     
-    def __init__(self):
+    def __init__(self, mode: SimulationMode = SimulationMode.NORMAL):
         self.people: List[SimulatedPerson] = []
         self.next_id = 1
+        self.mode = mode
         
         # Spawn timing
         self.passive_spawn_timer = 0.0
@@ -295,6 +343,23 @@ class PedestrianSimulator:
         self.curious_spawn_rate = CURIOUS_SPAWN_RATE
         
         self.paused = False
+        
+        # Long run mode state
+        self.simulation_start_time = time.time()
+        self.simulated_hours = 0.0  # For time acceleration
+        self.time_scale = 1.0       # 1.0 = real-time, higher = faster
+        self.current_pattern_desc = "starting"
+        
+        # Gap/lull tracking
+        self.in_gap = False
+        self.gap_end_time = 0.0
+        self.in_lull = False
+        self.lull_end_time = 0.0
+        
+        # Statistics
+        self.total_spawned = 0
+        self.total_curious = 0
+        self.total_active = 0
     
     def spawn_passive_person(self):
         """Spawn a person walking through passive zone"""
@@ -325,6 +390,7 @@ class PedestrianSimulator:
         )
         self.next_id += 1
         self.people.append(person)
+        self.total_spawned += 1
     
     def spawn_active_person(self):
         """Spawn a person directly in active zone"""
@@ -344,6 +410,8 @@ class PedestrianSimulator:
         )
         self.next_id += 1
         self.people.append(person)
+        self.total_spawned += 1
+        self.total_active += 1
         return person.id
     
     def spawn_curious_person(self):
@@ -374,6 +442,8 @@ class PedestrianSimulator:
         )
         self.next_id += 1
         self.people.append(person)
+        self.total_spawned += 1
+        self.total_curious += 1
         return person.id
     
     def update(self, dt: float):
@@ -381,9 +451,21 @@ class PedestrianSimulator:
         if self.paused:
             return
         
+        # Update simulated time for long run mode
+        if self.mode == SimulationMode.LONG_RUN:
+            self.simulated_hours += (dt * self.time_scale) / 3600.0  # Convert to hours
+            self._update_long_run_rates()
+            self._update_gaps(dt)
+        
+        # Check if we're in a gap/lull (no spawning)
+        if self.in_gap or self.in_lull:
+            # Update existing people but don't spawn new ones
+            self.people = [p for p in self.people if p.update(dt)]
+            return
+        
         # Spawn passive zone people
         self.passive_spawn_timer += dt
-        spawn_interval = 60.0 / max(1, self.passive_spawn_rate)
+        spawn_interval = 60.0 / max(0.1, self.passive_spawn_rate)
         while self.passive_spawn_timer >= spawn_interval:
             self.spawn_passive_person()
             self.passive_spawn_timer -= spawn_interval
@@ -417,8 +499,72 @@ class PedestrianSimulator:
             'entering': entering,
             'active': active,
             'exiting': exiting,
-            'total': len(self.people)
+            'total': len(self.people),
+            'in_gap': self.in_gap,
+            'in_lull': self.in_lull,
+            'pattern': self.current_pattern_desc,
+            'simulated_hours': self.simulated_hours,
+            'total_spawned': self.total_spawned,
         }
+    
+    def _update_long_run_rates(self):
+        """Update spawn rates based on simulated time of day"""
+        # Get hour of simulated day (wraps every 24 hours)
+        hour = self.simulated_hours % 24
+        
+        # Find matching pattern
+        for start, end, passive, curious, active, desc in LONG_RUN_PATTERNS:
+            if start <= hour < end:
+                # Add some random variation (+/- 20%)
+                variation = random.uniform(0.8, 1.2)
+                self.passive_spawn_rate = passive * variation
+                self.curious_spawn_rate = curious * variation
+                self.active_spawn_rate = active * variation
+                self.current_pattern_desc = desc
+                return
+        
+        # Default to quiet
+        self.passive_spawn_rate = 10
+        self.curious_spawn_rate = 0.5
+        self.active_spawn_rate = 0.1
+        self.current_pattern_desc = "default"
+    
+    def _update_gaps(self, dt: float):
+        """Update gap/lull state for realistic traffic patterns"""
+        now = time.time()
+        
+        # Check if current gap/lull has ended
+        if self.in_gap and now >= self.gap_end_time:
+            self.in_gap = False
+        if self.in_lull and now >= self.lull_end_time:
+            self.in_lull = False
+        
+        # Don't start new gaps during existing gaps/lulls
+        if self.in_gap or self.in_lull:
+            return
+        
+        # Random chance of starting a gap (short pause in traffic)
+        if random.random() < GAP_SETTINGS['gap_probability'] * dt:
+            self.in_gap = True
+            gap_duration = random.uniform(
+                GAP_SETTINGS['min_gap_duration'],
+                GAP_SETTINGS['max_gap_duration']
+            )
+            self.gap_end_time = now + gap_duration
+            return
+        
+        # Random chance of starting a lull (longer quiet period)
+        if random.random() < GAP_SETTINGS['lull_probability'] * dt:
+            self.in_lull = True
+            lull_duration = random.uniform(
+                GAP_SETTINGS['min_lull_duration'],
+                GAP_SETTINGS['max_lull_duration']
+            )
+            self.lull_end_time = now + lull_duration
+    
+    def set_time_scale(self, scale: float):
+        """Set time acceleration for long run mode (1.0 = real-time)"""
+        self.time_scale = max(0.1, min(100.0, scale))
 
 
 # =============================================================================
@@ -463,16 +609,51 @@ class OSCSender:
 # =============================================================================
 
 def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Pedestrian Simulator for Light Installation')
+    parser.add_argument('--mode', choices=['normal', 'longrun'], default='normal',
+                        help='Simulation mode: normal (constant traffic) or longrun (realistic patterns)')
+    parser.add_argument('--timescale', type=float, default=1.0,
+                        help='Time acceleration for longrun mode (1.0=realtime, 10=10x faster)')
+    parser.add_argument('--hours', type=float, default=0,
+                        help='For longrun: starting hour of day (0-24)')
+    args = parser.parse_args()
+    
+    # Determine mode
+    mode = SimulationMode.LONG_RUN if args.mode == 'longrun' else SimulationMode.NORMAL
+    
     print("=" * 60)
     print("  PEDESTRIAN SIMULATOR (Headless)")
     print("  View results in lightController_osc.py")
     print("=" * 60)
     print()
+    
+    if mode == SimulationMode.LONG_RUN:
+        print(f"  MODE: Long Run (realistic traffic patterns)")
+        print(f"  Time Scale: {args.timescale}x")
+        print(f"  Starting Hour: {args.hours:.1f}")
+        print()
+        print("  Traffic patterns vary throughout simulated day:")
+        print("    - Dead of night (2-5am): Very quiet")
+        print("    - Morning rush (7-9am): Heavy traffic")
+        print("    - Lunch (11am-1pm): Busy")
+        print("    - Evening rush (4-7pm): Heaviest")
+        print("    - Evening leisure (7-9pm): Many curious visitors")
+        print("    - Random gaps and lulls throughout")
+    else:
+        print(f"  MODE: Normal (constant traffic)")
+    
+    print()
     print("Press Ctrl+C to stop")
     print()
     
     # Create simulator and OSC sender
-    simulator = PedestrianSimulator()
+    simulator = PedestrianSimulator(mode=mode)
+    if mode == SimulationMode.LONG_RUN:
+        simulator.set_time_scale(args.timescale)
+        simulator.simulated_hours = args.hours
+    
     osc_sender = OSCSender(OSC_TARGET_IP, OSC_TARGET_PORT)
     
     print(f"Starting simulation at {FPS} FPS...")
@@ -480,6 +661,7 @@ def main():
     
     last_time = time.time()
     last_status_time = time.time()
+    start_time = time.time()
     
     try:
         running = True
@@ -497,11 +679,28 @@ def main():
             # Print status every 3 seconds
             if now - last_status_time > 3.0:
                 stats = simulator.get_stats()
-                print(f"  Total: {stats['total']} | "
-                      f"Passive: {stats['passive']} | "
-                      f"Entering: {stats['entering']} | "
-                      f"Active: {stats['active']} | "
-                      f"Exiting: {stats['exiting']}")
+                elapsed = now - start_time
+                
+                if mode == SimulationMode.LONG_RUN:
+                    sim_hour = stats['simulated_hours'] % 24
+                    sim_day = int(stats['simulated_hours'] // 24) + 1
+                    gap_status = ""
+                    if stats['in_lull']:
+                        gap_status = " [LULL]"
+                    elif stats['in_gap']:
+                        gap_status = " [gap]"
+                    
+                    print(f"  Day {sim_day} {sim_hour:05.2f}h ({stats['pattern']}){gap_status} | "
+                          f"Total: {stats['total']} | "
+                          f"Active: {stats['active']} | "
+                          f"Spawned: {stats['total_spawned']}")
+                else:
+                    print(f"  Total: {stats['total']} | "
+                          f"Passive: {stats['passive']} | "
+                          f"Entering: {stats['entering']} | "
+                          f"Active: {stats['active']} | "
+                          f"Exiting: {stats['exiting']}")
+                
                 last_status_time = now
             
             # Sleep to maintain FPS
@@ -511,7 +710,12 @@ def main():
         pass
     
     print()
-    print("Simulator stopped.")
+    stats = simulator.get_stats()
+    elapsed = time.time() - start_time
+    print(f"Simulator stopped after {elapsed/60:.1f} minutes real time")
+    if mode == SimulationMode.LONG_RUN:
+        print(f"  Simulated {stats['simulated_hours']:.2f} hours")
+        print(f"  Total pedestrians spawned: {stats['total_spawned']}")
 
 
 if __name__ == "__main__":
