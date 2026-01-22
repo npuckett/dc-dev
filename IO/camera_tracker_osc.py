@@ -24,6 +24,45 @@ import os as _os
 import signal
 import sys
 import logging
+import fcntl
+import atexit
+
+# ==============================================================================
+# SINGLE INSTANCE LOCK
+# ==============================================================================
+
+LOCK_FILE = "/tmp/camera_tracker_osc.lock"
+_lock_fd = None
+
+def acquire_single_instance_lock():
+    """Ensure only one instance of the tracker is running"""
+    global _lock_fd
+    try:
+        _lock_fd = open(LOCK_FILE, 'w')
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd.write(str(_os.getpid()))
+        _lock_fd.flush()
+        return True
+    except (IOError, OSError) as e:
+        # Another instance is running
+        try:
+            with open(LOCK_FILE, 'r') as f:
+                existing_pid = f.read().strip()
+            print(f"❌ Another camera tracker is already running (PID: {existing_pid})")
+        except:
+            print("❌ Another camera tracker is already running")
+        return False
+
+def release_single_instance_lock():
+    """Release the single instance lock"""
+    global _lock_fd
+    if _lock_fd:
+        try:
+            fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+            _lock_fd.close()
+            _os.remove(LOCK_FILE)
+        except:
+            pass
 from collections import deque
 from datetime import datetime, timedelta
 
@@ -628,6 +667,11 @@ class FrameProcessor:
 # ==============================================================================
 
 def main():
+    # Ensure only one instance is running
+    if not acquire_single_instance_lock():
+        sys.exit(1)
+    atexit.register(release_single_instance_lock)
+    
     print("=" * 60)
     print("Camera Tracker with OSC Output")
     print("=" * 60)
