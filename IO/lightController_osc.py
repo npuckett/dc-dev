@@ -29,7 +29,10 @@ import math
 import time
 import random
 import socket
+import signal
 import threading
+import logging
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Tuple, Dict, List, Optional
 
@@ -80,6 +83,20 @@ OSC_PORT = 7000
 # WebSocket settings (for public viewer)
 WEBSOCKET_PORT = 8765
 WEBSOCKET_ENABLED = True
+WEBSOCKET_BROADCAST_INTERVAL = 0.066  # ~15 FPS for WebSocket (instead of 30)
+
+# Health monitoring (for 24/7 operation)
+HEALTH_LOG_INTERVAL = 300  # Log health stats every 5 minutes
+DB_PRUNE_INTERVAL = 3600  # Prune old database records every hour
+DB_RETENTION_DAYS = 7  # Keep 7 days of tracking history
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Art-Net settings
 TARGET_IP = "10.42.0.200"
@@ -1119,9 +1136,30 @@ def main():
     # Current preset name
     current_preset = "default"
     preset_names = list(PRESETS.keys())
+    
+    # Graceful shutdown handling
+    shutdown_requested = False
+    
+    def signal_handler(signum, frame):
+        nonlocal shutdown_requested
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        shutdown_requested = True
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Health monitoring
+    start_time = time.time()
+    last_health_log = time.time()
+    last_db_prune = time.time()
+    frame_count = 0
+    total_osc_messages = 0
+    
+    logger.info("Light controller started - entering main loop")
 
     running = True
-    while running:
+    while running and not shutdown_requested:
         # Events
         for event in pygame.event.get():
             if event.type == QUIT:
@@ -1276,26 +1314,39 @@ def main():
         light.update(dt)
         panel_system.calculate_brightness(light)
         
-        # Broadcast state to WebSocket clients
-        if ws_broadcaster:
-            state = {
-                'light': {
-                    'x': light.x,
-                    'y': light.y,
-                    'z': light.z,
-                    'brightness': light.brightness,
-                    'falloff_radius': light.falloff_radius
-                },
-                'panels': panel_system.get_dmx_values()[:12],  # First 12 values (panel brightnesses)
-                'people': [
-                    {'id': pid, 'x': p['x'], 'y': p['y'], 'z': p['z']}
-                    for pid, p in tracked_people.items()
-                ],
-                'mode': behavior_system.mode.name if behavior_system else 'UNKNOWN',
-                'gesture': behavior_system.current_gesture.name if behavior_system and behavior_system.current_gesture else None,
-                'status': behavior_text
-            }
-            ws_broadcaster.update_state(state)
+        # Broadcast state to WebSocket clients (throttled)
+        if ws_broadcaster and (not hasattr(ws_broadcaster, 'last_broadcast') or 
+                                time.time() - ws_broadcaster.last_broadcast >= WEBSOCKET_BROADCAST_INTERVAL):
+            try:
+                # Build behavior status text
+                behavior_status = behavior.get_status()
+                status_text = behavior_status.get('status_text', '')
+                
+                state = {
+                    'light': {
+                        'x': float(light.position[0]),
+                        'y': float(light.position[1]),
+                        'z': float(light.position[2]),
+                        'brightness': float(light.get_brightness()),
+                        'falloff_radius': float(light.falloff_radius)
+                    },
+                    'panels': panel_system.get_dmx_values()[:12],
+                    'people': [
+                        {'id': p.track_id, 'x': p.x, 'y': p.y, 'z': p.z}
+                        for p in tracked_manager.get_all()
+                    ],
+                    'mode': behavior.mode.name if behavior else 'UNKNOWN',
+                    'gesture': behavior.current_gesture.name if behavior and behavior.current_gesture else None,
+                    'status': status_text
+                }
+                ws_broadcaster.update_state(state)
+                ws_broadcaster.last_broadcast = time.time()
+            except Exception as e:
+                if not hasattr(ws_broadcaster, 'error_count'):
+                    ws_broadcaster.error_count = 0
+                ws_broadcaster.error_count += 1
+                if ws_broadcaster.error_count <= 5 or ws_broadcaster.error_count % 100 == 0:
+                    logger.warning(f"WebSocket broadcast error ({ws_broadcaster.error_count}x): {e}")
         
         # Send Art-Net
         if artnet:
@@ -1486,18 +1537,56 @@ def main():
         
         pygame.display.flip()
         clock.tick(FPS)
+        frame_count += 1
+        
+        # Periodic health logging
+        current_time = time.time()
+        if current_time - last_health_log >= HEALTH_LOG_INTERVAL:
+            elapsed_total = current_time - start_time
+            uptime = timedelta(seconds=int(elapsed_total))
+            avg_fps = frame_count / elapsed_total if elapsed_total > 0 else 0
+            
+            # Get current state
+            behavior_status = behavior.get_status()
+            
+            logger.info(
+                f"HEALTH: uptime={uptime}, frames={frame_count}, avg_fps={avg_fps:.1f}, "
+                f"mode={behavior_status['mode']}, active={active_count}, passive={passive_count}, "
+                f"ws_clients={len(ws_broadcaster.clients) if ws_broadcaster else 0}"
+            )
+            
+            last_health_log = current_time
+        
+        # Periodic database pruning (keep DB from growing forever)
+        if current_time - last_db_prune >= DB_PRUNE_INTERVAL:
+            try:
+                # Prune records older than retention period
+                cutoff = current_time - (DB_RETENTION_DAYS * 86400)
+                pruned = tracking_db.prune_old_records(cutoff)
+                if pruned > 0:
+                    logger.info(f"Pruned {pruned} old tracking records from database")
+            except Exception as e:
+                logger.warning(f"Database prune failed: {e}")
+            
+            last_db_prune = current_time
     
     # Cleanup
-    print("Shutting down...")
+    logger.info("Shutting down...")
     osc_server_instance.shutdown()
     if artnet:
         artnet.stop()
     if ws_broadcaster:
         ws_broadcaster.stop()
-        print("🌐 WebSocket server stopped.")
+        logger.info("WebSocket server stopped")
     tracking_db.close()
-    print("📊 Tracking database saved.")
+    logger.info("Tracking database closed")
     pygame.quit()
+    
+    # Final stats
+    elapsed = time.time() - start_time
+    uptime = timedelta(seconds=int(elapsed))
+    logger.info(f"Shutdown complete - uptime: {uptime}, frames: {frame_count}")
+    print(f"\n🛑 Stopped after {uptime}")
 
 
 if __name__ == "__main__":

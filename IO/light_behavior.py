@@ -266,17 +266,18 @@ class BehaviorSystem:
         self.state.last_interaction_time = time.time()
         
         # Wander box (can be modified by behavior)
-        # Extended Z range to allow light to approach visitors
+        # Z range kept close to panels for good illumination
         self.base_wander_box = {
             'min_x': -50, 'max_x': 290,
             'min_y': 0, 'max_y': 150,
-            'min_z': -32, 'max_z': 200,  # Extended from 28 to approach visitors
+            'min_z': -32, 'max_z': 28,  # Stay close to panels
         }
         self.current_wander_box = dict(self.base_wander_box)
         
         # Approach settings (how far forward the light moves toward people)
-        self.approach_z_min = -32    # Closest to panels
-        self.approach_z_max = 250    # Maximum approach toward visitors
+        # Keep conservative - too far = dim panels
+        self.approach_z_min = -32    # Closest to panels  
+        self.approach_z_max = 60     # Max approach (still illuminates panels well)
         self.approach_speed = 0.1    # How quickly to approach (0-1 per second)
         
         # People tracking

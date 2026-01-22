@@ -667,6 +667,15 @@ class TrackingDatabase:
             self.conn.commit()
             return deleted
     
+    def prune_old_records(self, cutoff_timestamp: float) -> int:
+        """Remove raw events older than the given timestamp (for 24/7 operation)"""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM tracking_events WHERE timestamp < ?', (cutoff_timestamp,))
+            deleted = cursor.rowcount
+            self.conn.commit()
+            return deleted
+    
     def close(self):
         """Close database connection"""
         self.conn.close()

@@ -21,7 +21,11 @@ import time
 import json
 import threading
 import os as _os
+import signal
+import sys
+import logging
 from collections import deque
+from datetime import datetime, timedelta
 
 import torch
 from ultralytics import YOLO
@@ -97,6 +101,19 @@ SHOW_GUI_OVERLAY = True
 
 # Timing diagnostics
 SHOW_TIMING = True  # Print per-frame timing breakdown
+
+# Health monitoring (for 24/7 operation)
+HEALTH_LOG_INTERVAL = 300  # Log health stats every 5 minutes
+TRACKER_RESET_INTERVAL = 3600  # Reset YOLO tracker every hour to prevent memory buildup
+MAX_YOLO_TIMING_SAMPLES = 100  # Cap timing samples to prevent memory leak
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -358,10 +375,13 @@ class RobustCamera:
                         consecutive_failures = 0
                     time.sleep(0.01)
                     
-            except Exception:
+            except Exception as e:
                 consecutive_failures += 1
+                if consecutive_failures == 1 or consecutive_failures % 10 == 0:
+                    logger.warning(f"{self.name}: Capture error ({consecutive_failures}x): {e}")
                 if consecutive_failures > 10:
                     self.connected = False
+                    logger.error(f"{self.name}: Too many failures, marking disconnected")
                 time.sleep(0.01)
     
     def read(self):
@@ -404,6 +424,9 @@ class RobustCamera:
     
     def release(self):
         self.running = False
+        # Wait for capture thread to finish
+        if hasattr(self, 'thread') and self.thread.is_alive():
+            self.thread.join(timeout=2.0)
         if self.cap:
             self.cap.release()
 
@@ -504,20 +527,40 @@ def main():
     print(f"   Processing at: {PROCESS_WIDTH}px width")
     print(f"   Headless mode: {HEADLESS_MODE}")
     print(f"\n🎬 Starting tracking with OSC output...")
-    print("   Press 'q' to quit\n")
+    print("   Press 'q' to quit (or Ctrl+C in headless mode)\n")
+    
+    # Graceful shutdown handling
+    shutdown_requested = False
+    
+    def signal_handler(signum, frame):
+        nonlocal shutdown_requested
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        shutdown_requested = True
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     # Main loop
     frame_count = 0
     start_time = time.time()
     frame_interval = 1.0 / TARGET_FPS
     last_process_time = 0
-    yolo_times = []  # Track YOLO inference times
+    yolo_times = deque(maxlen=MAX_YOLO_TIMING_SAMPLES)  # Bounded deque prevents memory leak
+    
+    # Health monitoring
+    last_health_log = time.time()
+    last_tracker_reset = time.time()
+    total_osc_errors = 0
+    total_people_tracked = 0
     
     # Create display window (unless headless)
     if not HEADLESS_MODE:
         cv2.namedWindow("Tracker OSC", cv2.WINDOW_NORMAL)
     
-    while True:
+    logger.info("Tracker started - entering main loop")
+    
+    while not shutdown_requested:
         current_time = time.time()
         
         if current_time - last_process_time < frame_interval:
@@ -623,21 +666,65 @@ def main():
                 
                 display_frames.append(display_frame)
         
-        # Send OSC messages
+        # Send OSC messages (with error handling for network issues)
         osc_start = time.time()
-        osc_client.send_message("/tracker/count", len(all_world_positions))
-        
-        # Then send each person's position
-        for track_id, world_x, world_z, cam_name in all_world_positions:
-            osc_client.send_message(f"/tracker/person/{track_id}", [float(world_x), float(world_z)])
+        try:
+            osc_client.send_message("/tracker/count", len(all_world_positions))
+            
+            # Then send each person's position
+            for track_id, world_x, world_z, cam_name in all_world_positions:
+                osc_client.send_message(f"/tracker/person/{track_id}", [float(world_x), float(world_z)])
+            
+            total_people_tracked += len(all_world_positions)
+        except Exception as e:
+            total_osc_errors += 1
+            if total_osc_errors == 1 or total_osc_errors % 100 == 0:
+                logger.warning(f"OSC send error ({total_osc_errors}x total): {e}")
         osc_time = time.time() - osc_start
         
-        # Timing diagnostics
+        # Timing diagnostics (yolo_times is now a bounded deque, no clear() needed)
         loop_time = time.time() - current_time
         if SHOW_TIMING and frame_count % 30 == 0:
             avg_yolo_time = sum(yolo_times) / len(yolo_times) if yolo_times else 0
             print(f"Frame {frame_count}: YOLO avg={avg_yolo_time*1000:.1f}ms, OSC={osc_time*1000:.1f}ms, Total={loop_time*1000:.1f}ms, People={len(all_world_positions)}")
-            yolo_times.clear()
+        
+        # Periodic health logging
+        if time.time() - last_health_log >= HEALTH_LOG_INTERVAL:
+            elapsed_total = time.time() - start_time
+            uptime = timedelta(seconds=int(elapsed_total))
+            connected_cams = sum(1 for cam in cameras if cam.connected)
+            avg_fps = frame_count / elapsed_total if elapsed_total > 0 else 0
+            
+            logger.info(
+                f"HEALTH: uptime={uptime}, frames={frame_count}, avg_fps={avg_fps:.1f}, "
+                f"cameras={connected_cams}/{len(cameras)}, osc_errors={total_osc_errors}, "
+                f"people_tracked={total_people_tracked}"
+            )
+            
+            # Log per-camera stats
+            for cfg in camera_configs:
+                cam = cfg['camera']
+                logger.info(
+                    f"  {cfg['name']}: connected={cam.connected}, "
+                    f"fps={cfg['current_fps']:.1f}, "
+                    f"frames={cam.stats['frames_received']}, "
+                    f"reconnects={cam.stats['reconnect_count']}"
+                )
+            
+            last_health_log = time.time()
+        
+        # Periodic YOLO tracker reset to prevent memory buildup
+        if time.time() - last_tracker_reset >= TRACKER_RESET_INTERVAL:
+            logger.info("Resetting YOLO tracker to prevent memory buildup...")
+            try:
+                # Reset by running a dummy frame with persist=False then True
+                dummy = np.zeros((PROCESS_WIDTH, PROCESS_WIDTH, 3), dtype=np.uint8)
+                model.track(dummy, persist=False, verbose=False, classes=TRACKED_CLASSES)
+                model.track(dummy, persist=True, verbose=False, classes=TRACKED_CLASSES)
+                logger.info("YOLO tracker reset complete")
+            except Exception as e:
+                logger.warning(f"Failed to reset YOLO tracker: {e}")
+            last_tracker_reset = time.time()
         
         # Create combined display (skip in headless mode)
         if not HEADLESS_MODE and display_frames:
@@ -662,25 +749,35 @@ def main():
             
             cv2.imshow("Tracker OSC", combined)
         
-        # Handle keys (with or without display)
-        if HEADLESS_MODE:
-            # In headless mode, check for Ctrl+C via keyboard interrupt
-            pass  # Loop continues until killed
-        else:
+        # Handle keys (GUI mode only - headless uses signal handler)
+        if not HEADLESS_MODE:
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                break
+                logger.info("Quit key pressed")
+                shutdown_requested = True
     
     # Cleanup
+    logger.info("Shutting down...")
+    
     for cam in cameras:
+        logger.info(f"Releasing {cam.name}...")
         cam.release()
+    
     if not HEADLESS_MODE:
         cv2.destroyAllWindows()
     
     elapsed = time.time() - start_time
-    print(f"\n🛑 Stopped")
-    print(f"   Frames processed: {frame_count}")
-    print(f"   Average FPS: {frame_count/elapsed:.1f}")
+    uptime = timedelta(seconds=int(elapsed))
+    
+    logger.info(f"Shutdown complete")
+    logger.info(f"  Uptime: {uptime}")
+    logger.info(f"  Frames processed: {frame_count}")
+    logger.info(f"  Average FPS: {frame_count/elapsed:.1f}" if elapsed > 0 else "  Average FPS: N/A")
+    logger.info(f"  Total OSC errors: {total_osc_errors}")
+    logger.info(f"  Total people tracked: {total_people_tracked}")
+    
+    print(f"\n🛑 Stopped after {uptime}")
+    print(f"   Frames: {frame_count} | Avg FPS: {frame_count/elapsed:.1f}" if elapsed > 0 else "   Frames: 0")
 
 
 if __name__ == "__main__":
