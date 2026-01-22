@@ -128,6 +128,7 @@ MARKER_POSITIONS = {
     3: {'pos': (-40, STREET_LEVEL_Y, 141), 'desc': 'Left back', 'camera': 'Cam 1', 'vertical': False},
     4: {'pos': (280, STREET_LEVEL_Y, 141), 'desc': 'Right back', 'camera': 'Cam 2', 'vertical': False},
     5: {'pos': (120, CAMERA_LEDGE_Y, 550), 'desc': 'Subway wall (VERTICAL)', 'camera': 'Both', 'vertical': True},
+    6: {'pos': (120, STREET_LEVEL_Y, 141), 'desc': 'Center back (SHARED)', 'camera': 'Both', 'vertical': False},
 }
 
 # Marker image files

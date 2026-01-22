@@ -578,6 +578,7 @@ class CalibrationMode:
             # BACK ROW (Z = 141 cm - one tile further out, Y = street level)
             3: (-40.0, STREET_LEVEL_Y, 141.0),    # Left back
             4: (280.0, STREET_LEVEL_Y, 141.0),    # Right back
+            6: (120.0, STREET_LEVEL_Y, 141.0),    # Center back - SHARED (completes grid)
             
             # VERTICAL MARKER on subway entrance wall (facing toward storefront)
             5: (120.0, CAMERA_LEDGE_Y, 550.0),    # Center, at camera height, on subway wall
@@ -590,12 +591,13 @@ class CalibrationMode:
         # Define which markers each camera should see
         # This helps validate calibration and guide marker placement
         self.camera_marker_visibility = {
-            'Camera 1': [1, 0, 3, 5],   # Shared marker 1 + left markers 0, 3 + far 5
-            'Camera 2': [1, 2, 4, 5],   # Shared marker 1 + right markers 2, 4 + far 5
+            'Camera 1': [1, 0, 3, 5, 6],   # Shared markers 1, 6 + left markers 0, 3 + far 5
+            'Camera 2': [1, 2, 4, 5, 6],   # Shared markers 1, 6 + right markers 2, 4 + far 5
         }
         
-        # The shared marker ID that must be visible from all cameras
-        self.shared_marker_id = 1
+        # The shared marker IDs that must be visible from all cameras
+        self.shared_marker_id = 1  # Primary shared marker
+        self.shared_markers = {1, 6}  # All shared markers (for validation)
         
         # Camera intrinsics storage (per camera)
         self.camera_intrinsics = {}  # camera_name -> {matrix, dist_coeffs, size}

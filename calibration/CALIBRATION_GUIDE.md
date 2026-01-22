@@ -57,32 +57,72 @@ CalibrationMode.generate_markers()  # Creates aruco_markers/ folder
 
 Or run in Python:
 ```bash
-python -c "import cv2; d=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50); [cv2.imwrite(f'marker_{i}.png', cv2.aruco.generateImageMarker(d,i,400)) for i in range(5)]"
+python -c "import cv2; d=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50); [cv2.imwrite(f'marker_{i}.png', cv2.aruco.generateImageMarker(d,i,400)) for i in range(7)]"
 ```
 
-Print markers 0-4 at a **minimum size of 15cm x 15cm** for reliable detection.
+Print markers 0-6 at a **minimum size of 15cm x 15cm** for reliable detection.
+
+### Marker Layout (7 Markers)
+
+```
+                        ┌─────────────────────────────────────┐
+                        │        STOREFRONT (panels)          │
+                        │     X=0                    X=240    │
+                        └─────────────────────────────────────┘
+                                        │
+                                        │ Z=0 (panels)
+                                        │
+     ═══════════════════════════════════╪═══════════════════════════════════
+                                        │ Z=78 (active zone starts)
+                                        │
+           ┌─[0]─┐              ┌─[1]─┐              ┌─[2]─┐
+           │     │              │SHARED│             │     │
+           └─────┘              └─────┘              └─────┘
+           X=-40                X=120                X=280
+                                                              Z=90 (FRONT ROW)
+                                        │
+           ┌─[3]─┐              ┌─[6]─┐              ┌─[4]─┐
+           │     │              │SHARED│             │     │
+           └─────┘              └─────┘              └─────┘
+           X=-40                X=120                X=280
+                                                              Z=141 (BACK ROW)
+                                        │
+     ═══════════════════════════════════╪═══════════════════════════════════
+                                        │ Z=283 (passive zone starts)
+                                        │
+                                        │
+                                ┌──[5]──┐
+                                │VERTICAL│
+                                │ SHARED │
+                                └────────┘
+                                X=120, Z=550
+                                (subway wall)
+```
+
+**Marker Assignments:**
+
+| ID | Position | Description | Visible To |
+|----|----------|-------------|------------|
+| 0 | (-40, -66, 90) | Left front | Camera 1 |
+| 1 | (120, -66, 90) | Center front | **Both** |
+| 2 | (280, -66, 90) | Right front | Camera 2 |
+| 3 | (-40, -66, 141) | Left back | Camera 1 |
+| 4 | (280, -66, 141) | Right back | Camera 2 |
+| 5 | (120, -16, 550) | Subway wall (VERTICAL) | **Both** |
+| 6 | (120, -66, 141) | Center back | **Both** |
+
+**Note:** Y=-66 is street level (66cm below storefront floor). Marker 5 is vertical on the subway entrance wall.
 
 ### Step 2: Define Marker World Positions
 
-Edit `camera_tracker_cuda.py` and update `marker_world_positions` in `CalibrationMode`:
-
-```python
-self.marker_world_positions = {
-    0: (100, 100),    # Marker 0 at pixel (100, 100) in bird's eye
-    1: (700, 100),    # Marker 1 at pixel (700, 100)
-    2: (100, 500),    # Marker 2 at pixel (100, 500)
-    3: (700, 500),    # Marker 3 at pixel (700, 500)
-    4: (400, 300),    # Marker 4 at center
-}
-```
-
-**Tip**: With `SYNTH_METERS_PER_PIXEL = 0.05`, pixel 100 = 5 meters from origin.
+The marker positions are pre-configured in `camera_tracker_cuda.py`. The default configuration matches the table above.
 
 ### Step 3: Place Markers in Physical Space
 
-1. Place markers on the floor (or at known heights with compensation)
-2. Ensure **4+ markers are visible** to each camera for reliable homography
-3. Markers in **overlapping camera views** help with cross-camera consistency
+1. Place flat markers (0-4, 6) on the street at the specified X,Z positions
+2. Mount marker 5 vertically on the subway entrance wall at camera height
+3. Ensure **4+ markers are visible** to each camera for reliable calibration
+4. Markers 1 and 6 (center column) must be visible from **both** cameras
 
 ### Step 4: Run Calibration
 

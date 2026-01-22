@@ -59,8 +59,8 @@ CAMERAS = [
 
 # Calibration file path
 _SCRIPT_DIR = _os.path.dirname(_os.path.abspath(__file__))
-# Look for calibration in gettingStarted folder (where original tracker saves it)
-CALIBRATION_FILE = _os.path.join(_SCRIPT_DIR, '..', 'gettingStarted', 'camera_calibration.json')
+# Look for calibration in calibration folder (centralized calibration data)
+CALIBRATION_FILE = _os.path.join(_SCRIPT_DIR, '..', 'calibration', 'camera_calibration.json')
 
 # Synthesized view settings (all units in CENTIMETERS)
 SYNTH_VIEW_WIDTH = 800
