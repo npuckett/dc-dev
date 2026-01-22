@@ -3,3 +3,4 @@ tracking_history.db
 __pycache__/
 *.pt
 .venv/
+*-journal
