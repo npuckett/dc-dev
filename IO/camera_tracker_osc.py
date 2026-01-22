@@ -853,7 +853,7 @@ def main():
             osc_client.send_message("/tracker/count", len(tracked_people))
             
             # Send each person's smoothed position with stable ID
-            for stable_id, world_x, world_z, cameras in tracked_people:
+            for stable_id, world_x, world_z, cam_names in tracked_people:
                 osc_client.send_message(f"/tracker/person/{stable_id}", [float(world_x), float(world_z)])
             
             total_people_tracked += len(tracked_people)
