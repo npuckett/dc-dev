@@ -1,0 +1,25 @@
+# Tailscale Funnel for WebSocket Public Viewer
+# Exposes the WebSocket server (port 8765) to the public internet
+#
+# Install: sudo cp tailscale-funnel.service /etc/systemd/system/
+# Enable:  sudo systemctl enable tailscale-funnel
+# Start:   sudo systemctl start tailscale-funnel
+
+[Unit]
+Description=Tailscale Funnel for Drop Ceiling WebSocket
+After=tailscaled.service light-controller.service
+Requires=tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tailscale funnel 8765
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tailscale-funnel
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+# Drop Ceiling - Light Controller Service
+# Receives OSC tracking data and controls LED panels via Art-Net
+#
+# Install: sudo cp light-controller.service /etc/systemd/system/
+# Enable:  sudo systemctl enable light-controller
+# Start:   sudo systemctl start light-controller
+# Logs:    journalctl -u light-controller -f
+
+[Unit]
+Description=Drop Ceiling Light Controller (OSC + Art-Net + WebSocket)
+After=network.target camera-tracker.service
+# Start after camera tracker (so OSC receiver is ready for data)
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dc
+Group=dc
+WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
+
+# Environment setup
+Environment="PATH=/home/nick/Documents/Github/dc-dev/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="DISPLAY=:0"
+Environment="SDL_VIDEODRIVER=x11"
+
+# For pygame/OpenGL on headless systems (optional, uses virtual framebuffer)
+# Environment="SDL_VIDEODRIVER=dummy"
+
+# The command to run
+ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python lightController_osc.py
+
+# Restart policy - always restart on failure
+Restart=always
+RestartSec=5
+
+# Don't restart more than 5 times in 60 seconds (prevents crash loops)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Watchdog - systemd will restart if no keepalive for 120 seconds
+WatchdogSec=120
+
+# Resource limits
+Nice=-5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=light-controller
+
+[Install]
+WantedBy=multi-user.target

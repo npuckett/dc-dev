@@ -95,9 +95,18 @@ function init() {
     // Events
     window.addEventListener('resize', onWindowResize);
     
-    // Check for stored IP or show connect dialog
+    // Check for WebSocket URL in order of priority:
+    // 1. URL parameter (?ws=wss://...)
+    // 2. Stored IP from previous session
+    // 3. Show connect dialog
+    const urlParams = new URLSearchParams(window.location.search);
+    const wsParam = urlParams.get('ws');
     const storedIP = localStorage.getItem('dropceiling_ip');
-    if (storedIP) {
+    
+    if (wsParam) {
+        // URL parameter takes priority (for GitHub Pages with Funnel)
+        connectWebSocket(wsParam);
+    } else if (storedIP) {
         connectWebSocket(storedIP);
     } else {
         showConnectDialog();
@@ -240,8 +249,17 @@ function createTrackzone() {
 // WEBSOCKET CONNECTION
 // =============================================================================
 
-function connectWebSocket(ip) {
-    const url = `ws://${ip}:${CONFIG.WS_PORT}`;
+function connectWebSocket(addressOrUrl) {
+    // Support both full URLs (wss://host:port) and plain IP addresses
+    let url;
+    if (addressOrUrl.startsWith('ws://') || addressOrUrl.startsWith('wss://')) {
+        // Full WebSocket URL provided (e.g., from Tailscale Funnel)
+        url = addressOrUrl;
+    } else {
+        // Plain IP address - construct ws:// URL
+        url = `ws://${addressOrUrl}:${CONFIG.WS_PORT}`;
+    }
+    
     updateStatus('connecting', 'Connecting...');
     
     try {
@@ -265,7 +283,7 @@ function connectWebSocket(ip) {
             updateStatus('error', 'Disconnected');
             console.log('WebSocket disconnected');
             // Attempt to reconnect
-            setTimeout(() => connectWebSocket(ip), CONFIG.RECONNECT_DELAY);
+            setTimeout(() => connectWebSocket(addressOrUrl), CONFIG.RECONNECT_DELAY);
         };
         
         wsConnection.onerror = (error) => {
