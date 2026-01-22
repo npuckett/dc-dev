@@ -17,6 +17,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CALIBRATION_FILE = os.path.join(SCRIPT_DIR, 'camera_calibration.json')
 
 # The Y offset: markers were calibrated at Y=0, but should be at Y=-66
+# Standard convention: positive Y = UP, so street (below floor) = -66
 STREET_LEVEL_Y = -66.0
 
 def adjust_calibration():

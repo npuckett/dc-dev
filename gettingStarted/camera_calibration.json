@@ -14,13 +14,13 @@
       ],
       "tvec": [
         [
-          -8.271782423081207
+          -19.96662565576115
         ],
         [
-          -104.77949752667223
+          -99.24859653022118
         ],
         [
-          -38.7823880470258
+          -41.31233881314605
         ]
       ],
       "camera_matrix": [
@@ -66,13 +66,13 @@
       ],
       "tvec": [
         [
-          4.733811749897546
+          19.11496734979797
         ],
         [
-          -55.45193204203457
+          -51.48275933482739
         ],
         [
-          187.6152167117355
+          185.94403732397072
         ]
       ],
       "camera_matrix": [
@@ -109,5 +109,9 @@
   "synth_height": 600,
   "cm_per_pixel": 1.0,
   "calibration_type": "3d_pose",
-  "units": "centimeters"
+  "units": "centimeters",
+  "street_level_y": -66.0,
+  "adjusted_for_street_level": true,
+  "height_corrected": true,
+  "camera_height_above_street": 50.0
 }

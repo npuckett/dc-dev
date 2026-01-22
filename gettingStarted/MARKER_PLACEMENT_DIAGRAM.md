@@ -15,6 +15,7 @@
 | **2** | Right front - on Z=90 tile line, right seam | X = 280, Y = 0, Z = 90 | Cam 2 |
 | **3** | Left back - one tile further from marker 0 | X = -40, Y = 0, Z = 141 | Cam 1 |
 | **4** | Right back - one tile further from marker 2 | X = 280, Y = 0, Z = 141 | Cam 2 |
+| **5** | Subway wall - vertical, passive zone edge | X = 120, Y = -16, Z = 550 | Both |
 
 ## Top-Down View (X-Z Plane)
 
@@ -42,7 +43,12 @@
     │    │                                         │
     │    └─────────────────────────────────────────┘
     │                    SNOW LINE
-    │
+    │                        :
+    │                        :  (passive zone)
+    │                        :
+ 550┤════════════════════════[5]═══════════════════════  ← SUBWAY WALL (marker vertical)
+    │                      (120)
+    │                  ▼ stairs down ▼
 ────┼──────────────────────────────────────────────────►  X (cm)
         -40      0      60     120     180    240    280
          │              │       │              │      │
@@ -83,18 +89,23 @@
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## Side View (looking from left, X-Z plane at Y=0)
+## Side View (looking from left, Y-Z plane at X=120)
 
 ```
-         PANELS                   FRONT ROW              BACK ROW
-           │                         │                      │
-           │                         │                      │
-           ▼                         ▼                      ▼
-    ═══════════════════─────────[0][1][2]─────────────[3]──[4]────
-           │                                                      
-         Z = 0                    Z = 90                 Z = 141   
-                                                                   
-                              51 cm tile                51 cm tile
+     Y (height, cm)
+     ▲
+     │
+     │                                                              ┌───┐
+ -16─┤  ◉ cameras                                                   │ 5 │ ← VERTICAL
+     │                                                              │   │   on subway wall
+     │                                                              └───┘
+     │                                                                │
+     │                                                                │
+ -66─┤═════════════[0][1][2]═══════════════[3]══[4]═══════════════════╧════
+     │    street      │           │           │                       │
+     │              Z=90        Z=141                               Z=550
+     │                                                          (subway wall)
+     ▼
 ```
 
 ## Placement Instructions
@@ -102,6 +113,7 @@
 ### Step 1: Identify Tile Lines
 - **Front row**: Z = 90 cm from panels
 - **Back row**: Z = 141 cm from panels (one 51cm tile further)
+- **Far row**: Z = 550 cm from panels (sidewalk/passive zone edge)
 
 ### Step 2: Place Front Row (Z = 90)
 - **Marker 0** at X = -40 cm (left tile seam)
@@ -111,6 +123,9 @@
 ### Step 3: Place Back Row (Z = 141)
 - **Marker 3** at X = -40 cm (directly behind marker 0)
 - **Marker 4** at X = 280 cm (directly behind marker 2)
+
+### Step 4: Mount Vertical Marker (Z = 550)
+- **Marker 5** at X = 120 cm, Y = -16 cm (camera height), mounted **vertically** on subway entrance wall
 
 ### Placement Tips
 1. **Lay markers flat** on the ground, face up toward cameras
@@ -138,11 +153,13 @@ Camera 1 (Left Side):
   [ ] Marker 0 @ (-40, 0, 90) detected
   [ ] Marker 1 @ (120, 0, 90) SHARED detected
   [ ] Marker 3 @ (-40, 0, 141) detected
+  [ ] Marker 5 @ (120, 0, 550) FAR detected
   [ ] 3D pose computed successfully
 
 Camera 2 (Right Side):
   [ ] Marker 1 @ (120, 0, 90) SHARED detected
   [ ] Marker 2 @ (280, 0, 90) detected
   [ ] Marker 4 @ (280, 0, 141) detected
+  [ ] Marker 5 @ (120, 0, 550) FAR detected
   [ ] 3D pose computed successfully
 ```

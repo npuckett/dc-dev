@@ -14,6 +14,7 @@ Controls:
 - W/S: Move light in Z
 - P: Toggle simulated person
 - Space: Toggle wandering
+- M: Toggle calibration markers
 - Mouse drag (in 3D view): Rotate camera
 - Scroll: Zoom
 - Q/ESC: Quit
@@ -27,6 +28,7 @@ import os
 import math
 import time
 import random
+import socket
 import threading
 from dataclasses import dataclass, field
 from typing import Tuple, Dict, List, Optional
@@ -39,6 +41,15 @@ from OpenGL.GLU import *
 
 # OSC
 from pythonosc import dispatcher, osc_server
+
+# Tracking database
+from tracking_database import TrackingDatabase
+
+# Behavior system
+from light_behavior import (
+    BehaviorSystem, BehaviorMode, MetaParameters, GestureType,
+    PRESETS, load_preset
+)
 
 # Try to import Art-Net library
 try:
@@ -115,6 +126,7 @@ PASSIVE_TRACKZONE = {
 
 # Street level Y coordinate (where tracked people are placed)
 STREET_LEVEL_Y = -66
+CAMERA_LEDGE_Y = -16  # Cameras are 50cm above street (16cm below floor)
 
 # Wander box (cm)
 WANDER_BOX = {
@@ -122,6 +134,28 @@ WANDER_BOX = {
     'min_y': 0, 'max_y': 150,
     'min_z': -32, 'max_z': 28,
 }
+
+# =============================================================================
+# CALIBRATION MARKERS
+# =============================================================================
+
+MARKER_SIZE = 15  # cm - ArUco marker size
+
+# Marker positions: (X, Y, Z) in centimeters
+MARKER_POSITIONS = {
+    0: {'pos': (-40, STREET_LEVEL_Y, 90), 'desc': 'Left front', 'camera': 'Cam 1', 'vertical': False},
+    1: {'pos': (120, STREET_LEVEL_Y, 90), 'desc': 'Center front (SHARED)', 'camera': 'Both', 'vertical': False},
+    2: {'pos': (280, STREET_LEVEL_Y, 90), 'desc': 'Right front', 'camera': 'Cam 2', 'vertical': False},
+    3: {'pos': (-40, STREET_LEVEL_Y, 141), 'desc': 'Left back', 'camera': 'Cam 1', 'vertical': False},
+    4: {'pos': (280, STREET_LEVEL_Y, 141), 'desc': 'Right back', 'camera': 'Cam 2', 'vertical': False},
+    5: {'pos': (120, CAMERA_LEDGE_Y, 550), 'desc': 'Subway wall (VERTICAL)', 'camera': 'Both', 'vertical': True},
+}
+
+# Marker image path (relative to workspace root)
+MARKER_IMAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'marker_{}.png')
+
+# Toggle for marker visibility
+SHOW_MARKERS = True
 
 
 # =============================================================================
@@ -136,9 +170,17 @@ class TrackedPerson:
     z: float  # World Z position (cm)
     y: float = STREET_LEVEL_Y  # Fixed at street level
     last_update: float = 0.0
+    first_seen: float = 0.0  # When first tracked
+    zone: str = "unknown"  # "active", "passive", or "unknown"
     
     def get_position(self) -> np.ndarray:
         return np.array([self.x, self.y, self.z])
+    
+    def is_in_active_zone(self) -> bool:
+        return self.zone == "active"
+    
+    def is_in_passive_zone(self) -> bool:
+        return self.zone == "passive"
 
 
 class TrackedPersonManager:
@@ -156,6 +198,38 @@ class TrackedPersonManager:
         self.scale_x = 1.0
         self.scale_y = 1.0
         self.scale_z = 1.0
+        
+        # Zone boundaries
+        self.active_zone = {
+            'x_min': TRACKZONE['center_x'] - TRACKZONE['width']/2,
+            'x_max': TRACKZONE['center_x'] + TRACKZONE['width']/2,
+            'z_min': TRACKZONE['offset_z'],
+            'z_max': TRACKZONE['offset_z'] + TRACKZONE['depth'],
+        }
+        self.passive_zone = {
+            'x_min': PASSIVE_TRACKZONE['center_x'] - PASSIVE_TRACKZONE['width']/2,
+            'x_max': PASSIVE_TRACKZONE['center_x'] + PASSIVE_TRACKZONE['width']/2,
+            'z_min': PASSIVE_TRACKZONE['offset_z'],
+            'z_max': PASSIVE_TRACKZONE['offset_z'] + PASSIVE_TRACKZONE['depth'],
+        }
+        
+        # Callbacks for behavior system
+        self.on_person_entered = None
+        self.on_person_left = None
+        self.on_position_updated = None
+    
+    def _get_zone(self, x: float, z: float) -> str:
+        """Determine which zone a position is in"""
+        az = self.active_zone
+        pz = self.passive_zone
+        
+        if (az['x_min'] <= x <= az['x_max'] and 
+            az['z_min'] <= z <= az['z_max']):
+            return "active"
+        elif (pz['x_min'] <= x <= pz['x_max'] and 
+              pz['z_min'] <= z <= pz['z_max']):
+            return "passive"
+        return "unknown"
     
     def update_person(self, track_id: int, raw_x: float, raw_z: float):
         """Update or add a tracked person with calibration applied"""
@@ -164,18 +238,36 @@ class TrackedPersonManager:
         z = raw_z * self.scale_z + self.offset_z
         y = STREET_LEVEL_Y * self.scale_y + self.offset_y
         
+        zone = self._get_zone(x, z)
+        now = time.time()
+        
         with self.lock:
-            if track_id in self.people:
-                self.people[track_id].x = x
-                self.people[track_id].z = z
-                self.people[track_id].y = y
-                self.people[track_id].last_update = time.time()
-            else:
+            is_new = track_id not in self.people
+            
+            if is_new:
                 self.people[track_id] = TrackedPerson(
                     track_id=track_id,
                     x=x, z=z, y=y,
-                    last_update=time.time()
+                    last_update=now,
+                    first_seen=now,
+                    zone=zone
                 )
+                # Notify behavior system
+                if self.on_person_entered:
+                    pos = np.array([x, y, z])
+                    is_active = zone == "active"
+                    self.on_person_entered(track_id, pos, is_active)
+            else:
+                self.people[track_id].x = x
+                self.people[track_id].z = z
+                self.people[track_id].y = y
+                self.people[track_id].zone = zone
+                self.people[track_id].last_update = now
+                
+                # Notify position update
+                if self.on_position_updated:
+                    pos = np.array([x, y, z])
+                    self.on_position_updated(track_id, pos)
     
     def cleanup_stale(self):
         """Remove people who haven't been updated recently"""
@@ -185,6 +277,8 @@ class TrackedPersonManager:
                         if now - p.last_update > self.timeout]
             for pid in stale_ids:
                 del self.people[pid]
+                if self.on_person_left:
+                    self.on_person_left(pid)
     
     def get_all(self) -> List[TrackedPerson]:
         """Get list of all tracked people"""
@@ -195,6 +289,21 @@ class TrackedPersonManager:
         """Get count of tracked people"""
         with self.lock:
             return len(self.people)
+    
+    def count_active(self) -> int:
+        """Count people in active zone"""
+        with self.lock:
+            return sum(1 for p in self.people.values() if p.is_in_active_zone())
+    
+    def count_passive(self) -> int:
+        """Count people in passive zone"""
+        with self.lock:
+            return sum(1 for p in self.people.values() if p.is_in_passive_zone())
+    
+    def get_active_positions(self) -> List[np.ndarray]:
+        """Get positions of people in active zone"""
+        with self.lock:
+            return [p.get_position() for p in self.people.values() if p.is_in_active_zone()]
 
 
 # =============================================================================
@@ -204,9 +313,12 @@ class TrackedPersonManager:
 class OSCHandler:
     """Handles incoming OSC messages"""
     
-    def __init__(self, manager: TrackedPersonManager):
+    def __init__(self, manager: TrackedPersonManager, database: TrackingDatabase = None):
         self.manager = manager
+        self.database = database
         self.last_count = 0
+        self.message_count = 0
+        self.last_debug_time = time.time()
     
     def handle_person(self, address: str, *args):
         """Handle /tracker/person/<id> messages"""
@@ -218,6 +330,18 @@ class OSCHandler:
             if len(args) >= 2:
                 x, z = float(args[0]), float(args[1])
                 self.manager.update_person(track_id, x, z)
+                
+                # Record to database
+                if self.database:
+                    self.database.record_position(track_id, x, z)
+                
+                # Debug output every 2 seconds
+                self.message_count += 1
+                now = time.time()
+                if now - self.last_debug_time > 2.0:
+                    print(f"📥 OSC: {self.message_count} messages, latest: person {track_id} at ({x:.0f}, {z:.0f})")
+                    self.last_debug_time = now
+                    self.message_count = 0
         except (ValueError, IndexError) as e:
             print(f"OSC parse error: {e}")
     
@@ -309,6 +433,11 @@ class WanderBehavior:
         self.wander_timer = 0
         self.wander_interval = 3.0
         self.enabled = True
+        
+        # For behavior system integration
+        self.follow_target = None
+        self.follow_smoothing = 0.05
+        self.gesture_target = None
     
     def _random_point(self) -> np.ndarray:
         return np.array([
@@ -317,10 +446,62 @@ class WanderBehavior:
             random.uniform(self.wander_box['min_z'], self.wander_box['max_z']),
         ])
     
+    def update_wander_box(self, new_box: dict):
+        """Update wander box (called by behavior system)"""
+        self.wander_box = new_box
+    
+    def set_follow_target(self, target: np.ndarray, smoothing: float = 0.05):
+        """Set a target to follow (from behavior system)"""
+        self.follow_target = target
+        self.follow_smoothing = smoothing
+    
+    def clear_follow_target(self):
+        """Clear follow target, return to wandering"""
+        self.follow_target = None
+    
+    def set_gesture_target(self, target: np.ndarray):
+        """Set a gesture target (overrides other movement)"""
+        self.gesture_target = target
+    
+    def clear_gesture_target(self):
+        """Clear gesture target"""
+        self.gesture_target = None
+    
     def update(self, dt: float):
         if not self.enabled:
             return
         
+        # Gesture target takes priority
+        if self.gesture_target is not None:
+            self.light.target_position = self.gesture_target.copy()
+            return
+        
+        # Following takes priority over wandering
+        if self.follow_target is not None:
+            # Smooth follow - interpolate toward target
+            current = self.light.target_position
+            diff = self.follow_target - current
+            
+            # Apply smoothing (lower = smoother)
+            smooth_factor = 1.0 - math.pow(1.0 - self.follow_smoothing, dt * 60)
+            self.light.target_position = current + diff * smooth_factor
+            
+            # Clamp to wander box (keep within bounds)
+            self.light.target_position[0] = np.clip(
+                self.light.target_position[0],
+                self.wander_box['min_x'], self.wander_box['max_x']
+            )
+            self.light.target_position[1] = np.clip(
+                self.light.target_position[1],
+                self.wander_box['min_y'], self.wander_box['max_y']
+            )
+            self.light.target_position[2] = np.clip(
+                self.light.target_position[2],
+                self.wander_box['min_z'], self.wander_box['max_z']
+            )
+            return
+        
+        # Default: wander randomly
         self.wander_timer += dt
         dist = np.linalg.norm(self.light.position - self.wander_target)
         
@@ -472,14 +653,16 @@ def draw_tracked_person(person: TrackedPerson):
     # Note: Text rendering in 3D would need billboarding, skip for now
 
 
-def draw_floor(y_level, color, size=400):
-    """Draw a floor plane"""
+def draw_floor(y_level, color, z_max=None):
+    """Draw a floor plane. z_max limits depth (defaults to full size)"""
     glColor4f(*color)
+    # Floor extends from X=-100 to X=400, Z=-200 to z_max
+    z_back = z_max if z_max is not None else 400
     glBegin(GL_QUADS)
     glVertex3f(-100, y_level, -200)
     glVertex3f(400, y_level, -200)
-    glVertex3f(400, y_level, 400)
-    glVertex3f(-100, y_level, 400)
+    glVertex3f(400, y_level, z_back)
+    glVertex3f(-100, y_level, z_back)
     glEnd()
 
 
@@ -490,6 +673,109 @@ def draw_text(x, y, text, font, color=(255, 255, 255)):
     glWindowPos2d(x, y)
     glDrawPixels(text_surface.get_width(), text_surface.get_height(),
                  GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+
+
+# =============================================================================
+# CALIBRATION MARKER RENDERING
+# =============================================================================
+
+def load_marker_textures() -> Dict[int, int]:
+    """Load marker PNG files as OpenGL textures"""
+    textures = {}
+    
+    for marker_id in MARKER_POSITIONS.keys():
+        image_path = MARKER_IMAGE_PATH.format(marker_id)
+        if os.path.exists(image_path):
+            try:
+                surface = pygame.image.load(image_path)
+                texture_data = pygame.image.tostring(surface, "RGBA", True)
+                width, height = surface.get_size()
+                
+                texture_id = glGenTextures(1)
+                glBindTexture(GL_TEXTURE_2D, texture_id)
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, 
+                            GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                
+                textures[marker_id] = texture_id
+                print(f"Loaded marker {marker_id} texture")
+            except Exception as e:
+                print(f"Failed to load marker {marker_id}: {e}")
+        else:
+            print(f"Marker image not found: {image_path}")
+    
+    return textures
+
+
+def draw_marker(marker_id: int, position: Tuple[float, float, float], size: float,
+                texture_id: Optional[int], vertical: bool = False):
+    """
+    Draw a calibration marker as a textured plane.
+    If vertical=False: lies flat on floor facing upward
+    If vertical=True: stands upright facing outward (toward positive Z / street)
+    """
+    x, y, z = position
+    half = size / 2
+    
+    glPushMatrix()
+    glTranslatef(x, y, z)
+    
+    if vertical:
+        # Vertical marker: stands upright, facing outward toward street
+        glTranslatef(0, 0, 0.5)
+    else:
+        # Horizontal marker: lies flat on floor, facing up
+        glTranslatef(0, 0.5, 0)
+        glRotatef(-90, 1, 0, 0)
+    
+    if texture_id is not None:
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glColor4f(1, 1, 1, 1)
+        
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 0); glVertex3f(-half, -half, 0)
+        glTexCoord2f(1, 0); glVertex3f(half, -half, 0)
+        glTexCoord2f(1, 1); glVertex3f(half, half, 0)
+        glTexCoord2f(0, 1); glVertex3f(-half, half, 0)
+        glEnd()
+        
+        glDisable(GL_TEXTURE_2D)
+    else:
+        glColor4f(1, 1, 1, 0.9)
+        glBegin(GL_QUADS)
+        glVertex3f(-half, -half, 0)
+        glVertex3f(half, -half, 0)
+        glVertex3f(half, half, 0)
+        glVertex3f(-half, half, 0)
+        glEnd()
+    
+    # Draw border
+    glColor4f(0, 0, 0, 1)
+    glLineWidth(2)
+    glBegin(GL_LINE_LOOP)
+    glVertex3f(-half, -half, 0.1)
+    glVertex3f(half, -half, 0.1)
+    glVertex3f(half, half, 0.1)
+    glVertex3f(-half, half, 0.1)
+    glEnd()
+    
+    glPopMatrix()
+    
+    # Draw marker ID indicator
+    glPushMatrix()
+    if vertical:
+        glTranslatef(x, y + half + 5, z)
+    else:
+        glTranslatef(x, y + 5, z)
+    
+    glColor4f(1, 1, 0, 1)  # Yellow
+    quadric = gluNewQuadric()
+    gluSphere(quadric, 2, 8, 8)
+    gluDeleteQuadric(quadric)
+    
+    glPopMatrix()
 
 
 # =============================================================================
@@ -587,6 +873,10 @@ def main():
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     glClearColor(0.1, 0.1, 0.15, 1.0)
     
+    # Load marker textures
+    marker_textures = load_marker_textures()
+    show_markers = SHOW_MARKERS
+    
     # Camera
     cam_rot_x = 20
     cam_rot_y = -30
@@ -606,14 +896,40 @@ def main():
     # Tracked person manager
     tracked_manager = TrackedPersonManager()
     
+    # Tracking database
+    tracking_db = TrackingDatabase("tracking_history.db")
+    print(f"💾 Tracking database: tracking_history.db")
+    
+    # Behavior system with default personality
+    meta_params = MetaParameters()
+    behavior = BehaviorSystem(meta=meta_params, database=tracking_db)
+    print(f"🧠 Behavior system initialized")
+    
+    # Connect tracked manager callbacks to behavior system
+    tracked_manager.on_person_entered = behavior.on_person_entered
+    tracked_manager.on_person_left = behavior.on_person_left
+    tracked_manager.on_position_updated = behavior.update_person_position
+    
+    # For periodic stats refresh
+    last_stats_update = time.time()
+    db_stats = {'people_last_minute': 0, 'avg_speed': 0, 'flow_left_to_right': 0, 
+                'flow_right_to_left': 0, 'active_events': 0, 'passive_events': 0}
+    
     # OSC setup
-    osc_handler = OSCHandler(tracked_manager)
+    osc_handler = OSCHandler(tracked_manager, tracking_db)
     osc_dispatcher = dispatcher.Dispatcher()
     osc_dispatcher.map("/tracker/person/*", osc_handler.handle_person)
     osc_dispatcher.map("/tracker/count", osc_handler.handle_count)
     
+    # Create OSC server with SO_REUSEADDR for reliability
     osc_server_instance = osc_server.ThreadingOSCUDPServer(
         (OSC_IP, OSC_PORT), osc_dispatcher
+    )
+    # Allow socket reuse (helps when restarting quickly)
+    osc_server_instance.socket.setsockopt(
+        socket.SOL_SOCKET, 
+        socket.SO_REUSEADDR, 
+        1
     )
     osc_thread = threading.Thread(target=osc_server_instance.serve_forever, daemon=True)
     osc_thread.start()
@@ -622,22 +938,37 @@ def main():
     # Create sliders
     slider_x = view_width + 20
     slider_w = gui_width - 40
-    slider_h = 15
+    slider_h = 12
     
-    # Calibration sliders
+    # Calibration sliders (top section)
     sliders = {
         # Offset sliders
-        'offset_x': Slider(slider_x, 700, slider_w, slider_h, -200, 200, 0, "Offset X (cm)"),
-        'offset_y': Slider(slider_x, 650, slider_w, slider_h, -100, 100, 0, "Offset Y (cm)"),
-        'offset_z': Slider(slider_x, 600, slider_w, slider_h, 0, 500, 250, "Offset Z (cm)"),
+        'offset_x': Slider(slider_x, 700, slider_w, slider_h, -200, 200, 0, "Offset X"),
+        'offset_z': Slider(slider_x, 660, slider_w, slider_h, 0, 500, 250, "Offset Z"),
         # Scale sliders
-        'scale_x': Slider(slider_x, 530, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale X", "{:.2f}"),
-        'scale_y': Slider(slider_x, 480, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale Y", "{:.2f}"),
-        'scale_z': Slider(slider_x, 430, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale Z", "{:.2f}"),
-        # Light sliders (existing)
-        'falloff_radius': Slider(slider_x, 360, slider_w, slider_h, 1, 200, light.falloff_radius, "Falloff Radius"),
-        'brightness_max': Slider(slider_x, 310, slider_w, slider_h, 1, 50, light.brightness_max, "Brightness Max"),
+        'scale_x': Slider(slider_x, 610, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale X", "{:.2f}"),
+        'scale_z': Slider(slider_x, 570, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale Z", "{:.2f}"),
     }
+    
+    # Personality sliders (middle section)
+    personality_sliders = {
+        'responsiveness': Slider(slider_x, 500, slider_w, slider_h, 0, 1, 0.5, "Responsiveness", "{:.2f}"),
+        'energy': Slider(slider_x, 460, slider_w, slider_h, 0, 1, 0.5, "Energy", "{:.2f}"),
+        'attention_span': Slider(slider_x, 420, slider_w, slider_h, 0, 1, 0.5, "Attention", "{:.2f}"),
+        'sociability': Slider(slider_x, 380, slider_w, slider_h, 0, 1, 0.5, "Sociability", "{:.2f}"),
+        'exploration': Slider(slider_x, 340, slider_w, slider_h, 0, 1, 0.5, "Exploration", "{:.2f}"),
+        'memory': Slider(slider_x, 300, slider_w, slider_h, 0, 1, 0.5, "Memory", "{:.2f}"),
+    }
+    
+    # Global multiplier sliders (lower section)
+    global_sliders = {
+        'brightness_global': Slider(slider_x, 240, slider_w, slider_h, 0.2, 2.0, 1.0, "Brightness ×", "{:.2f}"),
+        'speed_global': Slider(slider_x, 200, slider_w, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}"),
+        'pulse_global': Slider(slider_x, 160, slider_w, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}"),
+    }
+    
+    # Combine all sliders
+    all_sliders = {**sliders, **personality_sliders, **global_sliders}
     
     # Art-Net
     artnet = None
@@ -655,6 +986,10 @@ def main():
     last_mouse = (0, 0)
     slider_active = False
     
+    # Current preset name
+    current_preset = "default"
+    preset_names = list(PRESETS.keys())
+
     running = True
     while running:
         # Events
@@ -662,22 +997,22 @@ def main():
             if event.type == QUIT:
                 running = False
             
-            # Check sliders first
-            for name, slider in sliders.items():
+            # Check all sliders
+            for name, slider in all_sliders.items():
                 if slider.handle_event(event, display[1]):
                     slider_active = True
                     # Update calibration values
-                    if name.startswith('offset_') or name.startswith('scale_'):
+                    if name in ('offset_x', 'offset_z', 'scale_x', 'scale_z'):
                         tracked_manager.offset_x = sliders['offset_x'].value
-                        tracked_manager.offset_y = sliders['offset_y'].value
                         tracked_manager.offset_z = sliders['offset_z'].value
                         tracked_manager.scale_x = sliders['scale_x'].value
-                        tracked_manager.scale_y = sliders['scale_y'].value
                         tracked_manager.scale_z = sliders['scale_z'].value
-                    elif name == 'falloff_radius':
-                        light.falloff_radius = slider.value
-                    elif name == 'brightness_max':
-                        light.brightness_max = int(slider.value)
+                    # Update personality values
+                    elif name in personality_sliders:
+                        setattr(meta_params, name, slider.value)
+                    # Update global multipliers
+                    elif name in global_sliders:
+                        setattr(meta_params, name, slider.value)
             
             if event.type == MOUSEBUTTONUP:
                 slider_active = False
@@ -687,6 +1022,22 @@ def main():
                     running = False
                 elif event.key == K_SPACE:
                     wander.enabled = not wander.enabled
+                elif event.key == K_m:
+                    show_markers = not show_markers
+                    print(f"Markers {'visible' if show_markers else 'hidden'}")
+                elif event.key == K_p:
+                    # Cycle through presets
+                    idx = preset_names.index(current_preset)
+                    idx = (idx + 1) % len(preset_names)
+                    current_preset = preset_names[idx]
+                    meta_params = load_preset(current_preset)
+                    behavior.meta = meta_params
+                    # Update sliders to match preset
+                    for name, slider in personality_sliders.items():
+                        slider.value = getattr(meta_params, name)
+                    for name, slider in global_sliders.items():
+                        slider.value = getattr(meta_params, name)
+                    print(f"🎭 Preset: {current_preset}")
             
             # Camera rotation (only in 3D view area)
             if event.type == MOUSEBUTTONDOWN and event.button == 1:
@@ -730,12 +1081,70 @@ def main():
         dt = min(now - last_time, 0.1)
         last_time = now
         
+        # Cleanup stale tracked people
+        tracked_manager.cleanup_stale()
+        
+        # Get zone counts
+        active_count = tracked_manager.count_active()
+        passive_count = tracked_manager.count_passive()
+        
+        # Get flow balance from database stats
+        ltr = db_stats.get('flow_left_to_right', 0)
+        rtl = db_stats.get('flow_right_to_left', 0)
+        total_flow = ltr + rtl
+        flow_balance = (ltr - rtl) / total_flow if total_flow > 0 else 0.0
+        
+        # Calculate passive rate (people per minute)
+        passive_rate = db_stats.get('passive_events', 0) / 60.0  # Rough estimate
+        
+        # Update behavior system
+        current_pos = tuple(light.position)
+        behavior_params = behavior.update(
+            dt=dt,
+            active_count=active_count,
+            passive_count=passive_count,
+            current_pos=current_pos,
+            passive_rate=passive_rate,
+            flow_balance=flow_balance
+        )
+        
+        # Apply behavior parameters to light
+        light.brightness_min = int(behavior_params.get('brightness_min', 5))
+        light.brightness_max = int(behavior_params.get('brightness_max', 30))
+        light.pulse_speed = behavior_params.get('pulse_speed', 2000)
+        light.move_speed = behavior_params.get('move_speed', 50)
+        light.falloff_radius = behavior_params.get('falloff_radius', 50)
+        
+        # Update wander behavior based on behavior system
+        wander.update_wander_box(behavior.get_wander_box())
+        wander.wander_interval = behavior_params.get('wander_interval', 3.0)
+        
+        # Handle follow target from behavior system
+        if behavior.should_wander():
+            wander.clear_follow_target()
+        else:
+            follow_target = behavior.get_follow_target(active_count)
+            if follow_target is not None:
+                # Map person position to light position (constrain to wander box)
+                target_y = np.clip(follow_target[1] + 120, 0, 150)  # Offset upward
+                target_z = np.clip(0, -32, 28)  # Keep in wander box Z
+                light_target = np.array([follow_target[0], target_y, target_z])
+                smoothing = behavior_params.get('follow_smoothing', 0.05)
+                wander.set_follow_target(light_target, smoothing)
+            else:
+                wander.clear_follow_target()
+        
+        # Handle gesture target
+        gesture_target = behavior.get_gesture_target()
+        if gesture_target is not None:
+            wander.set_gesture_target(gesture_target)
+        else:
+            wander.clear_gesture_target()
+        
+        # Update wander and light
         wander.update(dt)
         light.update(dt)
         panel_system.calculate_brightness(light)
-        
-        # Cleanup stale tracked people
-        tracked_manager.cleanup_stale()
         
         # Send Art-Net
         if artnet:
@@ -760,9 +1169,9 @@ def main():
         
         gluLookAt(cam_x, cam_y, cam_z, *cam_target, 0, 1, 0)
         
-        # Draw floors
-        draw_floor(STREET_LEVEL_Y, (0.2, 0.2, 0.25, 0.5))  # Street level
-        draw_floor(0, (0.25, 0.25, 0.3, 0.5))  # Storefront level
+        # Draw floor - only storefront level, stopping at front of active zone
+        active_zone_front = TRACKZONE['offset_z'] + TRACKZONE['depth']
+        draw_floor(0, (0.25, 0.25, 0.3, 0.5), z_max=active_zone_front)
         
         # Draw trackzone (active - cyan)
         tz = TRACKZONE
@@ -782,14 +1191,22 @@ def main():
         )
         draw_box_wireframe(ptz_bounds, (1, 0.6, 0, 0.4))
         
-        # Draw wander box
-        wb = wander_box
+        # Draw wander box (from behavior system)
+        wb = behavior.get_wander_box()
         wb_bounds = (wb['min_x'], wb['max_x'], wb['min_y'], wb['max_y'], wb['min_z'], wb['max_z'])
         draw_box_wireframe(wb_bounds, (0, 1, 0, 0.3))
         
         # Draw panels
         for (unit, panel_num), panel in panel_system.panels.items():
             draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
+        
+        # Draw calibration markers
+        if show_markers:
+            for marker_id, marker_data in MARKER_POSITIONS.items():
+                pos = marker_data['pos']
+                tex_id = marker_textures.get(marker_id)
+                is_vertical = marker_data.get('vertical', False)
+                draw_marker(marker_id, pos, MARKER_SIZE, tex_id, vertical=is_vertical)
         
         # Draw light
         brightness = light.get_brightness()
@@ -830,46 +1247,85 @@ def main():
         glEnd()
         
         # GUI title
-        draw_text(view_width + 20, display[1] - 30, "CALIBRATION", font)
+        draw_text(view_width + 20, display[1] - 30, "LIGHT BEHAVIOR CONTROL", font)
         draw_text(view_width + 20, display[1] - 50, "─" * 24, font)
         
         # Section labels
-        draw_text(view_width + 20, 740, "Position Offsets:", font_small)
-        draw_text(view_width + 20, 565, "Position Scales:", font_small)
-        draw_text(view_width + 20, 395, "Light Settings:", font_small)
+        draw_text(view_width + 20, 740, "Calibration:", font_small, (150, 150, 200))
+        draw_text(view_width + 20, 540, "Personality:", font_small, (150, 200, 150))
+        draw_text(view_width + 20, 275, "Global Multipliers:", font_small, (200, 150, 150))
         
-        # Draw sliders
-        for slider in sliders.values():
+        # Draw all sliders
+        for slider in all_sliders.values():
             slider.draw(font_small)
         
-        # Status info
-        tracked_count = tracked_manager.count()
-        draw_text(view_width + 20, 250, f"Tracked People: {tracked_count}", font)
-        draw_text(view_width + 20, 230, f"OSC Port: {OSC_PORT}", font_small)
-        draw_text(view_width + 20, 210, f"Wander: {'ON' if wander.enabled else 'OFF'}", font_small)
+        # Update database stats periodically (every 2 seconds)
+        if time.time() - last_stats_update > 2.0:
+            db_stats = tracking_db.get_current_stats()
+            last_stats_update = time.time()
         
-        # Show tracked person positions
-        draw_text(view_width + 20, 180, "Tracked Positions:", font_small)
-        y_pos = 160
-        for person in tracked_manager.get_all()[:5]:  # Show max 5
-            draw_text(view_width + 20, y_pos, 
-                     f"  ID {person.track_id}: ({person.x:.0f}, {person.z:.0f})", font_small)
-            y_pos -= 18
+        # Behavior status section
+        behavior_status = behavior.get_status()
+        draw_text(view_width + 20, 125, "─" * 20, font_small)
+        draw_text(view_width + 20, 110, "BEHAVIOR STATUS:", font_small, (255, 200, 100))
         
-        # Controls help
-        draw_text(view_width + 20, 60, "KEYS:", font_small)
-        draw_text(view_width + 20, 40, "SPACE = toggle wander", font_small)
-        draw_text(view_width + 20, 20, "Q/ESC = quit", font_small)
+        # Mode and preset
+        mode_colors = {
+            'idle': (100, 100, 200),
+            'engaged': (100, 200, 100),
+            'crowd': (200, 200, 100),
+            'flow': (200, 150, 100),
+        }
+        mode_color = mode_colors.get(behavior_status['mode'], (200, 200, 200))
+        draw_text(view_width + 20, 92, f"  Mode: {behavior_status['mode'].upper()}", font_small, mode_color)
+        draw_text(view_width + 20, 76, f"  Preset: {current_preset}", font_small)
+        draw_text(view_width + 20, 60, f"  Time: {behavior_status['time_of_day']}", font_small)
+        
+        # Status text (for public display)
+        if behavior_status['status_text']:
+            draw_text(view_width + 20, 42, f"  \"{behavior_status['status_text']}\"", font_small, (200, 200, 255))
+        
+        # Controls help at bottom
+        draw_text(view_width + 20, 20, "SPACE=wander  M=markers  P=preset  Q=quit", font_small, (120, 120, 120))
+        
+        # Marker legend in 3D view area
+        if show_markers:
+            draw_text(10, 140, "CALIBRATION MARKERS:", font_small, (255, 255, 0))
+            y_offset = 120
+            for marker_id, marker_data in MARKER_POSITIONS.items():
+                pos = marker_data['pos']
+                desc = marker_data['desc']
+                draw_text(10, y_offset, f"  [{marker_id}] ({pos[0]}, {pos[1]}, {pos[2]}) - {desc}", font_small)
+                y_offset -= 16
         
         # HUD text in 3D view
         dmx_vals = panel_system.get_dmx_values()
+        behavior_status = behavior.get_status()
+        
+        # Main HUD (top left)
         info_lines = [
             f"Light: ({light.position[0]:.0f}, {light.position[1]:.0f}, {light.position[2]:.0f}) cm",
             f"DMX: {dmx_vals}",
+            f"Mode: {behavior_status['mode'].upper()}  Active: {active_count}  Passive: {passive_count}",
         ]
         
         for i, line in enumerate(info_lines):
             draw_text(10, display[1] - 20 - i * 20, line, font_small)
+        
+        # Status text overlay (bottom center of 3D view)
+        if behavior_status['status_text'] and meta_params.status_text_enabled:
+            status = behavior_status['status_text']
+            # Draw with a background
+            glColor4f(0.0, 0.0, 0.0, 0.6)
+            status_x = view_width // 2 - 100
+            status_y = 30
+            glBegin(GL_QUADS)
+            glVertex2f(status_x - 10, status_y - 5)
+            glVertex2f(status_x + 220, status_y - 5)
+            glVertex2f(status_x + 220, status_y + 25)
+            glVertex2f(status_x - 10, status_y + 25)
+            glEnd()
+            draw_text(status_x, status_y, f'"{status}"', font, (255, 255, 200))
         
         glEnable(GL_DEPTH_TEST)
         glMatrixMode(GL_PROJECTION)
@@ -881,9 +1337,12 @@ def main():
         clock.tick(FPS)
     
     # Cleanup
+    print("Shutting down...")
     osc_server_instance.shutdown()
     if artnet:
         artnet.stop()
+    tracking_db.close()
+    print("📊 Tracking database saved.")
     pygame.quit()
 
 

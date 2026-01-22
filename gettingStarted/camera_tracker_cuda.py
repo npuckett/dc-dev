@@ -69,9 +69,17 @@ SYNTH_VIEW_WIDTH = 800   # Width of bird's eye view in pixels
 SYNTH_VIEW_HEIGHT = 600  # Height of bird's eye view
 SYNTH_CM_PER_PIXEL = 1.0  # 1cm per pixel = 8m x 6m coverage (good for storefront)
 
-# Street level relative to storefront floor (cm)
-# The street is 66 cm below the storefront floor level
-STREET_LEVEL_Y = -66.0
+# Height/Y coordinate system (positive Y = UP, negative Y = DOWN)
+# Reference: Storefront floor = Y=0
+#
+# Physical setup:
+#   - Storefront floor: Y = 0
+#   - Camera ledge: 16 cm below floor → Y = -16 (50 cm above street)
+#   - Street level: 66 cm below floor → Y = -66 (where people walk)
+#
+STREET_LEVEL_Y = -66.0     # Where people walk (66 cm below floor)
+CAMERA_LEDGE_Y = -16.0     # Where cameras are mounted (50 cm above street)
+CAMERA_HEIGHT_ABOVE_STREET = 50.0  # Physical camera mount height
 
 # YOLO settings
 MODEL_NAME = "yolo11n.pt"
@@ -570,13 +578,20 @@ class CalibrationMode:
             # BACK ROW (Z = 141 cm - one tile further out, Y = street level)
             3: (-40.0, STREET_LEVEL_Y, 141.0),    # Left back
             4: (280.0, STREET_LEVEL_Y, 141.0),    # Right back
+            
+            # VERTICAL MARKER on subway entrance wall (facing toward storefront)
+            5: (120.0, CAMERA_LEDGE_Y, 550.0),    # Center, at camera height, on subway wall
         }
+        
+        # Markers that are VERTICAL (facing outward) instead of flat on ground
+        # These need different corner calculations
+        self.vertical_markers = {5}  # Marker 5 is on subway entrance wall
         
         # Define which markers each camera should see
         # This helps validate calibration and guide marker placement
         self.camera_marker_visibility = {
-            'Camera 1': [1, 0, 3],   # Shared marker 1 + left markers 0, 3
-            'Camera 2': [1, 2, 4],   # Shared marker 1 + right markers 2, 4
+            'Camera 1': [1, 0, 3, 5],   # Shared marker 1 + left markers 0, 3 + far 5
+            'Camera 2': [1, 2, 4, 5],   # Shared marker 1 + right markers 2, 4 + far 5
         }
         
         # The shared marker ID that must be visible from all cameras
@@ -588,27 +603,30 @@ class CalibrationMode:
         # Detected markers per camera
         self.detected_markers = {}  # camera_name -> {marker_id: corner_points}
         self.active_camera = 0
+        
+        # Auto-calibration state
+        self.auto_calibrating = False
+        self.auto_calib_step = 0
+        self.auto_calib_messages = []
+        
         self.instructions = [
-            "3D CALIBRATION - LIMITED VISIBILITY MODE",
+            "3D CALIBRATION - 6 MARKER LAYOUT",
             "----------------------------------------",
-            "Each camera sees only 3 markers.",
-            "Marker 1 (center) is SHARED between cameras.",
+            "Floor markers (flat): 0-4 on street level",
+            "Vertical marker: 5 on subway wall (at camera height)",
             "",
-            "Front row (Z=90):  0--1--2",
-            "Back row (Z=141):  3-----4",
+            "Front row (Z=90):   0--1--2  (near panels)",
+            "Back row (Z=141):   3-----4  (one tile back)",
+            "Subway wall (Z=550): ---5--- (vertical, on wall)",
             "",
-            "Camera 1: markers 0, 1, 3 (left side)",
-            "Camera 2: markers 1, 2, 4 (right side)",
+            "Camera 1: markers 0, 1, 3, 5",
+            "Camera 2: markers 1, 2, 4, 5",
             "",
-            "Steps:",
-            "1. Place markers on tile lines",
-            "2. Press 1 to select Camera 1",
-            "3. Press SPACE to detect markers",
-            "4. Press 2 to select Camera 2",
-            "5. Press SPACE to detect markers",
-            "6. Press ENTER to compute pose",
-            "7. Press S to save calibration",
-            "8. Press ESC to exit",
+            ">>> Press A for AUTO-CALIBRATE <<<",
+            "(Detects all cameras and saves)",
+            "",
+            "Manual: SPACE=detect, ENTER=compute, S=save",
+            "Press ESC to exit",
             "",
             f"Marker size: {self.marker_size_cm:.0f} cm",
         ]
@@ -713,17 +731,32 @@ class CalibrationMode:
             wx, wy, wz = world_pos
             
             # Define 4 corners of marker in world coordinates
-            # Markers lie FLAT on the floor (XZ plane) at height Y, facing UP toward cameras
             # ArUco corner order: top-left, top-right, bottom-right, bottom-left
-            # When looking DOWN at marker from above:
-            #   - "top" is toward negative Z (closer to panels)
-            #   - "left" is toward negative X
-            marker_corners_3d = np.array([
-                [wx - half_size, wy, wz - half_size],  # Top-left (toward panels, left)
-                [wx + half_size, wy, wz - half_size],  # Top-right (toward panels, right)
-                [wx + half_size, wy, wz + half_size],  # Bottom-right (away from panels, right)
-                [wx - half_size, wy, wz + half_size],  # Bottom-left (away from panels, left)
-            ], dtype=np.float64)
+            
+            if marker_id in self.vertical_markers:
+                # VERTICAL marker facing outward (toward positive Z / street)
+                # Marker is in XY plane at Z=wz, facing toward street
+                # When looking AT the marker from the street:
+                #   - "top" is toward positive Y (up)
+                #   - "left" is toward negative X
+                marker_corners_3d = np.array([
+                    [wx - half_size, wy + half_size, wz],  # Top-left (up, left)
+                    [wx + half_size, wy + half_size, wz],  # Top-right (up, right)
+                    [wx + half_size, wy - half_size, wz],  # Bottom-right (down, right)
+                    [wx - half_size, wy - half_size, wz],  # Bottom-left (down, left)
+                ], dtype=np.float64)
+            else:
+                # HORIZONTAL marker lying flat on floor (XZ plane)
+                # Markers lie FLAT on the floor at height Y, facing UP toward cameras
+                # When looking DOWN at marker from above:
+                #   - "top" is toward negative Z (closer to panels)
+                #   - "left" is toward negative X
+                marker_corners_3d = np.array([
+                    [wx - half_size, wy, wz - half_size],  # Top-left (toward panels, left)
+                    [wx + half_size, wy, wz - half_size],  # Top-right (toward panels, right)
+                    [wx + half_size, wy, wz + half_size],  # Bottom-right (away from panels, right)
+                    [wx - half_size, wy, wz + half_size],  # Bottom-left (away from panels, left)
+                ], dtype=np.float64)
             
             # corners is 4x2 array of image points
             for j in range(4):
@@ -878,7 +911,117 @@ class CalibrationMode:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1)
             y += 16
         
+        # Show auto-calibration status
+        if self.auto_calibrating:
+            y += 10
+            cv2.putText(panel, "AUTO-CALIBRATING...", (10, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            y += 20
+            for msg in self.auto_calib_messages[-5:]:  # Show last 5 messages
+                cv2.putText(panel, f"  {msg}", (10, y),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+                y += 14
+        
         return panel
+    
+    def run_auto_calibration(self, raw_frames, camera_configs, calibration_manager):
+        """
+        Run automatic calibration for all cameras.
+        
+        Args:
+            raw_frames: dict of camera_name -> current frame
+            camera_configs: list of camera config dicts with 'name' key
+            calibration_manager: CalibrationManager instance to save to
+            
+        Returns:
+            (success, message) tuple
+        """
+        self.auto_calibrating = True
+        self.auto_calib_messages = []
+        results = []
+        
+        print("\n" + "=" * 50)
+        print("🎯 AUTO-CALIBRATION STARTED")
+        print("=" * 50)
+        
+        # Step 1: Detect markers on all cameras
+        self.auto_calib_messages.append("Step 1: Detecting markers on all cameras...")
+        print("\n📍 Step 1: Detecting markers on all cameras...")
+        
+        for cam_idx, cfg in enumerate(camera_configs):
+            cam_name = cfg['name']
+            frame = raw_frames.get(cam_name)
+            
+            if frame is None:
+                msg = f"  ⚠️ {cam_name}: No frame available"
+                self.auto_calib_messages.append(msg)
+                print(msg)
+                continue
+            
+            # Clear previous detections for this camera
+            self.detected_markers[cam_name] = {}
+            
+            # Detect markers
+            corners, ids = self.detect_markers(frame, cam_name)
+            
+            if ids is not None:
+                detected_ids = sorted(self.detected_markers.get(cam_name, {}).keys())
+                msg = f"  ✓ {cam_name}: Found markers {detected_ids}"
+                self.auto_calib_messages.append(msg)
+                print(msg)
+            else:
+                msg = f"  ✗ {cam_name}: No markers detected"
+                self.auto_calib_messages.append(msg)
+                print(msg)
+        
+        # Step 2: Compute 3D pose for each camera
+        self.auto_calib_messages.append("Step 2: Computing 3D poses...")
+        print("\n🔧 Step 2: Computing 3D poses...")
+        
+        success_count = 0
+        for cam_idx, cfg in enumerate(camera_configs):
+            cam_name = cfg['name']
+            
+            success, msg = self.compute_3d_pose(cam_name)
+            
+            if success:
+                success_count += 1
+                cam_pos = calibration_manager.get_camera_position(cam_name)
+                if cam_pos is not None:
+                    pos_msg = f"  ✓ {cam_name}: Calibrated at ({cam_pos[0]:.0f}, {cam_pos[1]:.0f}, {cam_pos[2]:.0f}) cm"
+                else:
+                    pos_msg = f"  ✓ {cam_name}: Calibrated"
+                self.auto_calib_messages.append(pos_msg)
+                print(pos_msg)
+                results.append((cam_name, True, msg))
+            else:
+                err_msg = f"  ✗ {cam_name}: {msg}"
+                self.auto_calib_messages.append(err_msg)
+                print(err_msg)
+                results.append((cam_name, False, msg))
+        
+        # Step 3: Save calibration if any succeeded
+        if success_count > 0:
+            self.auto_calib_messages.append(f"Step 3: Saving calibration ({success_count} cameras)...")
+            print(f"\n💾 Step 3: Saving calibration...")
+            calibration_manager.save()
+            
+            final_msg = f"✅ AUTO-CALIBRATION COMPLETE: {success_count}/{len(camera_configs)} cameras calibrated"
+            self.auto_calib_messages.append(final_msg)
+            print(f"\n{final_msg}")
+            print("=" * 50 + "\n")
+            
+            self.auto_calibrating = False
+            return True, final_msg
+        else:
+            final_msg = "❌ AUTO-CALIBRATION FAILED: No cameras could be calibrated"
+            self.auto_calib_messages.append(final_msg)
+            print(f"\n{final_msg}")
+            print("   Make sure markers are visible to all cameras")
+            print("=" * 50 + "\n")
+            
+            self.auto_calibrating = False
+            return False, final_msg
     
     @staticmethod
     def generate_markers(output_dir='aruco_markers', num_markers=5):
@@ -1388,7 +1531,8 @@ def main():
     
     print(f"   Processing at: {PROCESS_WIDTH}px width")
     print(f"\n🎬 Starting tracking...")
-    print("   Keys: 1-9=Camera, S=Side-by-side, G=Grid, T=Synthesized, C=Calibrate, Q=Quit\n")
+    print("   Keys: 1-9=Camera, S=Side-by-side, G=Grid, T=Synthesized, C=Calibrate, Q=Quit")
+    print("   In Calibration mode: A=Auto-calibrate (one button!)\n")
     
     # Tracking state
     frame_count = 0
@@ -1626,8 +1770,16 @@ def main():
         if key == ord('q'):
             break
         # Calibration mode specific keys (check FIRST before generic view switching)
+        elif key == ord('a') and view_mode == ViewMode.CALIBRATION:
+            # AUTO-CALIBRATE: detect all cameras, compute poses, save
+            print("\n🎯 Starting auto-calibration...")
+            success, msg = calib_mode.run_auto_calibration(raw_frames, camera_configs, calibration)
+            if success:
+                # Switch to synthesized view to show results
+                view_mode = ViewMode.SYNTHESIZED
+                display_configs = calculate_display_configs(view_mode)
         elif key == ord(' ') and view_mode == ViewMode.CALIBRATION:
-            # Capture markers for active camera
+            # Capture markers for active camera (manual mode)
             cam_name = camera_configs[calib_mode.active_camera]['name']
             frame = raw_frames.get(cam_name)
             if frame is not None:

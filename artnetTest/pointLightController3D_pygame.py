@@ -114,16 +114,20 @@ WANDER_BOX = {
 MARKER_SIZE = 15  # cm - ArUco marker size
 
 # Street level is 66 cm below storefront floor
+# Standard convention: positive Y = UP, so below floor = negative Y
 STREET_LEVEL_Y = -66
+CAMERA_LEDGE_Y = -16  # Cameras are 50cm above street (16cm below floor)
 
 # Marker positions: (X, Y, Z) in centimeters
-# Y = STREET_LEVEL_Y means markers are on the street (66 cm below storefront floor)
+# Flat markers: Y = STREET_LEVEL_Y (on the street)
+# Vertical marker 5: Y = CAMERA_LEDGE_Y (at camera height, on storefront)
 MARKER_POSITIONS = {
-    0: {'pos': (-40, STREET_LEVEL_Y, 90), 'desc': 'Left front', 'camera': 'Cam 1'},
-    1: {'pos': (120, STREET_LEVEL_Y, 90), 'desc': 'Center front (SHARED)', 'camera': 'Both'},
-    2: {'pos': (280, STREET_LEVEL_Y, 90), 'desc': 'Right front', 'camera': 'Cam 2'},
-    3: {'pos': (-40, STREET_LEVEL_Y, 141), 'desc': 'Left back', 'camera': 'Cam 1'},
-    4: {'pos': (280, STREET_LEVEL_Y, 141), 'desc': 'Right back', 'camera': 'Cam 2'},
+    0: {'pos': (-40, STREET_LEVEL_Y, 90), 'desc': 'Left front', 'camera': 'Cam 1', 'vertical': False},
+    1: {'pos': (120, STREET_LEVEL_Y, 90), 'desc': 'Center front (SHARED)', 'camera': 'Both', 'vertical': False},
+    2: {'pos': (280, STREET_LEVEL_Y, 90), 'desc': 'Right front', 'camera': 'Cam 2', 'vertical': False},
+    3: {'pos': (-40, STREET_LEVEL_Y, 141), 'desc': 'Left back', 'camera': 'Cam 1', 'vertical': False},
+    4: {'pos': (280, STREET_LEVEL_Y, 141), 'desc': 'Right back', 'camera': 'Cam 2', 'vertical': False},
+    5: {'pos': (120, CAMERA_LEDGE_Y, 550), 'desc': 'Subway wall (VERTICAL)', 'camera': 'Both', 'vertical': True},
 }
 
 # Marker image files
@@ -478,19 +482,26 @@ def load_marker_textures() -> Dict[int, int]:
 
 
 def draw_marker(marker_id: int, position: Tuple[float, float, float], size: float, 
-                texture_id: Optional[int], font):
+                texture_id: Optional[int], font, vertical: bool = False):
     """
-    Draw a calibration marker as a textured plane on the floor.
-    Markers lie flat on the floor (Y=0), facing upward.
+    Draw a calibration marker as a textured plane.
+    If vertical=False: lies flat on floor facing upward
+    If vertical=True: stands upright facing outward (toward positive Z / street)
     """
     x, y, z = position
     half = size / 2
     
     glPushMatrix()
-    glTranslatef(x, y + 0.5, z)  # Slightly above floor to avoid z-fighting
+    glTranslatef(x, y, z)
     
-    # Rotate to lie flat on the floor (facing up)
-    glRotatef(-90, 1, 0, 0)
+    if vertical:
+        # Vertical marker: stands upright, facing outward toward street (positive Z)
+        # No rotation needed - just draw in XY plane
+        glTranslatef(0, 0, 0.5)  # Slightly forward to avoid z-fighting with wall
+    else:
+        # Horizontal marker: lies flat on floor, facing up
+        glTranslatef(0, 0.5, 0)  # Slightly above floor to avoid z-fighting
+        glRotatef(-90, 1, 0, 0)  # Rotate to lie flat
     
     if texture_id is not None:
         # Draw textured quad
@@ -528,15 +539,15 @@ def draw_marker(marker_id: int, position: Tuple[float, float, float], size: floa
     
     glPopMatrix()
     
-    # Draw marker ID label floating above
-    # We'll draw this in the 3D scene as a small indicator
+    # Draw marker ID label floating nearby
     glPushMatrix()
-    glTranslatef(x, y + 5, z)  # 5cm above floor
-    
-    # Billboard - always face camera (simple version: just vertical text)
-    glColor4f(1, 1, 0, 1)  # Yellow
+    if vertical:
+        glTranslatef(x, y + half + 5, z)  # Above the vertical marker
+    else:
+        glTranslatef(x, y + 5, z)  # Above floor marker
     
     # Draw a small sphere as position indicator
+    glColor4f(1, 1, 0, 1)  # Yellow
     quadric = gluNewQuadric()
     gluSphere(quadric, 2, 8, 8)
     gluDeleteQuadric(quadric)
@@ -850,7 +861,8 @@ def main():
             for marker_id, marker_data in MARKER_POSITIONS.items():
                 pos = marker_data['pos']
                 tex_id = marker_textures.get(marker_id)
-                draw_marker(marker_id, pos, MARKER_SIZE, tex_id, font)
+                is_vertical = marker_data.get('vertical', False)
+                draw_marker(marker_id, pos, MARKER_SIZE, tex_id, font, vertical=is_vertical)
         
         # Draw light
         brightness = light.get_brightness()
