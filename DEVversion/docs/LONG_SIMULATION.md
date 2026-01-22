@@ -35,10 +35,10 @@ cd ~/dc-dev
 source .venv/bin/activate
 
 # Run for 12 hours (overnight)
-python IO/pedestrian_simulator.py --mode longrun --hours 12
+python IO/pedestrian_simulator.py --mode longrun --duration 12
 
 # Or run indefinitely until Ctrl+C
-python IO/pedestrian_simulator.py --mode longrun --hours 999
+python IO/pedestrian_simulator.py --mode longrun
 ```
 
 ## One-Liner (Background)
@@ -52,7 +52,7 @@ cd ~/dc-dev && source .venv/bin/activate
 nohup python IO/lightController_osc.py > logs/light_controller.log 2>&1 &
 
 # Start simulator (logs to file)  
-nohup python IO/pedestrian_simulator.py --mode longrun --hours 12 > logs/simulator.log 2>&1 &
+nohup python IO/pedestrian_simulator.py --mode longrun --duration 12 > logs/simulator.log 2>&1 &
 
 # Create logs folder first if needed
 mkdir -p logs

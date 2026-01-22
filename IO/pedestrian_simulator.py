@@ -618,6 +618,8 @@ def main():
                         help='Time acceleration for longrun mode (1.0=realtime, 10=10x faster)')
     parser.add_argument('--hours', type=float, default=0,
                         help='For longrun: starting hour of day (0-24)')
+    parser.add_argument('--duration', type=float, default=0,
+                        help='Duration to run in real-time hours (0=indefinite). E.g. --duration 12 for overnight')
     args = parser.parse_args()
     
     # Determine mode
@@ -633,6 +635,10 @@ def main():
         print(f"  MODE: Long Run (realistic traffic patterns)")
         print(f"  Time Scale: {args.timescale}x")
         print(f"  Starting Hour: {args.hours:.1f}")
+        if args.duration > 0:
+            print(f"  Duration: {args.duration} hours (real-time)")
+        else:
+            print(f"  Duration: Indefinite (Ctrl+C to stop)")
         print()
         print("  Traffic patterns vary throughout simulated day:")
         print("    - Dead of night (2-5am): Very quiet")
@@ -663,11 +669,19 @@ def main():
     last_status_time = time.time()
     start_time = time.time()
     
+    duration_seconds = args.duration * 3600 if args.duration > 0 else 0
+    
     try:
         running = True
         while running:
-            # Update simulation
+            # Check duration limit
             now = time.time()
+            elapsed = now - start_time
+            if duration_seconds > 0 and elapsed >= duration_seconds:
+                print(f"\n  Duration limit reached ({args.duration} hours)")
+                break
+            
+            # Update simulation
             dt = min(now - last_time, 0.1)
             last_time = now
             
