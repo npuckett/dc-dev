@@ -107,6 +107,13 @@ HEALTH_LOG_INTERVAL = 300  # Log health stats every 5 minutes
 TRACKER_RESET_INTERVAL = 3600  # Reset YOLO tracker every hour to prevent memory buildup
 MAX_YOLO_TIMING_SAMPLES = 100  # Cap timing samples to prevent memory leak
 
+# Multi-camera fusion settings
+FUSION_THRESHOLD_CM = 150.0  # Max distance to merge detections from different cameras
+TRACK_MATCH_THRESHOLD_CM = 80.0  # Max distance to match detection to existing smoothed track
+POSITION_SMOOTHING = 0.03  # Lower = smoother (3% new, 97% old)
+VELOCITY_SMOOTHING = 0.08  # Velocity adapts a bit faster
+MAX_TRACK_AGE_FRAMES = 60  # Keep tracks for ~2 seconds at 25fps
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -261,6 +268,170 @@ class CalibrationManager:
         foot_x = (x1 + x2) / 2
         foot_y = y2
         return self.image_to_floor(camera_name, foot_x, foot_y, floor_y=0.0)
+
+
+# ==============================================================================
+# TRACKING FUSION - Multi-camera fusion and smoothing
+# ==============================================================================
+
+class TrackingFusion:
+    """
+    Fuses detections from multiple cameras and applies temporal smoothing.
+    - Only merges detections from DIFFERENT cameras (same person seen by both)
+    - Uses position-based tracking for stable IDs across camera switches
+    - Applies velocity-based smoothing for smooth motion
+    """
+    
+    def __init__(self):
+        self.smoothed_positions = {}  # track_id -> {x, z, vx, vz, last_seen, cameras}
+        self.next_stable_id = 1
+        self.frame_count = 0
+    
+    def fuse_detections(self, world_detections):
+        """
+        Fuse detections from multiple cameras.
+        Only merges detections from DIFFERENT cameras.
+        
+        Args:
+            world_detections: list of dicts with 'x', 'z', 'camera', 'track_id', 'conf'
+            
+        Returns:
+            List of fused detections with averaged positions
+        """
+        if not world_detections:
+            return []
+        
+        fused = []
+        used = [False] * len(world_detections)
+        
+        for i, det in enumerate(world_detections):
+            if used[i]:
+                continue
+            
+            cluster = [det]
+            used[i] = True
+            
+            # Find nearby detections from OTHER cameras only
+            for j, other in enumerate(world_detections):
+                if used[j]:
+                    continue
+                
+                # Only merge if from a DIFFERENT camera
+                if other['camera'] == det['camera']:
+                    continue
+                
+                dx = det['x'] - other['x']
+                dz = det['z'] - other['z']
+                dist = (dx*dx + dz*dz) ** 0.5
+                
+                if dist < FUSION_THRESHOLD_CM:
+                    cluster.append(other)
+                    used[j] = True
+            
+            # Average position across cluster
+            avg_x = sum(d['x'] for d in cluster) / len(cluster)
+            avg_z = sum(d['z'] for d in cluster) / len(cluster)
+            cameras = list(set(d['camera'] for d in cluster))
+            best = max(cluster, key=lambda d: d['conf'])
+            
+            fused.append({
+                'x': avg_x,
+                'z': avg_z,
+                'cameras': cameras,
+                'conf': best['conf'],
+            })
+        
+        return fused
+    
+    def smooth_and_track(self, fused_detections):
+        """
+        Apply position-based smoothing and assign stable track IDs.
+        Matches new detections to existing tracks by proximity.
+        
+        Returns:
+            List of smoothed tracks: (stable_id, x, z, cameras)
+        """
+        self.frame_count += 1
+        matched_tracks = set()
+        output = []
+        
+        for det in fused_detections:
+            raw_x, raw_z = det['x'], det['z']
+            
+            # Find closest existing track
+            best_track_id = None
+            best_dist = TRACK_MATCH_THRESHOLD_CM
+            
+            for track_id, track in self.smoothed_positions.items():
+                if track_id in matched_tracks:
+                    continue
+                # Predict where track should be
+                pred_x = track['x'] + track.get('vx', 0)
+                pred_z = track['z'] + track.get('vz', 0)
+                dist = ((raw_x - pred_x)**2 + (raw_z - pred_z)**2)**0.5
+                if dist < best_dist:
+                    best_dist = dist
+                    best_track_id = track_id
+            
+            if best_track_id is not None:
+                # Update existing track with smoothing
+                matched_tracks.add(best_track_id)
+                old = self.smoothed_positions[best_track_id]
+                
+                # Predict then smooth
+                predicted_x = old['x'] + old.get('vx', 0)
+                predicted_z = old['z'] + old.get('vz', 0)
+                new_x = predicted_x * (1 - POSITION_SMOOTHING) + raw_x * POSITION_SMOOTHING
+                new_z = predicted_z * (1 - POSITION_SMOOTHING) + raw_z * POSITION_SMOOTHING
+                
+                # Update velocity
+                raw_vx = new_x - old['x']
+                raw_vz = new_z - old['z']
+                new_vx = old.get('vx', 0) * (1 - VELOCITY_SMOOTHING) + raw_vx * VELOCITY_SMOOTHING
+                new_vz = old.get('vz', 0) * (1 - VELOCITY_SMOOTHING) + raw_vz * VELOCITY_SMOOTHING
+                
+                self.smoothed_positions[best_track_id] = {
+                    'x': new_x, 'z': new_z,
+                    'vx': new_vx, 'vz': new_vz,
+                    'last_seen': self.frame_count,
+                    'cameras': det['cameras'],
+                }
+                
+                output.append((best_track_id, new_x, new_z, det['cameras']))
+            else:
+                # Create new track
+                new_id = self.next_stable_id
+                self.next_stable_id += 1
+                
+                self.smoothed_positions[new_id] = {
+                    'x': raw_x, 'z': raw_z,
+                    'vx': 0, 'vz': 0,
+                    'last_seen': self.frame_count,
+                    'cameras': det['cameras'],
+                }
+                
+                output.append((new_id, raw_x, raw_z, det['cameras']))
+        
+        # Remove old tracks
+        stale = [k for k, v in self.smoothed_positions.items()
+                 if self.frame_count - v['last_seen'] > MAX_TRACK_AGE_FRAMES]
+        for k in stale:
+            del self.smoothed_positions[k]
+        
+        return output
+    
+    def process(self, world_detections):
+        """
+        Full pipeline: fuse detections then smooth and track.
+        
+        Args:
+            world_detections: list of dicts with 'x', 'z', 'camera', 'track_id', 'conf'
+            
+        Returns:
+            List of (stable_id, x, z, cameras) tuples
+        """
+        fused = self.fuse_detections(world_detections)
+        return self.smooth_and_track(fused)
 
 
 # ==============================================================================
@@ -485,6 +656,7 @@ def main():
     # Initialize
     processor = FrameProcessor()
     calibration = CalibrationManager(CALIBRATION_FILE)
+    fusion = TrackingFusion()  # Multi-camera fusion and smoothing
     
     if not calibration.is_calibrated:
         print("\n⚠️ WARNING: No calibration loaded!")
@@ -571,7 +743,7 @@ def main():
         frame_count += 1
         
         # Collect frames from all cameras
-        all_world_positions = []  # (track_id, x, z)
+        raw_world_detections = []  # For fusion processing
         display_frames = []
         
         for cfg in camera_configs:
@@ -640,7 +812,13 @@ def main():
                 world_pos = calibration.transform_bbox_center(cfg['name'], x1, y1, x2, y2)
                 if world_pos is not None:
                     world_x, world_z = world_pos
-                    all_world_positions.append((track_id, world_x, world_z, cfg['name']))
+                    raw_world_detections.append({
+                        'x': world_x,
+                        'z': world_z,
+                        'camera': cfg['name'],
+                        'track_id': track_id,
+                        'conf': conf,
+                    })
             
             # Create display frame (skip in headless mode)
             if not HEADLESS_MODE:
@@ -666,16 +844,19 @@ def main():
                 
                 display_frames.append(display_frame)
         
+        # Fuse detections from multiple cameras and apply smoothing
+        tracked_people = fusion.process(raw_world_detections)
+        
         # Send OSC messages (with error handling for network issues)
         osc_start = time.time()
         try:
-            osc_client.send_message("/tracker/count", len(all_world_positions))
+            osc_client.send_message("/tracker/count", len(tracked_people))
             
-            # Then send each person's position
-            for track_id, world_x, world_z, cam_name in all_world_positions:
-                osc_client.send_message(f"/tracker/person/{track_id}", [float(world_x), float(world_z)])
+            # Send each person's smoothed position with stable ID
+            for stable_id, world_x, world_z, cameras in tracked_people:
+                osc_client.send_message(f"/tracker/person/{stable_id}", [float(world_x), float(world_z)])
             
-            total_people_tracked += len(all_world_positions)
+            total_people_tracked += len(tracked_people)
         except Exception as e:
             total_osc_errors += 1
             if total_osc_errors == 1 or total_osc_errors % 100 == 0:
@@ -686,7 +867,7 @@ def main():
         loop_time = time.time() - current_time
         if SHOW_TIMING and frame_count % 30 == 0:
             avg_yolo_time = sum(yolo_times) / len(yolo_times) if yolo_times else 0
-            print(f"Frame {frame_count}: YOLO avg={avg_yolo_time*1000:.1f}ms, OSC={osc_time*1000:.1f}ms, Total={loop_time*1000:.1f}ms, People={len(all_world_positions)}")
+            print(f"Frame {frame_count}: YOLO avg={avg_yolo_time*1000:.1f}ms, OSC={osc_time*1000:.1f}ms, Total={loop_time*1000:.1f}ms, People={len(tracked_people)}")
         
         # Periodic health logging
         if time.time() - last_health_log >= HEALTH_LOG_INTERVAL:
@@ -743,7 +924,7 @@ def main():
                 combined = cv2.hconcat(padded)
             
             # Add OSC status bar
-            status = f"OSC -> {OSC_IP}:{OSC_PORT} | People: {len(all_world_positions)} | Frame: {frame_count}"
+            status = f"OSC -> {OSC_IP}:{OSC_PORT} | People: {len(tracked_people)} | Frame: {frame_count}"
             cv2.putText(combined, status, (10, combined.shape[0] - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
             

@@ -11,11 +11,14 @@ Description=Drop Ceiling Camera Tracker (YOLO + OSC)
 After=network.target
 # Start after network is available (for RTSP cameras)
 Wants=network-online.target
+# Don't restart more than 5 times in 60 seconds (prevents crash loops)
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-User=dc
-Group=dc
+User=nick
+Group=nick
 WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
 
 # Environment setup
@@ -32,14 +35,6 @@ ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python camera_tracker_osc
 # Restart policy - always restart on failure
 Restart=always
 RestartSec=5
-
-# Don't restart more than 5 times in 60 seconds (prevents crash loops)
-StartLimitIntervalSec=60
-StartLimitBurst=5
-
-# Watchdog - systemd will restart if no keepalive for 120 seconds
-# (The tracker logs health every 300s, so this catches hard freezes)
-WatchdogSec=120
 
 # Resource limits
 Nice=-5

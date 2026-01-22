@@ -11,11 +11,14 @@ Description=Drop Ceiling Light Controller (OSC + Art-Net + WebSocket)
 After=network.target camera-tracker.service
 # Start after camera tracker (so OSC receiver is ready for data)
 Wants=network-online.target
+# Don't restart more than 5 times in 60 seconds (prevents crash loops)
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-User=dc
-Group=dc
+User=nick
+Group=nick
 WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
 
 # Environment setup
@@ -33,13 +36,6 @@ ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python lightController_os
 # Restart policy - always restart on failure
 Restart=always
 RestartSec=5
-
-# Don't restart more than 5 times in 60 seconds (prevents crash loops)
-StartLimitIntervalSec=60
-StartLimitBurst=5
-
-# Watchdog - systemd will restart if no keepalive for 120 seconds
-WatchdogSec=120
 
 # Resource limits
 Nice=-5

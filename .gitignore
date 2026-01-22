@@ -1,2 +1,5 @@
 tracking_history.db
+*.db
 __pycache__/
+*.pt
+.venv/

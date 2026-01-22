@@ -266,7 +266,8 @@ class TrackedPersonManager:
     def update_person(self, track_id: int, raw_x: float, raw_z: float):
         """Update or add a tracked person with calibration applied"""
         # Apply calibration: scaled position + offset
-        x = raw_x * self.scale_x + self.offset_x
+        # Negate X to flip direction (physical layout is mirrored from camera view)
+        x = -raw_x * self.scale_x + self.offset_x
         z = raw_z * self.scale_z + self.offset_z
         y = STREET_LEVEL_Y * self.scale_y + self.offset_y
         
@@ -564,7 +565,8 @@ class PanelSystem:
             panel['dmx_value'] = max(DMX_MIN, min(DMX_MAX, panel['dmx_value']))
     
     def get_dmx_values(self) -> List[int]:
-        return [self.panels[(u, p)]['dmx_value'] for u in range(4) for p in range(1, 4)]
+        # Units are reversed: physical unit 1 is DMX unit 4, etc.
+        return [self.panels[(u, p)]['dmx_value'] for u in range(3, -1, -1) for p in range(1, 4)]
 
 
 class WanderBehavior:
