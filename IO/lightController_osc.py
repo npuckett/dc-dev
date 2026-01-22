@@ -355,10 +355,10 @@ class WebSocketBroadcaster:
         self.current_state = {}
         self.running = False
     
-    async def handler(self, websocket, path):
+    async def handler(self, websocket):
         """Handle a WebSocket connection"""
         self.clients.add(websocket)
-        client_ip = websocket.remote_address[0]
+        client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else 'unknown'
         print(f"🌐 WebSocket client connected: {client_ip}")
         
         try:
@@ -1338,8 +1338,8 @@ def main():
                         {'id': p.track_id, 'x': p.x, 'y': p.y, 'z': p.z}
                         for p in tracked_manager.get_all()
                     ],
-                    'mode': behavior.mode.name if behavior else 'UNKNOWN',
-                    'gesture': behavior.current_gesture.name if behavior and behavior.current_gesture else None,
+                    'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
+                    'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,
                     'status': status_text
                 }
                 ws_broadcaster.update_state(state)
