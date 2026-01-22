@@ -389,6 +389,12 @@ class SynthesizedView:
         self.calibration = calibration_manager
         self.background = None
         self.load_or_create_background()
+        
+        # Temporal smoothing for stable positions
+        self.smoothed_positions = {}  # track_key -> {'x': float, 'z': float, 'last_seen': int}
+        self.smoothing_factor = 0.3   # Lower = smoother but more lag (0.3 = 30% new, 70% old)
+        self.max_age_frames = 10      # Remove tracks not seen for this many frames
+        self.frame_count = 0
     
     def load_or_create_background(self):
         """Load floor plan image or create grid for centimeter-based coordinate system"""
@@ -445,6 +451,103 @@ class SynthesizedView:
         cv2.putText(self.background, "(0,0)", (offset_x + 8, offset_y + 4),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (100, 100, 100), 1)
     
+    def fuse_detections(self, all_detections, fusion_threshold_cm=75.0):
+        """
+        Fuse detections from multiple cameras to avoid duplicates.
+        When the same person is seen by multiple cameras, merge them into one.
+        
+        Args:
+            all_detections: list of (camera_name, boxes) tuples
+            fusion_threshold_cm: max distance (cm) to consider same person
+            
+        Returns:
+            List of fused detections: (world_x, world_z, track_id, color_key, confidence)
+        """
+        # First, project all detections to world coordinates
+        world_detections = []
+        
+        for camera_name, boxes in all_detections:
+            for box in boxes:
+                x1, y1, x2, y2, conf, track_id = box[:6]
+                class_id = box[6] if len(box) > 6 else PERSON_CLASS_ID
+                
+                # Only process persons/cyclists
+                if class_id not in (PERSON_CLASS_ID, CYCLIST_CLASS_ID):
+                    continue
+                
+                world_pos = self.calibration.transform_bbox_center(camera_name, x1, y1, x2, y2)
+                if world_pos is None:
+                    continue
+                
+                world_x, world_z = world_pos
+                color_key = f"{camera_name}_{track_id}"
+                world_detections.append({
+                    'x': world_x,
+                    'z': world_z,
+                    'track_id': track_id,
+                    'camera': camera_name,
+                    'color_key': color_key,
+                    'conf': conf,
+                    'class_id': class_id,
+                })
+        
+        if not world_detections:
+            return []
+        
+        # Cluster nearby detections using simple greedy clustering
+        fused = []
+        used = [False] * len(world_detections)
+        
+        for i, det in enumerate(world_detections):
+            if used[i]:
+                continue
+            
+            # Start a new cluster with this detection
+            cluster = [det]
+            used[i] = True
+            
+            # Find all nearby detections from OTHER cameras
+            for j, other in enumerate(world_detections):
+                if used[j] or other['camera'] == det['camera']:
+                    continue
+                
+                # Calculate distance
+                dx = det['x'] - other['x']
+                dz = det['z'] - other['z']
+                dist = (dx*dx + dz*dz) ** 0.5
+                
+                if dist < fusion_threshold_cm:
+                    cluster.append(other)
+                    used[j] = True
+            
+            # Merge cluster: average position, keep highest confidence detection's info
+            if len(cluster) == 1:
+                # Single detection, use as-is
+                fused.append({
+                    'x': cluster[0]['x'],
+                    'z': cluster[0]['z'],
+                    'track_id': cluster[0]['track_id'],
+                    'color_key': cluster[0]['color_key'],
+                    'cameras': [cluster[0]['camera']],
+                })
+            else:
+                # Multiple cameras see this person - average position
+                avg_x = sum(d['x'] for d in cluster) / len(cluster)
+                avg_z = sum(d['z'] for d in cluster) / len(cluster)
+                
+                # Use the detection with highest confidence for display info
+                best = max(cluster, key=lambda d: d['conf'])
+                
+                fused.append({
+                    'x': avg_x,
+                    'z': avg_z,
+                    'track_id': best['track_id'],
+                    'color_key': best['color_key'],
+                    'cameras': [d['camera'] for d in cluster],
+                })
+        
+        return fused
+    
     def render(self, all_detections, track_colors):
         """
         Render synthesized view with all detections.
@@ -459,6 +562,8 @@ class SynthesizedView:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
             return frame
         
+        self.frame_count += 1
+        
         # Draw camera positions (X -> px, Z -> py in bird's eye view)
         for cam_name in self.calibration.calibrations:
             cam_pos = self.calibration.get_camera_position(cam_name)
@@ -470,49 +575,72 @@ class SynthesizedView:
                     cv2.putText(frame, cam_name, (px + 10, py),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 200, 255), 1)
         
-        # Draw all detected people
-        for camera_name, boxes in all_detections:
-            for box in boxes:
-                # Handle both 6-value and 7-value formats
-                x1, y1, x2, y2, conf, track_id = box[:6]
-                class_id = box[6] if len(box) > 6 else PERSON_CLASS_ID
-                
-                # Only draw persons/cyclists on synthesized view (skip standalone bikes/cars)
-                if class_id not in (PERSON_CLASS_ID, CYCLIST_CLASS_ID):
-                    continue
-                
-                world_pos = self.calibration.transform_bbox_center(camera_name, x1, y1, x2, y2)
-                if world_pos is None:
-                    continue
-                
-                world_x, world_z = world_pos  # Returns (X, Z) floor coordinates
-                px, py = self.calibration.world_to_synth_pixels(world_x, world_z)
-                
-                # Clamp to view bounds
-                px = max(0, min(self.width - 1, px))
-                py = max(0, min(self.height - 1, py))
-                
-                # Get color for this track
-                color_key = f"{camera_name}_{track_id}"
-                if color_key not in track_colors:
-                    import random
-                    random.seed(hash(color_key))
-                    track_colors[color_key] = (
-                        random.randint(50, 255),
-                        random.randint(50, 255),
-                        random.randint(50, 255)
-                    )
-                color = track_colors[color_key]
-                
-                # Draw person as circle with ID
-                cv2.circle(frame, (px, py), 12, color, -1)
-                cv2.circle(frame, (px, py), 12, (255, 255, 255), 2)
-                cv2.putText(frame, str(track_id), (px - 6, py + 4),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+        # Fuse detections from multiple cameras to avoid duplicates
+        fused_detections = self.fuse_detections(all_detections)
+        
+        # Apply temporal smoothing to reduce jitter
+        current_keys = set()
+        for det in fused_detections:
+            # Create a stable key for this detection
+            track_key = det['color_key']
+            current_keys.add(track_key)
+            
+            if track_key in self.smoothed_positions:
+                # Smooth with exponential moving average
+                old = self.smoothed_positions[track_key]
+                det['x'] = old['x'] * (1 - self.smoothing_factor) + det['x'] * self.smoothing_factor
+                det['z'] = old['z'] * (1 - self.smoothing_factor) + det['z'] * self.smoothing_factor
+            
+            self.smoothed_positions[track_key] = {
+                'x': det['x'],
+                'z': det['z'],
+                'last_seen': self.frame_count,
+            }
+        
+        # Remove old tracks
+        stale_keys = [k for k, v in self.smoothed_positions.items() 
+                      if self.frame_count - v['last_seen'] > self.max_age_frames]
+        for k in stale_keys:
+            del self.smoothed_positions[k]
+        
+        # Draw fused detections
+        for det in fused_detections:
+            world_x, world_z = det['x'], det['z']
+            px, py = self.calibration.world_to_synth_pixels(world_x, world_z)
+            
+            # Clamp to view bounds
+            px = max(0, min(self.width - 1, px))
+            py = max(0, min(self.height - 1, py))
+            
+            # Get color for this track
+            color_key = det['color_key']
+            if color_key not in track_colors:
+                import random
+                random.seed(hash(color_key))
+                track_colors[color_key] = (
+                    random.randint(50, 255),
+                    random.randint(50, 255),
+                    random.randint(50, 255)
+                )
+            color = track_colors[color_key]
+            
+            # Draw person as circle with ID
+            # Use double ring if seen by multiple cameras
+            if len(det['cameras']) > 1:
+                cv2.circle(frame, (px, py), 15, (255, 255, 0), 2)  # Yellow outer ring = multi-cam
+            cv2.circle(frame, (px, py), 12, color, -1)
+            cv2.circle(frame, (px, py), 12, (255, 255, 255), 2)
+            cv2.putText(frame, str(det['track_id']), (px - 6, py + 4),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
         
         # Add info overlay
         cv2.putText(frame, "SYNTHESIZED VIEW (3D Calibrated)", (10, 25),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        
+        # Show count
+        count_text = f"Tracking: {len(fused_detections)} people"
+        cv2.putText(frame, count_text, (10, 50),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
         
         # Show scale
         scale_text = f"Scale: {SYNTH_CM_PER_PIXEL:.0f} cm/px"
@@ -597,7 +725,7 @@ class CalibrationMode:
         
         # The shared marker IDs that must be visible from all cameras
         self.shared_marker_id = 1  # Primary shared marker
-        self.shared_markers = {1, 6}  # All shared markers (for validation)
+        self.shared_markers = {1, 5, 6}  # All shared markers (for validation)
         
         # Camera intrinsics storage (per camera)
         self.camera_intrinsics = {}  # camera_name -> {matrix, dist_coeffs, size}
@@ -750,14 +878,20 @@ class CalibrationMode:
             else:
                 # HORIZONTAL marker lying flat on floor (XZ plane)
                 # Markers lie FLAT on the floor at height Y, facing UP toward cameras
-                # When looking DOWN at marker from above:
-                #   - "top" is toward negative Z (closer to panels)
-                #   - "left" is toward negative X
+                # Camera is on storefront (low Z) looking toward street (high Z)
+                # 
+                # ArUco corner order in image: top-left, top-right, bottom-right, bottom-left
+                # For a floor marker viewed from storefront looking toward street:
+                #   - "top" of marker in image is the NEAR edge (smaller Z, closer to camera)
+                #   - "bottom" is the FAR edge (larger Z, further from camera)
+                #   - "left/right" depends on camera viewing angle
+                #
+                # Standard orientation assuming camera looks straight at marker:
                 marker_corners_3d = np.array([
-                    [wx - half_size, wy, wz - half_size],  # Top-left (toward panels, left)
-                    [wx + half_size, wy, wz - half_size],  # Top-right (toward panels, right)
-                    [wx + half_size, wy, wz + half_size],  # Bottom-right (away from panels, right)
-                    [wx - half_size, wy, wz + half_size],  # Bottom-left (away from panels, left)
+                    [wx - half_size, wy, wz - half_size],  # Top-left (near camera, left)
+                    [wx + half_size, wy, wz - half_size],  # Top-right (near camera, right)
+                    [wx + half_size, wy, wz + half_size],  # Bottom-right (far from camera, right)
+                    [wx - half_size, wy, wz + half_size],  # Bottom-left (far from camera, left)
                 ], dtype=np.float64)
             
             # corners is 4x2 array of image points
@@ -768,15 +902,76 @@ class CalibrationMode:
         object_points = np.array(object_points, dtype=np.float64)
         image_points = np.array(image_points, dtype=np.float64)
         
-        # Solve PnP
-        success, rvec, tvec = cv2.solvePnP(
-            object_points, image_points,
-            camera_matrix, dist_coeffs,
-            flags=cv2.SOLVEPNP_ITERATIVE
-        )
+        # Check if we have non-coplanar points (vertical marker 5 is at different Y)
+        # IPPE requires coplanar points, so use SQPNP for non-coplanar
+        has_vertical_marker = any(mid in self.vertical_markers for mid in markers.keys())
         
-        if not success:
-            return False, "solvePnP failed"
+        if has_vertical_marker:
+            # Use SQPNP for non-coplanar points (includes vertical marker)
+            # Then manually check both possible orientations
+            print(f"  Using SQPNP (non-coplanar markers detected)")
+            success, rvec, tvec = cv2.solvePnP(
+                object_points, image_points,
+                camera_matrix, dist_coeffs,
+                flags=cv2.SOLVEPNP_SQPNP
+            )
+            
+            if not success:
+                return False, "solvePnP SQPNP failed"
+            
+            # Check if we need to flip the solution (camera should be at positive Z)
+            R, _ = cv2.Rodrigues(rvec)
+            camera_pos = -R.T @ tvec.flatten()
+            print(f"  Initial solution: Camera at Z={camera_pos[2]:.1f} cm")
+            
+            # If Z is negative, try ITERATIVE solver which may find different solution
+            if camera_pos[2] < 0:
+                print(f"  Z is negative, trying iterative solver...")
+                success2, rvec2, tvec2 = cv2.solvePnP(
+                    object_points, image_points,
+                    camera_matrix, dist_coeffs,
+                    flags=cv2.SOLVEPNP_ITERATIVE
+                )
+                if success2:
+                    R2, _ = cv2.Rodrigues(rvec2)
+                    camera_pos2 = -R2.T @ tvec2.flatten()
+                    print(f"  Iterative solution: Camera at Z={camera_pos2[2]:.1f} cm")
+                    if camera_pos2[2] > camera_pos[2]:
+                        rvec, tvec = rvec2, tvec2
+                        camera_pos = camera_pos2
+            
+            rvecs, tvecs = [rvec], [tvec]
+        else:
+            # Use IPPE for coplanar points (floor markers only)
+            # This gives us both possible solutions for the planar ambiguity
+            print(f"  Using IPPE (coplanar floor markers)")
+            success, rvecs, tvecs, reproj_errors = cv2.solvePnPGeneric(
+                object_points, image_points,
+                camera_matrix, dist_coeffs,
+                flags=cv2.SOLVEPNP_IPPE
+            )
+            
+            if not success or len(rvecs) == 0:
+                return False, "solvePnP IPPE failed"
+        
+        # Find the solution where camera is at POSITIVE Z (in front of storefront)
+        # The cameras are mounted on the storefront looking toward the street (positive Z)
+        best_idx = 0
+        best_z = float('-inf')
+        
+        print(f"  Found {len(rvecs)} possible pose(s):")
+        for i, (rv, tv) in enumerate(zip(rvecs, tvecs)):
+            R, _ = cv2.Rodrigues(rv)
+            cam_pos = -R.T @ tv.flatten()
+            print(f"    Solution {i+1}: Camera at Z={cam_pos[2]:.1f} cm")
+            if cam_pos[2] > best_z:
+                best_z = cam_pos[2]
+                best_idx = i
+        
+        rvec = rvecs[best_idx]
+        tvec = tvecs[best_idx]
+        
+        print(f"  Selected solution {best_idx+1} with Z={best_z:.1f} cm")
         
         # Refine with iterative optimization
         rvec, tvec = cv2.solvePnPRefineLM(
@@ -784,6 +979,15 @@ class CalibrationMode:
             camera_matrix, dist_coeffs,
             rvec, tvec
         )
+        
+        # Compute camera position and validate it makes physical sense
+        R, _ = cv2.Rodrigues(rvec)
+        camera_pos = -R.T @ tvec.flatten()
+        
+        # VALIDATION: Camera should be at positive Z (in front of storefront, looking at street)
+        if camera_pos[2] < 0:
+            print(f"  ⚠️ WARNING: Camera Z={camera_pos[2]:.1f} still negative after selection!")
+            print(f"     The marker positions or corner ordering may need adjustment")
         
         # Compute reprojection error
         projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
