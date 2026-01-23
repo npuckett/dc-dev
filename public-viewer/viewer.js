@@ -39,6 +39,7 @@ const CONFIG = {
     },
     
     // WebSocket settings
+    WS_URL: 'wss://cvtower.tail830204.ts.net/',  // Production Tailscale Funnel URL
     WS_PORT: 8765,
     RECONNECT_DELAY: 3000,
 };
@@ -98,18 +99,19 @@ function init() {
     // Check for WebSocket URL in order of priority:
     // 1. URL parameter (?ws=wss://...)
     // 2. Stored IP from previous session
-    // 3. Show connect dialog
+    // 3. Default to production Tailscale Funnel URL
     const urlParams = new URLSearchParams(window.location.search);
     const wsParam = urlParams.get('ws');
     const storedIP = localStorage.getItem('dropceiling_ip');
     
     if (wsParam) {
-        // URL parameter takes priority (for GitHub Pages with Funnel)
+        // URL parameter takes priority
         connectWebSocket(wsParam);
     } else if (storedIP) {
         connectWebSocket(storedIP);
     } else {
-        showConnectDialog();
+        // Default to production WebSocket URL
+        connectWebSocket(CONFIG.WS_URL);
     }
     
     // Setup connect button
