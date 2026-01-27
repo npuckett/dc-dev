@@ -54,6 +54,8 @@ let lightSphere, lightGlow, falloffSphere;
 let trackedPeople = {};
 let wsConnection = null;
 let currentState = null;
+let currentDailyReport = null;
+let trendsChart = null;
 
 // =============================================================================
 // INITIALIZATION
@@ -119,6 +121,10 @@ function init() {
     document.getElementById('ip-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') onConnectClick();
     });
+    
+    // Setup trends panel
+    document.getElementById('trends-toggle').addEventListener('click', toggleTrendsPanel);
+    document.getElementById('trends-close').addEventListener('click', closeTrendsPanel);
     
     // Start render loop
     animate();
@@ -312,7 +318,20 @@ function updateStatus(state, text) {
 // =============================================================================
 
 function handleStateUpdate(data) {
+    // Check message type
+    if (data.type === 'daily_report') {
+        handleDailyReport(data.report);
+        return;
+    }
+    
+    // Regular state update
     currentState = data;
+    
+    // Update live counts display
+    if (data.counts) {
+        document.getElementById('active-count').textContent = `Active: ${data.counts.active}`;
+        document.getElementById('passive-count').textContent = `Passive: ${data.counts.passive}`;
+    }
     
     // Update light position
     if (data.light) {
@@ -403,6 +422,143 @@ function updateModeDisplay(mode, statusText) {
     const modeLabel = document.getElementById('mode-label');
     modeLabel.textContent = mode.toUpperCase();
     modeLabel.className = `visible ${mode}`;
+}
+
+// =============================================================================
+// TRENDS PANEL
+// =============================================================================
+
+function toggleTrendsPanel() {
+    const panel = document.getElementById('trends-panel');
+    panel.classList.toggle('hidden');
+    panel.classList.toggle('visible');
+}
+
+function closeTrendsPanel() {
+    const panel = document.getElementById('trends-panel');
+    panel.classList.add('hidden');
+    panel.classList.remove('visible');
+}
+
+function handleDailyReport(report) {
+    if (!report) return;
+    
+    currentDailyReport = report;
+    console.log('📊 Daily report received:', report.date);
+    
+    // Update summary metrics
+    document.getElementById('trends-date').textContent = `Report for ${report.date}`;
+    document.getElementById('metric-total').textContent = report.summary?.total_unique_people || '--';
+    
+    // Format peak hour
+    const peakHour = report.peak_times?.peak_hour;
+    const peakCount = report.peak_times?.peak_hour_count;
+    if (peakHour !== undefined) {
+        document.getElementById('metric-peak').textContent = `${peakHour}:00`;
+    }
+    
+    // Format flow direction
+    const flow = report.flow?.dominant_flow;
+    if (flow) {
+        const flowText = flow === 'left_to_right' ? '→' : 
+                        flow === 'right_to_left' ? '←' : '↔';
+        document.getElementById('metric-flow').textContent = flowText;
+    }
+    
+    // Draw chart
+    if (report.hourly_trends) {
+        drawHourlyChart(report.hourly_trends, report.peak_times?.peak_hour);
+    }
+    
+    // Show notification
+    showTrendsNotification();
+}
+
+function showTrendsNotification() {
+    const toggle = document.getElementById('trends-toggle');
+    toggle.style.background = 'rgba(74, 158, 255, 0.3)';
+    toggle.style.borderColor = 'var(--accent-color)';
+    
+    setTimeout(() => {
+        toggle.style.background = '';
+        toggle.style.borderColor = '';
+    }, 3000);
+}
+
+function drawHourlyChart(hourlyTrends, peakHour) {
+    const canvas = document.getElementById('hourly-chart');
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size
+    const container = canvas.parentElement;
+    canvas.width = container.clientWidth - 20;
+    canvas.height = container.clientHeight - 20;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = { top: 10, right: 10, bottom: 25, left: 30 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Find max values for scaling
+    const maxActive = Math.max(...hourlyTrends.map(h => h.active_count || 0), 1);
+    const maxPassive = Math.max(...hourlyTrends.map(h => h.passive_count || 0), 1);
+    const maxValue = Math.max(maxActive, maxPassive / 3); // Scale passive differently
+    
+    const barWidth = chartWidth / 24;
+    const barGap = 2;
+    
+    // Draw bars for each hour
+    hourlyTrends.forEach((trend, i) => {
+        const x = padding.left + i * barWidth;
+        
+        // Highlight peak hour
+        if (i === peakHour) {
+            ctx.fillStyle = 'rgba(255, 255, 100, 0.1)';
+            ctx.fillRect(x, padding.top, barWidth, chartHeight);
+        }
+        
+        // Active zone bar (green)
+        const activeHeight = (trend.active_count / maxValue) * chartHeight * 0.9;
+        ctx.fillStyle = 'rgba(102, 204, 119, 0.8)';
+        ctx.fillRect(
+            x + barGap, 
+            padding.top + chartHeight - activeHeight, 
+            barWidth - barGap * 2, 
+            activeHeight
+        );
+        
+        // Passive zone bar (stacked, blue)
+        const passiveHeight = ((trend.passive_count / 3) / maxValue) * chartHeight * 0.9;
+        ctx.fillStyle = 'rgba(102, 119, 204, 0.6)';
+        ctx.fillRect(
+            x + barGap, 
+            padding.top + chartHeight - activeHeight - passiveHeight, 
+            barWidth - barGap * 2, 
+            passiveHeight
+        );
+    });
+    
+    // Draw x-axis labels (every 3 hours)
+    ctx.fillStyle = '#666';
+    ctx.font = '10px Space Grotesk, sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i < 24; i += 3) {
+        const x = padding.left + i * barWidth + barWidth / 2;
+        ctx.fillText(`${i}`, x, height - 5);
+    }
+    
+    // Draw y-axis
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, padding.top + chartHeight);
+    ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+    ctx.stroke();
 }
 
 // =============================================================================

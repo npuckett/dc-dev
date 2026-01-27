@@ -1,0 +1,124 @@
+{
+  "cameras": {
+    "Camera 1": {
+      "rvec": [
+        [
+          0.55
+        ],
+        [
+          -0.42
+        ],
+        [
+          -0.01
+        ]
+      ],
+      "tvec": [
+        [
+          17.24
+        ],
+        [
+          126.13
+        ],
+        [
+          97.08
+        ]
+      ],
+      "camera_matrix": [
+        [
+          1740.8,
+          0.0,
+          1024.0
+        ],
+        [
+          0.0,
+          1740.8,
+          768.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "dist_coeffs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "image_size": [
+        2048,
+        1536
+      ],
+      "rotation_euler_deg": {
+        "pitch": 22,
+        "yaw": -25,
+        "roll": 0
+      }
+    },
+    "Camera 2": {
+      "rvec": [
+        [
+          0.50
+        ],
+        [
+          0.38
+        ],
+        [
+          0.05
+        ]
+      ],
+      "tvec": [
+        [
+          -242.13
+        ],
+        [
+          105.73
+        ],
+        [
+          171.08
+        ]
+      ],
+      "camera_matrix": [
+        [
+          1740.8,
+          0.0,
+          1024.0
+        ],
+        [
+          0.0,
+          1740.8,
+          768.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "dist_coeffs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "image_size": [
+        2048,
+        1536
+      ],
+      "rotation_euler_deg": {
+        "pitch": 22,
+        "yaw": 25,
+        "roll": 0
+      }
+    }
+  },
+  "synth_width": 800,
+  "synth_height": 600,
+  "cm_per_pixel": 1.0,
+  "calibration_type": "3d_pose",
+  "units": "centimeters",
+  "notes": "Cameras at Y=-15cm (below floor), Z=78cm (front of active zone). Pitch 22° down for better ground coverage."
+}

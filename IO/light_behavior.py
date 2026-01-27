@@ -103,6 +103,10 @@ class BehaviorState:
     mode_start_time: float = 0.0
     mode_duration: float = 0.0
     
+    # Mode stickiness - pending mode change
+    pending_mode: Optional[BehaviorMode] = None
+    pending_mode_start: float = 0.0  # When conditions for pending mode started
+    
     # Current gesture
     gesture: GestureType = GestureType.NONE
     gesture_start_time: float = 0.0
@@ -133,6 +137,11 @@ class BehaviorState:
     
     # Last recorded time (for database)
     last_record_time: float = 0.0
+    
+    # Decision inputs (for display/debugging)
+    last_active_count: int = 0
+    last_passive_count: int = 0
+    last_passive_rate: float = 0.0
 
 
 class BehaviorSystem:
@@ -203,6 +212,23 @@ class BehaviorSystem:
         (BehaviorMode.ENGAGED, BehaviorMode.CROWD): 0.5,
         (BehaviorMode.CROWD, BehaviorMode.ENGAGED): 1.5,
     }
+    
+    # Mode stickiness - minimum time conditions must persist before switching
+    # Exception: IDLE -> ENGAGED (active zone entry) is always immediate
+    MODE_STICKINESS = {
+        # (from_mode, to_mode): seconds conditions must persist
+        (BehaviorMode.IDLE, BehaviorMode.ENGAGED): 0.0,      # Immediate when someone enters active zone
+        (BehaviorMode.IDLE, BehaviorMode.FLOW): 15.0,        # Wait 15s of passive traffic before flow mode
+        (BehaviorMode.ENGAGED, BehaviorMode.IDLE): 5.0,      # Wait 5s after last person leaves
+        (BehaviorMode.ENGAGED, BehaviorMode.CROWD): 3.0,     # Wait 3s with 2+ people before crowd
+        (BehaviorMode.CROWD, BehaviorMode.ENGAGED): 5.0,     # Wait 5s after crowd thins
+        (BehaviorMode.CROWD, BehaviorMode.IDLE): 5.0,        # Wait 5s after everyone leaves
+        (BehaviorMode.FLOW, BehaviorMode.IDLE): 10.0,        # Wait 10s of low traffic before idle
+        (BehaviorMode.FLOW, BehaviorMode.ENGAGED): 0.0,      # Immediate when someone enters active zone
+    }
+    
+    # Minimum time to stay in a mode before any switch (except emergency immediate switches)
+    MIN_MODE_DURATION = 8.0  # Stay in mode at least 8 seconds
     
     # Status text templates - plain language describing what's happening
     STATUS_TEXTS = {
@@ -700,13 +726,47 @@ class BehaviorSystem:
         """
         now = time.time()
         
+        # Store decision inputs for display
+        self.state.last_active_count = active_count
+        self.state.last_passive_count = passive_count
+        self.state.last_passive_rate = passive_rate
+        
         # Update mode duration
         self.state.mode_duration = now - self.state.mode_start_time
         
-        # Check for mode change
-        new_mode = self.determine_mode(active_count, passive_count, passive_rate)
-        if new_mode != self.state.mode and not self.state.transitioning:
-            self.start_transition(new_mode)
+        # Check for mode change with stickiness
+        desired_mode = self.determine_mode(active_count, passive_count, passive_rate)
+        
+        if desired_mode != self.state.mode and not self.state.transitioning:
+            # Get stickiness for this transition
+            stickiness_key = (self.state.mode, desired_mode)
+            required_time = self.MODE_STICKINESS.get(stickiness_key, 5.0)  # Default 5s
+            
+            # Check minimum mode duration (unless it's an immediate transition)
+            if required_time > 0 and self.state.mode_duration < self.MIN_MODE_DURATION:
+                # Haven't been in current mode long enough, don't start pending
+                pass
+            elif required_time == 0:
+                # Immediate transition (e.g., someone enters active zone)
+                self.state.pending_mode = None
+                self.state.pending_mode_start = 0.0
+                self.start_transition(desired_mode)
+            elif self.state.pending_mode == desired_mode:
+                # Already tracking this pending mode, check if enough time has passed
+                time_pending = now - self.state.pending_mode_start
+                if time_pending >= required_time:
+                    # Conditions met long enough, do the transition
+                    self.state.pending_mode = None
+                    self.state.pending_mode_start = 0.0
+                    self.start_transition(desired_mode)
+            else:
+                # Start tracking a new pending mode
+                self.state.pending_mode = desired_mode
+                self.state.pending_mode_start = now
+        elif desired_mode == self.state.mode:
+            # Conditions no longer support pending mode, clear it
+            self.state.pending_mode = None
+            self.state.pending_mode_start = 0.0
         
         # Update gesture
         self.update_gesture(dt)
@@ -756,9 +816,12 @@ class BehaviorSystem:
             active_count, passive_count, current_pos, flow_balance
         )
         
-        # Update status text periodically
-        if int(now) % 5 == 0:  # Every 5 seconds
+        # Update status text periodically (every 8 seconds, using a proper interval check)
+        if not hasattr(self, '_last_status_update'):
+            self._last_status_update = 0.0
+        if now - self._last_status_update >= 8.0:
             self.update_status_text(active_count)
+            self._last_status_update = now
         
         # Record to database (if enabled)
         record_interval = 0.5 if active_count > 0 else 2.0
@@ -796,6 +859,69 @@ class BehaviorSystem:
     
     def get_status(self) -> Dict:
         """Get current behavior status for display"""
+        now = time.time()
+        
+        # Calculate pending mode info
+        pending_info = None
+        if self.state.pending_mode:
+            time_pending = now - self.state.pending_mode_start
+            stickiness_key = (self.state.mode, self.state.pending_mode)
+            required_time = self.MODE_STICKINESS.get(stickiness_key, 5.0)
+            pending_info = {
+                'mode': self.state.pending_mode.value,
+                'time_pending': time_pending,
+                'time_required': required_time,
+                'progress': min(1.0, time_pending / required_time) if required_time > 0 else 1.0
+            }
+        
+        # Get the current driving parameters with their sources
+        driving_factors = {}
+        
+        # Decision inputs - what's driving mode selection
+        driving_factors['active_count'] = self.state.last_active_count
+        driving_factors['passive_count'] = self.state.last_passive_count
+        driving_factors['passive_rate'] = self.state.last_passive_rate
+        driving_factors['flow_threshold'] = self.flow_threshold
+        driving_factors['flow_enabled'] = self.meta.flow_mode_enabled
+        
+        # Mode thresholds for reference
+        driving_factors['thresholds'] = {
+            'crowd': 2,      # active_count >= 2
+            'engaged': 1,    # active_count >= 1
+            'flow': self.flow_threshold,  # passive_rate >= this
+        }
+        
+        # Mode-based factors
+        driving_factors['base_mode'] = self.state.mode.value
+        driving_factors['mode_duration'] = self.state.mode_duration
+        driving_factors['min_duration'] = self.MIN_MODE_DURATION
+        driving_factors['mode_stable'] = self.state.mode_duration >= self.MIN_MODE_DURATION
+        
+        # Time of day influence
+        tod = self.get_time_of_day_modifier()
+        driving_factors['time_mood'] = tod.mood
+        driving_factors['time_brightness'] = tod.brightness_mult
+        driving_factors['time_pulse'] = tod.pulse_mult
+        
+        # Dwell/engagement rewards
+        if self.state.dwell_start_time > 0:
+            dwell_time = now - self.state.dwell_start_time
+            driving_factors['dwell_time'] = dwell_time
+            driving_factors['dwell_bonus'] = self.state.current_dwell_bonus
+        
+        # Current calculated parameters (the actual values being used)
+        driving_factors['current_params'] = {
+            'brightness_max': self.current_params.get('brightness_max', 30),
+            'brightness_min': self.current_params.get('brightness_min', 8),
+            'pulse_speed': self.current_params.get('pulse_speed', 2500),
+            'move_speed': self.current_params.get('move_speed', 40),
+            'falloff_radius': self.current_params.get('falloff_radius', 50),
+        }
+        
+        # Bloom state
+        if self.state.bloom_active or self.state.bloom_progress > 0:
+            driving_factors['bloom_progress'] = self.state.bloom_progress
+        
         return {
             'mode': self.state.mode.value,
             'mode_duration': self.state.mode_duration,
@@ -805,6 +931,8 @@ class BehaviorSystem:
             'dwell_bonus': self.state.current_dwell_bonus,
             'status_text': self.state.status_text,
             'time_of_day': self.get_time_of_day_modifier().mood,
+            'pending_mode': pending_info,
+            'driving_factors': driving_factors,
         }
 
 

@@ -26,6 +26,49 @@
         <span id="mode-label"></span>
     </div>
     
+    <div id="stats-bar">
+        <span id="active-count">Active: 0</span>
+        <span id="passive-count">Passive: 0</span>
+    </div>
+    
+    <button id="trends-toggle" title="View Daily Trends">📊</button>
+    
+    <div id="trends-panel" class="hidden">
+        <div id="trends-content">
+            <div id="trends-header">
+                <h2>Daily Trends</h2>
+                <button id="trends-close">✕</button>
+            </div>
+            <div id="trends-summary">
+                <p id="trends-date">No report available</p>
+                <div id="trends-metrics">
+                    <div class="metric">
+                        <span class="metric-value" id="metric-total">--</span>
+                        <span class="metric-label">Total People</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" id="metric-peak">--</span>
+                        <span class="metric-label">Peak Hour</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" id="metric-flow">--</span>
+                        <span class="metric-label">Flow Direction</span>
+                    </div>
+                </div>
+            </div>
+            <div id="trends-chart">
+                <div id="chart-container">
+                    <canvas id="hourly-chart"></canvas>
+                </div>
+                <div id="chart-legend">
+                    <span class="legend-item active">● Active Zone</span>
+                    <span class="legend-item passive">● Passive Zone</span>
+                </div>
+            </div>
+            <p id="trends-hint">Auto-updates at 12:01 AM daily</p>
+        </div>
+    </div>
+    
     <div id="connect-overlay" class="hidden">
         <div id="connect-dialog">
             <h2>Connect to Installation</h2>
