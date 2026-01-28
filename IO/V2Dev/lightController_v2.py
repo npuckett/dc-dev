@@ -976,6 +976,7 @@ class WebSocketBroadcaster:
     
     def start(self):
         """Start the WebSocket server in a background thread"""
+        self.running = True  # Set BEFORE starting thread
         self.thread = threading.Thread(target=self._thread_main, daemon=True)
         self.thread.start()
     
