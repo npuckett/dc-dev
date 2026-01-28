@@ -1,0 +1,19 @@
+{
+  "offset_x": -173.33333333333334,
+  "offset_z": 206.25,
+  "scale_x": 1.0,
+  "scale_z": 1.0,
+  "responsiveness": 0.675,
+  "energy": 0.5,
+  "attention_span": 0.5,
+  "sociability": 0.5,
+  "exploration": 0.5,
+  "memory": 0.5,
+  "brightness_global": 1.0,
+  "speed_global": 1.0,
+  "pulse_global": 1.0,
+  "follow_speed_global": 0.5104166666666666,
+  "dwell_influence": 1.0,
+  "idle_trend_weight": 1.0,
+  "invert_x": true
+}

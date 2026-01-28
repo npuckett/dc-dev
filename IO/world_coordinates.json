@@ -1,0 +1,208 @@
+{
+  "version": "2.1",
+  "units": "centimeters",
+  "coordinate_system": {
+    "origin": "Back right corner of Panel Unit 0, at floor level",
+    "x_axis": "Negative toward Unit 3 (left when facing panels)",
+    "y_axis": "Positive upward",
+    "z_axis": "Positive forward into tracking zone (away from panels)"
+  },
+
+  "panels": {
+    "unit_spacing": 80,
+    "panel_width": 60,
+    "panel_depth": 60,
+    "units": {
+      "0": {
+        "center": [-30, 0, 0],
+        "right_edge": 0,
+        "left_edge": -60,
+        "description": "Rightmost unit"
+      },
+      "1": {
+        "center": [-110, 0, 0],
+        "right_edge": -80,
+        "left_edge": -140,
+        "description": "Second from right"
+      },
+      "2": {
+        "center": [-190, 0, 0],
+        "right_edge": -160,
+        "left_edge": -220,
+        "description": "Second from left"
+      },
+      "3": {
+        "center": [-270, 0, 0],
+        "right_edge": -240,
+        "left_edge": -300,
+        "description": "Leftmost unit"
+      }
+    },
+    "subpanels": {
+      "description": "Each unit has 3 angled subpanels (1=top, 2=middle, 3=bottom)",
+      "local_positions": {
+        "1": {"y": 120, "z": -23, "angle_deg": -30},
+        "2": {"y": 60, "z": 0, "angle_deg": 0},
+        "3": {"y": 0, "z": -23, "angle_deg": 30}
+      }
+    }
+  },
+
+  "cameras": {
+    "camera_1": {
+      "position": [-30, -15, 78],
+      "description": "Right camera - aligned with Unit 0 center",
+      "coverage": "Right half of tracking zone, sees markers 0, 1, 3, 5, 6",
+      "mounting": "15cm below floor level, fixed position",
+      "rotation": {
+        "euler_deg": {"pitch": 10, "yaw": -25, "roll": 0},
+        "target_point": [-150, -66, 180],
+        "note": "25° yaw allows seeing marker 0; 10° pitch allows seeing marker 5"
+      },
+      "intrinsics": {
+        "focal_length_px": [1740.8, 1740.8],
+        "principal_point": [1024, 768],
+        "image_size": [2048, 1536],
+        "dist_coeffs": [0, 0, 0, 0, 0]
+      },
+      "fov": {"horizontal": 80, "vertical": 48}
+    },
+    "camera_2": {
+      "position": [-270, -15, 78],
+      "description": "Left camera - aligned with Unit 3 center",
+      "coverage": "Left half of tracking zone, sees markers 1, 2, 4, 5, 6",
+      "mounting": "15cm below floor level, fixed position",
+      "rotation": {
+        "euler_deg": {"pitch": 10, "yaw": 25, "roll": 0},
+        "target_point": [-150, -66, 180],
+        "note": "25° yaw allows seeing marker 2; 10° pitch allows seeing marker 5"
+      },
+      "intrinsics": {
+        "focal_length_px": [1740.8, 1740.8],
+        "principal_point": [1024, 768],
+        "image_size": [2048, 1536],
+        "dist_coeffs": [0, 0, 0, 0, 0]
+      },
+      "fov": {"horizontal": 80, "vertical": 48}
+    },
+    "model": "Reolink RLC-520A",
+    "sensor": "5MP (2560x1920)",
+    "lens_focal_length_mm": 4.0,
+    "note": "Z position fixed at 78cm, cannot be moved"
+  },
+
+  "calibration_markers": {
+    "marker_size": 15,
+    "marker_type": "ArUco",
+    "corner_offsets": {
+      "description": "Local corner positions relative to marker center (half_size = 7.5cm)",
+      "horizontal": {
+        "note": "Marker lying flat, facing up (normal = +Y)",
+        "corners": [
+          [-7.5, 0, -7.5],
+          [7.5, 0, -7.5],
+          [7.5, 0, 7.5],
+          [-7.5, 0, 7.5]
+        ],
+        "normal": [0, 1, 0]
+      },
+      "vertical": {
+        "note": "Marker on wall, facing toward cameras (normal = -Z)",
+        "corners": [
+          [-7.5, 7.5, 0],
+          [7.5, 7.5, 0],
+          [7.5, -7.5, 0],
+          [-7.5, -7.5, 0]
+        ],
+        "normal": [0, 0, -1]
+      }
+    },
+    "markers": {
+      "0": {
+        "position": [-30, -66, 168],
+        "orientation": "horizontal",
+        "description": "Right front",
+        "visible_to": ["camera_1"]
+      },
+      "1": {
+        "position": [-150, -66, 168],
+        "orientation": "horizontal",
+        "description": "Center front (shared)",
+        "visible_to": ["camera_1", "camera_2"]
+      },
+      "2": {
+        "position": [-270, -66, 168],
+        "orientation": "horizontal",
+        "description": "Left front",
+        "visible_to": ["camera_2"]
+      },
+      "3": {
+        "position": [-30, -66, 219],
+        "orientation": "horizontal",
+        "description": "Right back",
+        "visible_to": ["camera_1"]
+      },
+      "4": {
+        "position": [-270, -66, 219],
+        "orientation": "horizontal",
+        "description": "Left back",
+        "visible_to": ["camera_2"]
+      },
+      "5": {
+        "position": [-150, -15, 578],
+        "orientation": "vertical",
+        "description": "Subway wall (vertical, 500cm from cameras)",
+        "visible_to": ["camera_1", "camera_2"],
+        "distance_from_cameras_cm": 500
+      },
+      "6": {
+        "position": [-150, -66, 219],
+        "orientation": "horizontal",
+        "description": "Center back (shared)",
+        "visible_to": ["camera_1", "camera_2"]
+      }
+    }
+  },
+
+  "tracking_zones": {
+    "active": {
+      "description": "Primary tracking area - close to panels (stopping to look)",
+      "bounds": {
+        "x": [-100, 400],
+        "y": [-100, 300],
+        "z": [100, 240]
+      },
+      "dimensions": {"width": 500, "height": 400, "depth": 140},
+      "center": [150, 100, 170],
+      "note": "Active zone: Z < 240 (close to panels, likely engaged)"
+    },
+    "passive": {
+      "description": "Secondary tracking area - sidewalk passersby",
+      "bounds": {
+        "x": [-100, 400],
+        "y": [-100, 300],
+        "z": [240, 600]
+      },
+      "dimensions": {"width": 400, "height": 300, "depth": 270},
+      "center": [-150, -66, 418],
+      "note": "Reduced from 650x330 to 400x270 for better tracking reliability"
+    }
+  },
+
+  "light_behavior": {
+    "wander_box": {
+      "description": "Bounds where the light point can move when wandering",
+      "bounds": {
+        "x": [-280, -20],
+        "y": [0, 150],
+        "z": [-28, 32]
+      }
+    }
+  },
+
+  "reference_levels": {
+    "floor": {"y": 0, "description": "Storefront floor level"},
+    "street": {"y": -66, "description": "Street/sidewalk level (66cm below floor)"},
+    "camera_ledge": {"y": -15, "description": "Camera mounting height (15cm below floor)"}
+  }
+}

@@ -84,6 +84,7 @@ class TrackingDatabase:
     
     Automatically calculates velocity from consecutive position updates.
     Provides trend analysis over different time scales.
+    Uses batched commits for better performance (commits every 1 second or 50 writes).
     """
     
     def __init__(self, db_path: str = "tracking_history.db"):
@@ -94,6 +95,12 @@ class TrackingDatabase:
         
         # Track previous positions for velocity calculation
         self.prev_positions: Dict[int, Tuple[float, float, float, float]] = {}  # id -> (x, z, timestamp)
+        
+        # Batched commit settings (for performance)
+        self._pending_writes = 0
+        self._last_commit_time = time.time()
+        self._commit_interval = 1.0  # Commit at least every 1 second
+        self._commit_batch_size = 50  # Or after 50 writes
         
         # Zone boundaries (should match lightController)
         self.active_zone = {
@@ -245,6 +252,7 @@ class TrackingDatabase:
                         timestamp: Optional[float] = None):
         """
         Record a position update with automatic velocity calculation.
+        Uses batched commits for better performance.
         
         Args:
             person_id: Unique ID of tracked person
@@ -287,7 +295,15 @@ class TrackingDatabase:
                 (timestamp, datetime, person_id, x, z, vx, vz, speed, zone, flow_direction)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (timestamp, dt_str, person_id, x, z, vx, vz, speed, zone.value, flow_dir))
-            self.conn.commit()
+            
+            # Batched commit: only commit when batch is full or interval elapsed
+            self._pending_writes += 1
+            now = time.time()
+            if self._pending_writes >= self._commit_batch_size or \
+               now - self._last_commit_time >= self._commit_interval:
+                self.conn.commit()
+                self._pending_writes = 0
+                self._last_commit_time = now
     
     def remove_person(self, person_id: int):
         """Called when a person leaves tracking - cleans up velocity state"""
@@ -307,6 +323,7 @@ class TrackingDatabase:
         """
         Record the light's current state for self-analysis.
         Call this periodically (0.5s when active, 2s when idle).
+        Uses batched commits for better performance.
         """
         if timestamp is None:
             timestamp = time.time()
@@ -327,7 +344,15 @@ class TrackingDatabase:
                   brightness, pulse_speed, move_speed,
                   people_count, active_count, passive_count,
                   gesture_type, status_text))
-            self.conn.commit()
+            
+            # Batched commit: only commit when batch is full or interval elapsed
+            self._pending_writes += 1
+            now = time.time()
+            if self._pending_writes >= self._commit_batch_size or \
+               now - self._last_commit_time >= self._commit_interval:
+                self.conn.commit()
+                self._pending_writes = 0
+                self._last_commit_time = now
     
     def get_light_position_history(self, minutes: int = 5) -> List[Tuple[float, float, float]]:
         """Get recent light positions for pattern analysis"""
@@ -676,8 +701,17 @@ class TrackingDatabase:
             self.conn.commit()
             return deleted
     
+    def flush(self):
+        """Commit any pending writes immediately"""
+        with self.lock:
+            if self._pending_writes > 0:
+                self.conn.commit()
+                self._pending_writes = 0
+                self._last_commit_time = time.time()
+    
     def close(self):
-        """Close database connection"""
+        """Close database connection, committing any pending writes"""
+        self.flush()
         self.conn.close()
 
 
