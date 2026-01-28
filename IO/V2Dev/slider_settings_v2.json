@@ -14,5 +14,6 @@
   "pulse_global": 1.0,
   "follow_speed_global": 0.5104166666666666,
   "dwell_influence": 1.0,
-  "idle_trend_weight": 1.0
+  "idle_trend_weight": 1.0,
+  "invert_x": false
 }

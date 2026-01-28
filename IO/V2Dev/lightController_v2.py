@@ -163,24 +163,30 @@ def load_slider_settings() -> dict:
         logger.warning(f"Could not load slider settings: {e}")
     return {}
 
-def save_slider_settings(all_sliders: dict):
-    """Save slider settings to JSON file"""
+def save_slider_settings(all_sliders: dict, checkboxes: dict = None):
+    """Save slider and checkbox settings to JSON file"""
     try:
         settings = {name: slider.value for name, slider in all_sliders.items()}
+        # Also save checkbox states
+        if checkboxes:
+            for name, checkbox in checkboxes.items():
+                settings[name] = checkbox.checked
         with open(SLIDER_SETTINGS_FILE, 'w') as f:
             json.dump(settings, f, indent=2)
         logger.info(f"💾 Saved slider settings to {SLIDER_SETTINGS_FILE}")
     except Exception as e:
         logger.warning(f"Could not save slider settings: {e}")
 
-def apply_slider_settings(all_sliders: dict, settings: dict):
-    """Apply loaded settings to sliders"""
+def apply_slider_settings(all_sliders: dict, settings: dict, checkboxes: dict = None):
+    """Apply loaded settings to sliders and checkboxes"""
     for name, value in settings.items():
         if name in all_sliders:
             slider = all_sliders[name]
             # Clamp to valid range
             clamped_value = max(slider.min_val, min(slider.max_val, value))
             slider.value = clamped_value
+        elif checkboxes and name in checkboxes:
+            checkboxes[name].checked = bool(value)
 
 
 # =============================================================================
@@ -734,6 +740,7 @@ class TrackedPersonManager:
         self.scale_x = 1.0
         self.scale_y = 1.0
         self.scale_z = 1.0
+        self.invert_x = False  # Flip X direction of incoming data
         
         # Zone boundaries
         self.active_zone = {
@@ -771,7 +778,9 @@ class TrackedPersonManager:
     def update_person(self, track_id: int, raw_x: float, raw_z: float, zone: str = None):
         """Update or add a tracked person with calibration applied"""
         # Apply calibration: scaled position + offset
-        # V2: coordinates from tracker are already in correct orientation
+        # Optionally invert X direction (for mirrored camera views)
+        if self.invert_x:
+            raw_x = -raw_x
         x = raw_x * self.scale_x + self.offset_x
         z = raw_z * self.scale_z + self.offset_z
         y = STREET_LEVEL_Y * self.scale_y + self.offset_y
@@ -2417,6 +2426,61 @@ def draw_camera_view_overlay(fbo_data, x, y, width, height, label, font, border_
 # GUI SLIDER
 # =============================================================================
 
+class Checkbox:
+    """Simple checkbox for GUI"""
+    def __init__(self, x, y, size, label, checked=False):
+        self.rect = pygame.Rect(x, y, size, size)
+        self.label = label
+        self.checked = checked
+        self.size = size
+    
+    def handle_event(self, event, screen_height):
+        """Handle mouse events. Returns True if value changed."""
+        if event.type == MOUSEBUTTONDOWN and event.button == 1:
+            mouse_y = screen_height - event.pos[1]
+            if self.rect.collidepoint(event.pos[0], mouse_y):
+                self.checked = not self.checked
+                return True
+        return False
+    
+    def draw(self, font):
+        """Draw the checkbox using OpenGL"""
+        x, y, s = self.rect.x, self.rect.y, self.size
+        
+        # Background
+        glColor4f(0.2, 0.2, 0.25, 1.0)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y)
+        glVertex2f(x + s, y)
+        glVertex2f(x + s, y + s)
+        glVertex2f(x, y + s)
+        glEnd()
+        
+        # Checkmark if checked
+        if self.checked:
+            glColor4f(0.3, 0.8, 0.4, 1.0)
+            margin = s * 0.2
+            glBegin(GL_QUADS)
+            glVertex2f(x + margin, y + margin)
+            glVertex2f(x + s - margin, y + margin)
+            glVertex2f(x + s - margin, y + s - margin)
+            glVertex2f(x + margin, y + s - margin)
+            glEnd()
+        
+        # Border
+        glColor4f(0.5, 0.5, 0.5, 1.0)
+        glLineWidth(1)
+        glBegin(GL_LINE_LOOP)
+        glVertex2f(x, y)
+        glVertex2f(x + s, y)
+        glVertex2f(x + s, y + s)
+        glVertex2f(x, y + s)
+        glEnd()
+        
+        # Label
+        draw_text_2d(x + s + 8, y + 2, self.label, font)
+
+
 class Slider:
     """Simple horizontal slider for GUI"""
     def __init__(self, x, y, width, height, min_val, max_val, value, label, format_str="{:.1f}"):
@@ -2649,24 +2713,29 @@ def main():
         'scale_z': Slider(slider_x, display[1] - 230, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale Z", "{:.2f}"),
     }
     
-    # Personality sliders (middle section)
+    # Calibration checkboxes
+    checkboxes = {
+        'invert_x': Checkbox(slider_x, display[1] - 265, 14, "Invert X Direction", checked=False),
+    }
+    
+    # Personality sliders (middle section - starts after checkbox)
     personality_sliders = {
-        'responsiveness': Slider(slider_x, display[1] - 300, slider_w, slider_h, 0, 1, 0.5, "Responsiveness", "{:.2f}"),
-        'energy': Slider(slider_x, display[1] - 340, slider_w, slider_h, 0, 1, 0.5, "Energy", "{:.2f}"),
-        'attention_span': Slider(slider_x, display[1] - 380, slider_w, slider_h, 0, 1, 0.5, "Attention", "{:.2f}"),
-        'sociability': Slider(slider_x, display[1] - 420, slider_w, slider_h, 0, 1, 0.5, "Sociability", "{:.2f}"),
-        'exploration': Slider(slider_x, display[1] - 460, slider_w, slider_h, 0, 1, 0.5, "Exploration", "{:.2f}"),
-        'memory': Slider(slider_x, display[1] - 500, slider_w, slider_h, 0, 1, 0.5, "Memory", "{:.2f}"),
+        'responsiveness': Slider(slider_x, display[1] - 330, slider_w, slider_h, 0, 1, 0.5, "Responsiveness", "{:.2f}"),
+        'energy': Slider(slider_x, display[1] - 370, slider_w, slider_h, 0, 1, 0.5, "Energy", "{:.2f}"),
+        'attention_span': Slider(slider_x, display[1] - 410, slider_w, slider_h, 0, 1, 0.5, "Attention", "{:.2f}"),
+        'sociability': Slider(slider_x, display[1] - 450, slider_w, slider_h, 0, 1, 0.5, "Sociability", "{:.2f}"),
+        'exploration': Slider(slider_x, display[1] - 490, slider_w, slider_h, 0, 1, 0.5, "Exploration", "{:.2f}"),
+        'memory': Slider(slider_x, display[1] - 530, slider_w, slider_h, 0, 1, 0.5, "Memory", "{:.2f}"),
     }
     
     # Global multiplier sliders (lower section)
     global_sliders = {
-        'brightness_global': Slider(slider_x, display[1] - 570, slider_w, slider_h, 0.2, 2.0, 1.0, "Brightness ×", "{:.2f}"),
-        'speed_global': Slider(slider_x, display[1] - 610, slider_w, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}"),
-        'pulse_global': Slider(slider_x, display[1] - 650, slider_w, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}"),
-        'follow_speed_global': Slider(slider_x, display[1] - 690, slider_w, slider_h, 0.5, 3.0, 1.0, "Follow Speed ×", "{:.2f}"),
-        'dwell_influence': Slider(slider_x, display[1] - 730, slider_w, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}"),
-        'idle_trend_weight': Slider(slider_x, display[1] - 770, slider_w, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}"),
+        'brightness_global': Slider(slider_x, display[1] - 600, slider_w, slider_h, 0.2, 2.0, 1.0, "Brightness ×", "{:.2f}"),
+        'speed_global': Slider(slider_x, display[1] - 640, slider_w, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}"),
+        'pulse_global': Slider(slider_x, display[1] - 680, slider_w, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}"),
+        'follow_speed_global': Slider(slider_x, display[1] - 720, slider_w, slider_h, 0.5, 3.0, 1.0, "Follow Speed ×", "{:.2f}"),
+        'dwell_influence': Slider(slider_x, display[1] - 760, slider_w, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}"),
+        'idle_trend_weight': Slider(slider_x, display[1] - 800, slider_w, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}"),
     }
     
     # Combine all sliders
@@ -2675,12 +2744,13 @@ def main():
     # Load saved slider settings
     saved_settings = load_slider_settings()
     if saved_settings:
-        apply_slider_settings(all_sliders, saved_settings)
+        apply_slider_settings(all_sliders, saved_settings, checkboxes)
         # Apply calibration settings to tracked manager
         tracked_manager.offset_x = sliders['offset_x'].value
         tracked_manager.offset_z = sliders['offset_z'].value
         tracked_manager.scale_x = sliders['scale_x'].value
         tracked_manager.scale_z = sliders['scale_z'].value
+        tracked_manager.invert_x = checkboxes['invert_x'].checked
         # Apply personality settings to meta params
         for name, slider in personality_sliders.items():
             setattr(meta_params, name, slider.value)
@@ -2760,6 +2830,14 @@ def main():
                     # Update global multipliers
                     elif name in global_sliders:
                         setattr(meta_params, name, slider.value)
+            
+            # Check checkboxes
+            for name, checkbox in checkboxes.items():
+                if checkbox.handle_event(event, display[1]):
+                    sliders_dirty = True  # Mark for saving
+                    if name == 'invert_x':
+                        tracked_manager.invert_x = checkbox.checked
+                        print(f"🔄 Invert X: {'ON' if checkbox.checked else 'OFF'}")
             
             if event.type == MOUSEBUTTONUP:
                 slider_active = False
@@ -3156,14 +3234,18 @@ def main():
         draw_text_2d(view_width + 20, display[1] - 30, "LIGHT CONTROLLER V2 - DEV", font)
         draw_text_2d(view_width + 20, display[1] - 50, "─" * 24, font)
         
-        # Section labels
+        # Section labels (adjusted for checkbox)
         draw_text_2d(view_width + 20, display[1] - 70, "Calibration:", font_small, (150, 150, 200))
-        draw_text_2d(view_width + 20, display[1] - 270, "Personality:", font_small, (150, 200, 150))
-        draw_text_2d(view_width + 20, display[1] - 540, "Global Multipliers:", font_small, (200, 150, 150))
+        draw_text_2d(view_width + 20, display[1] - 300, "Personality:", font_small, (150, 200, 150))
+        draw_text_2d(view_width + 20, display[1] - 570, "Global Multipliers:", font_small, (200, 150, 150))
         
         # Draw all sliders
         for slider in all_sliders.values():
             slider.draw(font_small)
+        
+        # Draw checkboxes
+        for checkbox in checkboxes.values():
+            checkbox.draw(font_small)
         
         # Update database stats periodically (every 2 seconds)
         if time.time() - last_stats_update > 2.0:
@@ -3172,7 +3254,7 @@ def main():
         
         # Save slider settings periodically if changed
         if sliders_dirty and time.time() - last_slider_save > slider_save_interval:
-            save_slider_settings(all_sliders)
+            save_slider_settings(all_sliders, checkboxes)
             last_slider_save = time.time()
             sliders_dirty = False
         
@@ -3459,7 +3541,7 @@ def main():
     logger.info("Shutting down...")
     
     # Save slider settings before exit
-    save_slider_settings(all_sliders)
+    save_slider_settings(all_sliders, checkboxes)
     
     # Stop background threads first
     daily_report_scheduler.stop()
