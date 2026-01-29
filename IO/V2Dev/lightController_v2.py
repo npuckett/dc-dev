@@ -2691,11 +2691,16 @@ def main():
     
     # Track current report for visualization
     current_daily_report: Optional[DailyReport] = None
+    cached_report_dict: Optional[dict] = None  # Cached serialized report
+    report_version = 0  # Increment when report changes
+    last_sent_report_version = -1  # Track what version client has
     show_trends = True  # Toggle with 'T' key - ON by default
     
     def on_report_ready(report: DailyReport):
-        nonlocal current_daily_report
+        nonlocal current_daily_report, cached_report_dict, report_version
         current_daily_report = report
+        cached_report_dict = report.to_dict() if report else None
+        report_version += 1
     
     daily_report_scheduler.on_report_ready = on_report_ready
     
@@ -3042,6 +3047,9 @@ def main():
                     'status': status_text,
                     'daily_report_available': current_daily_report is not None,
                     'daily_report_date': current_daily_report.date if current_daily_report else None,
+                    'report_version': report_version,
+                    # Include cached report data (pre-serialized for efficiency)
+                    'daily_report': cached_report_dict,
                 }
                 ws_broadcaster.update_state(state)
                 ws_broadcaster.last_broadcast = time.time()

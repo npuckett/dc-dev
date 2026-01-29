@@ -869,72 +869,128 @@ class TrackedPersonManager:
 # =============================================================================
 
 class WebSocketBroadcaster:
-    """Broadcasts installation state to web clients"""
+    """Broadcasts installation state to web clients with efficiency optimizations"""
     
     def __init__(self, port: int = 8765):
         self.port = port
-        self.clients = set()
+        self.clients: set = set()
+        self.clients_lock = asyncio.Lock()  # Thread-safe client management
         self.loop = None
         self.server = None
         self.thread = None
         self.current_state = {}
         self.running = False
+        self._last_json: str = ""  # Cache serialized JSON
+        self._last_state_hash: int = 0  # Track state changes
+        self._pending_broadcast: bool = False  # Coalesce rapid updates
     
     async def handler(self, websocket):
-        """Handle a WebSocket connection"""
-        self.clients.add(websocket)
+        """Handle a WebSocket connection with ping/pong heartbeat"""
+        async with self.clients_lock:
+            self.clients.add(websocket)
+        
         client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else 'unknown'
-        print(f"🌐 WebSocket client connected: {client_ip}")
+        logger.info(f"WebSocket client connected: {client_ip} (total: {len(self.clients)})")
         
         try:
             # Send current state immediately
-            if self.current_state:
-                await websocket.send(json.dumps(self.current_state))
+            if self._last_json:
+                await websocket.send(self._last_json)
             
-            # Keep connection alive
+            # Keep connection alive with ping/pong (handled by websockets library)
             async for message in websocket:
-                pass  # We don't expect messages from clients
-        except websockets.exceptions.ConnectionClosed:
-            pass
+                # Handle any client messages (e.g., request full report refresh)
+                try:
+                    data = json.loads(message)
+                    if data.get('type') == 'request_report' and self._last_json:
+                        await websocket.send(self._last_json)
+                except json.JSONDecodeError:
+                    pass  # Ignore malformed messages
+                    
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.debug(f"WebSocket connection closed: {client_ip} (code: {e.code})")
+        except Exception as e:
+            logger.warning(f"WebSocket handler error for {client_ip}: {e}")
         finally:
-            self.clients.discard(websocket)
-            print(f"🌐 WebSocket client disconnected: {client_ip}")
+            async with self.clients_lock:
+                self.clients.discard(websocket)
+            logger.info(f"WebSocket client disconnected: {client_ip} (remaining: {len(self.clients)})")
     
-    async def broadcast(self, state: dict):
-        """Broadcast state to all connected clients"""
-        if not self.clients:
+    async def broadcast(self):
+        """Broadcast cached state to all connected clients"""
+        if not self.clients or not self._last_json:
             return
         
-        message = json.dumps(state)
-        # Send to all clients, removing dead connections
-        dead_clients = set()
-        for client in self.clients:
-            try:
-                await client.send(message)
-            except:
-                dead_clients.add(client)
+        # Get snapshot of clients under lock
+        async with self.clients_lock:
+            clients_snapshot = list(self.clients)
         
-        self.clients -= dead_clients
+        if not clients_snapshot:
+            return
+        
+        # Broadcast to all clients concurrently
+        dead_clients = []
+        
+        async def send_to_client(client):
+            try:
+                await asyncio.wait_for(client.send(self._last_json), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("WebSocket send timeout, marking client dead")
+                dead_clients.append(client)
+            except websockets.exceptions.ConnectionClosed:
+                dead_clients.append(client)
+            except Exception as e:
+                logger.debug(f"WebSocket send error: {e}")
+                dead_clients.append(client)
+        
+        # Send concurrently to all clients
+        await asyncio.gather(*[send_to_client(c) for c in clients_snapshot], return_exceptions=True)
+        
+        # Remove dead clients
+        if dead_clients:
+            async with self.clients_lock:
+                for client in dead_clients:
+                    self.clients.discard(client)
     
     def update_state(self, state: dict):
-        """Update the current state (called from main thread)"""
+        """Update the current state (called from main thread) - optimized"""
+        # Compute simple hash to detect meaningful changes
+        state_hash = hash((
+            state.get('mode'),
+            len(state.get('people', [])),
+            state.get('report_version', 0),
+            int(state.get('light', {}).get('x', 0) * 10),
+            int(state.get('light', {}).get('y', 0) * 10),
+        ))
+        
+        # Only re-serialize if state actually changed
+        if state_hash != self._last_state_hash:
+            self._last_state_hash = state_hash
+            self._last_json = json.dumps(state, separators=(',', ':'))  # Compact JSON
+        
         self.current_state = state
         
-        if self.loop and self.running:
-            # Schedule broadcast on the event loop
-            asyncio.run_coroutine_threadsafe(
-                self.broadcast(state),
-                self.loop
-            )
+        if self.loop and self.running and not self._pending_broadcast:
+            self._pending_broadcast = True
+            
+            async def do_broadcast():
+                self._pending_broadcast = False
+                await self.broadcast()
+            
+            asyncio.run_coroutine_threadsafe(do_broadcast(), self.loop)
     
     async def _run_server(self):
-        """Run the WebSocket server"""
+        """Run the WebSocket server with optimized settings"""
         self.server = await websockets.serve(
             self.handler,
             "0.0.0.0",
-            self.port
+            self.port,
+            ping_interval=20,  # Send ping every 20s
+            ping_timeout=10,   # Wait 10s for pong
+            close_timeout=5,   # Allow 5s for graceful close
+            max_size=2**20,    # 1MB max message size
         )
-        print(f"🌐 WebSocket server started on port {self.port}")
+        logger.info(f"WebSocket server started on port {self.port}")
         
         # Get local IP for display
         try:
@@ -943,7 +999,7 @@ class WebSocketBroadcaster:
             local_ip = s.getsockname()[0]
             s.close()
             print(f"   Public viewer URL: http://{local_ip}:8080")
-        except:
+        except Exception:
             print(f"   Public viewer: connect to port {self.port}")
         
         await self.server.wait_closed()
@@ -960,17 +1016,30 @@ class WebSocketBroadcaster:
             
             try:
                 self.loop.run_until_complete(self._run_server())
+            except OSError as e:
+                # Port already in use, etc.
+                restart_count += 1
+                logger.error(f"WebSocket server OS error ({restart_count}/{max_restarts}): {e}")
+                if restart_count < max_restarts and self.running:
+                    logger.info(f"WebSocket server restarting in {restart_delay}s...")
+                    time.sleep(restart_delay)
+                    restart_delay = min(restart_delay * 2, 60)
             except Exception as e:
                 restart_count += 1
                 logger.error(f"WebSocket server error ({restart_count}/{max_restarts}): {e}")
-                if restart_count < max_restarts:
+                if restart_count < max_restarts and self.running:
                     logger.info(f"WebSocket server restarting in {restart_delay}s...")
                     time.sleep(restart_delay)
-                    restart_delay = min(restart_delay * 2, 60)  # Exponential backoff, max 60s
+                    restart_delay = min(restart_delay * 2, 60)
             finally:
                 try:
+                    # Clean up pending tasks
+                    pending = asyncio.all_tasks(self.loop)
+                    for task in pending:
+                        task.cancel()
+                    self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                     self.loop.close()
-                except:
+                except Exception:
                     pass
         
         if restart_count >= max_restarts:
@@ -980,14 +1049,28 @@ class WebSocketBroadcaster:
     def start(self):
         """Start the WebSocket server in a background thread"""
         self.running = True  # Set BEFORE starting thread
-        self.thread = threading.Thread(target=self._thread_main, daemon=True)
+        self.thread = threading.Thread(target=self._thread_main, daemon=True, name="WebSocketServer")
         self.thread.start()
     
     def stop(self):
-        """Stop the WebSocket server"""
+        """Stop the WebSocket server gracefully"""
         self.running = False
         if self.server:
             self.server.close()
+        if self.loop and self.loop.is_running():
+            # Schedule cleanup on the event loop
+            async def cleanup():
+                async with self.clients_lock:
+                    for client in list(self.clients):
+                        try:
+                            await asyncio.wait_for(client.close(), timeout=2.0)
+                        except Exception:
+                            pass
+                    self.clients.clear()
+            try:
+                asyncio.run_coroutine_threadsafe(cleanup(), self.loop)
+            except Exception:
+                pass
 
 
 # =============================================================================
@@ -2591,8 +2674,13 @@ def main():
     pygame.init()
     pygame.font.init()
     
-    display = (1920, 1080)
-    screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL)
+    # Get display info for fullscreen
+    display_info = pygame.display.Info()
+    fullscreen_size = (display_info.current_w, display_info.current_h)
+    windowed_size = (1920, 1080)  # Fallback windowed size
+    is_fullscreen = True
+    display = fullscreen_size
+    screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | FULLSCREEN)
     pygame.display.set_caption("3D Light Controller V2 - Production")
     
     font = pygame.font.SysFont('monospace', 14)
@@ -2710,11 +2798,16 @@ def main():
     
     # Track current report for visualization
     current_daily_report: Optional[DailyReport] = None
+    cached_report_dict: Optional[dict] = None  # Cached serialized report
+    report_version = 0  # Increment when report changes
+    last_sent_report_version = -1  # Track what version client has
     show_trends = True  # Toggle with 'T' key - ON by default
     
     def on_report_ready(report: DailyReport):
-        nonlocal current_daily_report
+        nonlocal current_daily_report, cached_report_dict, report_version
         current_daily_report = report
+        cached_report_dict = report.to_dict() if report else None
+        report_version += 1
     
     daily_report_scheduler.on_report_ready = on_report_ready
     
@@ -2820,6 +2913,7 @@ def main():
     print("  SPACE = Toggle wandering")
     print("  P = Cycle presets")
     print("  T = Toggle trends visualization")
+    print("  F = Toggle fullscreen/windowed")
     print("  R = Generate daily report (manual)")
     print("  Q/ESC = Quit")
     print("="*60)
@@ -2892,6 +2986,18 @@ def main():
                 elif event.key == K_t:
                     show_trends = not show_trends
                     print(f"Trends visualization {'visible' if show_trends else 'hidden'}")
+                elif event.key == K_f:
+                    # Toggle fullscreen mode
+                    is_fullscreen = not is_fullscreen
+                    if is_fullscreen:
+                        display = fullscreen_size
+                        screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | FULLSCREEN)
+                    else:
+                        display = windowed_size
+                        screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
+                    # Reinitialize OpenGL viewport
+                    glViewport(0, 0, display[0], display[1])
+                    print(f"{'Fullscreen' if is_fullscreen else 'Windowed'} mode ({display[0]}x{display[1]})")
                 elif event.key == K_HOME:
                     # Reset camera to default view
                     cam_rot_x = cam_rot_x_default
@@ -3096,6 +3202,9 @@ def main():
                     'status': status_text,
                     'daily_report_available': current_daily_report is not None,
                     'daily_report_date': current_daily_report.date if current_daily_report else None,
+                    'report_version': report_version,
+                    # Include cached report data (pre-serialized for efficiency)
+                    'daily_report': cached_report_dict,
                 }
                 ws_broadcaster.update_state(state)
                 ws_broadcaster.last_broadcast = time.time()
