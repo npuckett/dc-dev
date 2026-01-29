@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Drop Ceiling</title>
+    <link rel="icon" type="image/png" href="dcFavicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="header">
+        <h1>Drop Ceiling</h1>
+        <p id="behavior-status"></p>
+    </div>
+    
+    <div id="container">
+        <canvas id="viewer"></canvas>
+    </div>
+    
+    <div id="status">
+        <span id="status-text">Connecting...</span>
+    </div>
+    
+    <div id="mode-display">
+        <span id="mode-label"></span>
+    </div>
+
+    <button id="about-btn">About</button>
+    <a id="github-btn" href="https://github.com/npuckett/Drop-Ceiling" target="_blank">GitHub</a>
+    <!-- Trends button hidden until realtime data is deployed
+    <button id="trends-btn">Trends</button>
+    -->
+
+    <!-- Trends Panel (expandable) - hidden until realtime data is deployed
+    <div id="trends-panel" class="collapsed">
+        <div id="trends-header">
+            <h3>Activity</h3>
+            <button id="trends-toggle">▼</button>
+        </div>
+        <div id="trends-content">
+            <div id="realtime-section">
+                <div class="section-label">REALTIME</div>
+                <div id="realtime-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">Period</span>
+                        <span class="stat-value" id="stat-period">- -</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">1 min</span>
+                        <span class="stat-value"><span id="stat-1m-active">-</span>/<span id="stat-1m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">5 min</span>
+                        <span class="stat-value"><span id="stat-5m-active">-</span>/<span id="stat-5m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">15 min</span>
+                        <span class="stat-value"><span id="stat-15m-active">-</span>/<span id="stat-15m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">60 min</span>
+                        <span class="stat-value"><span id="stat-60m-active">-</span>/<span id="stat-60m-passive">-</span></span>
+                    </div>
+                </div>
+            </div>
+            <div id="daily-section">
+                <div class="section-label">TODAY</div>
+                <div id="trends-summary">
+                    <div class="stat-item">
+                        <span class="stat-label">Total</span>
+                        <span class="stat-value" id="stat-total">- -</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Current</span>
+                        <span class="stat-value" id="stat-current">- -</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak</span>
+                        <span class="stat-value" id="stat-peak">- -</span>
+                    </div>
+                </div>
+                <div id="trends-chart">
+                    <canvas id="hourly-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    -->
+
+    <div id="about-overlay" class="hidden">
+        <div id="about-modal">
+            <button id="about-close">&times;</button>
+            <h2>Drop Ceiling</h2>
+            <div class="about-content">
+                <p>'Drop Ceiling' implements an open-source hardware and software system to transform ubiquitous office lighting into an interactive installation. It responds to the movement and position of people on the sidewalk using a Computer Vision system created from an array of standard security cameras. The installation showcases new methods of playful re-use via open data protocols.</p>
+                
+                <p>Each lighting unit is constructed from three 2 ft × 2ft LED ceiling lights that are connected via 3D printed connectors. A custom hardware controller dynamically adjusts the brightness of each panel by interfacing with its standard 0 – 10V dimming protocol. All four of the units are networked together to allow them to uniformly respond to the position information from the Computer Vision system. The vision system utilizes the standard Real Time Streaming Protocol (RTSP) available in security cameras to create a custom tracking model that is focused on data privacy. Over time, the panels will develop an animated language to communicate with passers-by throughout the day and night.</p>
+                
+                <p>This work is the latest in a research series from <a href="https://puckettrand.com/" target="_blank">Puckett Research & Design</a> that investigates how contemporary forms of Machine Vision can be re-purposed for playful interactions. All control software and design files are available via the <a href="https://github.com/npuckett/Drop-Ceiling" target="_blank">Drop Ceiling Github</a>.</p>
+                
+                <div class="design-team">
+                    <h3>Design Team</h3>
+                    <p>Nick Puckett<br>Joshua Pothen</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="viewer.js"></script>
+</body>
+</html>

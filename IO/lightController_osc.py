@@ -3178,6 +3178,42 @@ def main():
                 behavior_status = behavior.get_status()
                 status_text = behavior_status.get('status_text', '')
                 
+                # Extract realtime trends for public viewer
+                idle_trends = behavior_status.get('idle_trends', {})
+                realtime_trends = None
+                if idle_trends:
+                    realtime_trends = {
+                        'period': idle_trends.get('period', 'unknown'),
+                        'seconds_since_update': idle_trends.get('seconds_since_update', 0),
+                        # 1 minute window
+                        'recent': {
+                            'available': idle_trends.get('has_recent', False),
+                            'passive': idle_trends.get('recent_passive', 0),
+                            'active': idle_trends.get('recent_active', 0),
+                        },
+                        # 5 minute window
+                        'short': {
+                            'available': idle_trends.get('has_short', False),
+                            'passive': idle_trends.get('short_passive', 0),
+                            'active': idle_trends.get('short_active', 0),
+                            'activity': idle_trends.get('short_activity', 0),
+                        },
+                        # 15 minute window  
+                        'medium': {
+                            'available': idle_trends.get('has_medium', False),
+                            'passive': idle_trends.get('medium_passive', 0),
+                            'active': idle_trends.get('medium_active', 0),
+                            'activity': idle_trends.get('medium_activity', 0),
+                        },
+                        # 60 minute window
+                        'long': {
+                            'available': idle_trends.get('has_long', False),
+                            'passive': idle_trends.get('long_passive', 0),
+                            'active': idle_trends.get('long_active', 0),
+                            'activity': idle_trends.get('long_activity', 0),
+                        },
+                    }
+                
                 state = {
                     'type': 'state_update',
                     'light': {
@@ -3200,6 +3236,7 @@ def main():
                     'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
                     'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,
                     'status': status_text,
+                    'realtime_trends': realtime_trends,
                     'daily_report_available': current_daily_report is not None,
                     'daily_report_date': current_daily_report.date if current_daily_report else None,
                     'report_version': report_version,
