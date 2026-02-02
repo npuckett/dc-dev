@@ -25,6 +25,7 @@ WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
 Environment="PATH=/home/nick/Documents/Github/dc-dev/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/run/user/1000/gdm/Xauthority"
 Environment="SDL_VIDEODRIVER=x11"
 
 # For pygame/OpenGL on headless systems (optional, uses virtual framebuffer)

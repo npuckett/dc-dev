@@ -2688,7 +2688,8 @@ def main():
     windowed_size = (1920, 1080)  # Fallback windowed size
     is_fullscreen = True
     display = fullscreen_size
-    screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | FULLSCREEN)
+    # Use NOFRAME instead of FULLSCREEN - stays visible when focus is lost
+    screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | NOFRAME)
     pygame.display.set_caption("3D Light Controller V2 - Production")
     
     font = pygame.font.SysFont('monospace', 14)
@@ -3002,7 +3003,8 @@ def main():
                     pygame.display.init()
                     if is_fullscreen:
                         display = fullscreen_size
-                        screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | FULLSCREEN)
+                        # Use NOFRAME instead of FULLSCREEN - stays visible when focus is lost
+                        screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | NOFRAME)
                     else:
                         display = windowed_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
