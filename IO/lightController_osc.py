@@ -98,7 +98,7 @@ WEBSOCKET_BROADCAST_INTERVAL = 0.066  # ~15 FPS for WebSocket (instead of 30)
 # Health monitoring (for 24/7 operation)
 HEALTH_LOG_INTERVAL = 300  # Log health stats every 5 minutes
 DB_PRUNE_INTERVAL = 3600  # Prune old database records every hour
-DB_RETENTION_DAYS = 7  # Keep 7 days of tracking history
+DB_RAW_RETENTION_HOURS = 48  # Keep raw events for 48 hours (aggregated to hourly_stats before deletion)
 
 # Configure logging
 logging.basicConfig(
@@ -2910,6 +2910,7 @@ def main():
     start_time = time.time()
     last_health_log = time.time()
     last_db_prune = time.time()
+    last_hour_aggregated = datetime.now().hour  # Track hourly aggregation
     frame_count = 0
     total_osc_messages = 0
     
@@ -3240,6 +3241,15 @@ def main():
                         'z': float(light.position[2]),
                         'brightness': float(light.get_brightness()),
                         'falloff_radius': float(light.falloff_radius)
+                    },
+                    'wander_box': {
+                        'min_x': float(wander.wander_box['min_x']),
+                        'max_x': float(wander.wander_box['max_x']),
+                        'min_y': float(wander.wander_box['min_y']),
+                        'max_y': float(wander.wander_box['max_y']),
+                        'min_z': float(wander.wander_box['min_z']),
+                        'max_z': float(wander.wander_box['max_z']),
+                        'enabled': wander.enabled
                     },
                     'panels': panel_system.get_dmx_values()[:12],
                     'people': [
@@ -3744,18 +3754,46 @@ def main():
             
             last_health_log = current_time
         
-        # Periodic database pruning (keep DB from growing forever)
+        # Periodic database pruning (aggregate then prune - keeps hourly stats forever)
         if current_time - last_db_prune >= DB_PRUNE_INTERVAL:
             try:
-                # Prune records older than retention period
-                cutoff = current_time - (DB_RETENTION_DAYS * 86400)
-                pruned = tracking_db.prune_old_records(cutoff)
-                if pruned > 0:
-                    logger.info(f"Pruned {pruned} old tracking records from database")
+                # Smart prune: aggregate old hours, then delete raw events
+                results = tracking_db.prune_with_aggregation(
+                    raw_retention_hours=DB_RAW_RETENTION_HOURS
+                )
+                if results['events_pruned'] > 0 or results['hours_aggregated'] > 0:
+                    logger.info(
+                        f"📊 DB maintenance: aggregated {results['hours_aggregated']} hours, "
+                        f"pruned {results['events_pruned']} events, "
+                        f"{results['behavior_pruned']} behavior records"
+                    )
             except Exception as e:
-                logger.warning(f"Database prune failed: {e}")
+                logger.warning(f"Database maintenance failed: {e}")
             
             last_db_prune = current_time
+        
+        # Hourly aggregation trigger (aggregate completed hour for fresh stats)
+        current_hour = datetime.now().hour
+        if current_hour != last_hour_aggregated:
+            try:
+                # Aggregate the hour that just ended
+                prev_hour = (current_hour - 1) % 24
+                if prev_hour > current_hour:  # Crossed midnight
+                    date_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                else:
+                    date_str = datetime.now().strftime('%Y-%m-%d')
+                
+                stats = tracking_db.aggregate_hour(date_str, prev_hour)
+                if stats['total_events'] > 0:
+                    logger.info(
+                        f"📊 Hourly aggregate [{date_str} {prev_hour}:00]: "
+                        f"{stats['unique_people']} people, "
+                        f"{stats['active_count']} active, {stats['passive_count']} passive"
+                    )
+            except Exception as e:
+                logger.warning(f"Hourly aggregation failed: {e}")
+            
+            last_hour_aggregated = current_hour
     
     # Cleanup
     logger.info("Shutting down...")

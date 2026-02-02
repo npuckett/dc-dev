@@ -70,6 +70,19 @@ let lastReportVersion = -1;  // Track report version to avoid redundant updates
 let latestDailyReport = null;  // Store latest report for when panel opens
 let latestRealtimeTrends = null;  // Store realtime trends
 
+// Wander box lerping state
+let currentWanderBox = { ...CONFIG.WANDER_BOX };  // Current displayed values
+let targetWanderBox = { ...CONFIG.WANDER_BOX };   // Target values from broadcast
+const WANDER_BOX_LERP_SPEED = 0.08;  // Lerp factor (0-1, higher = faster)
+
+// Trends overlay state
+const TRENDS_HISTORY_SIZE = 60;  // Number of data points to display (1 minute at 1/sec)
+const TRENDS_SAMPLE_INTERVAL = 1000;  // Sample every 1 second
+let trendsHistory = [];  // Array of { active, passive, timestamp }
+let lastTrendsSample = 0;
+let trendsCanvas = null;
+let trendsCtx = null;
+
 // =============================================================================
 // INITIALIZATION
 // =============================================================================
@@ -78,16 +91,15 @@ function init() {
     // Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a0c);
-    scene.fog = new THREE.Fog(0x0a0a0c, 400, 1200);
+    scene.fog = new THREE.Fog(0x0a0a0c, 800, 2000);
     
     // Camera - fixed position for mobile portrait view
-    camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+    camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
     
-    // Position camera for a good view of panels and tracking area
-    // Looking from front-right side, further back to see people
-    // Units are at negative X (-30 to -270), so position camera to see that area
-    camera.position.set(200, 250, 400);
-    camera.lookAt(-150, 80, 50);
+    // Position camera high up, beyond the passive zone, centered with panels
+    // Panels center at X = -150, passive zone ends around Z = 283
+    camera.position.set(-150, 600, 700);
+    camera.lookAt(-150, 60, 0);
     
     // Renderer
     const canvas = document.getElementById('viewer');
@@ -101,11 +113,11 @@ function init() {
     
     // Orbit controls - allows user to rotate/pan/zoom camera
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(-150, 60, 50);  // Look at center of units (negative X)
+    controls.target.set(-150, 60, 100);  // Look at center of tracking zones
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.minDistance = 100;
-    controls.maxDistance = 1500;
+    controls.maxDistance = 2500;
     controls.update();
     
     // Lighting
@@ -117,6 +129,7 @@ function init() {
     createPanels();
     createPointLight();
     createTrackzone();
+    initTrendsOverlay();
     
     // Events
     window.addEventListener('resize', onWindowResize);
@@ -134,28 +147,33 @@ function init() {
         }
     });
     
-    // Trends panel toggle
+    // Trends panel toggle (elements may be commented out in HTML)
     const trendsPanel = document.getElementById('trends-panel');
     const trendsBtn = document.getElementById('trends-btn');
     const trendsHeader = document.getElementById('trends-header');
     
-    // Start hidden
-    trendsPanel.classList.add('hidden');
-    
-    trendsBtn.addEventListener('click', () => {
-        if (trendsPanel.classList.contains('hidden')) {
-            trendsPanel.classList.remove('hidden');
-            trendsPanel.classList.remove('collapsed');
-            // Refresh the display with latest data when opening
-            updateTrendsDisplay(latestDailyReport, latestRealtimeTrends);
-        } else {
-            trendsPanel.classList.add('hidden');
+    // Only set up trends panel if elements exist
+    if (trendsPanel && trendsBtn) {
+        // Start hidden
+        trendsPanel.classList.add('hidden');
+        
+        trendsBtn.addEventListener('click', () => {
+            if (trendsPanel.classList.contains('hidden')) {
+                trendsPanel.classList.remove('hidden');
+                trendsPanel.classList.remove('collapsed');
+                // Refresh the display with latest data when opening
+                updateTrendsDisplay(latestDailyReport, latestRealtimeTrends);
+            } else {
+                trendsPanel.classList.add('hidden');
+            }
+        });
+        
+        if (trendsHeader) {
+            trendsHeader.addEventListener('click', () => {
+                trendsPanel.classList.toggle('collapsed');
+            });
         }
-    });
-    
-    trendsHeader.addEventListener('click', () => {
-        trendsPanel.classList.toggle('collapsed');
-    });
+    }
     
     // Auto-connect to Tailscale endpoint
     connectWebSocket(CONFIG.WS_URL);
@@ -393,16 +411,16 @@ function handleStateUpdate(data) {
     
     // Update panel brightness
     // DMX values from Python are in range 1-50 (DMX_MIN to DMX_MAX)
-    // Python sends units in reverse order (unit 3,2,1,0), so reverse to match viewer order
+    // Python sends panels in order: Unit 0 (panels 1-3), Unit 1 (panels 1-3), etc.
+    // This matches the order panels are created in createPanels()
     if (data.panels) {
-        const reversedPanels = [...data.panels].reverse();
-        reversedPanels.forEach((dmxValue, index) => {
+        data.panels.forEach((dmxValue, index) => {
             if (panels[index]) {
                 const normalizedBrightness = (dmxValue - 1) / 49; // Map 1-50 to 0-1
-                // Apply exponential curve for more dramatic effect (brights pop more)
-                const curved = Math.pow(normalizedBrightness, 0.6);
-                // Very dark minimum (0.03) to over-bright (1.2) with warm tint
-                const intensity = 0.03 + curved * 1.17;
+                // Apply steep curve - low values stay dark, only high values get bright
+                const curved = Math.pow(normalizedBrightness, 2.0);
+                // Nearly black minimum (0.005) to bright (1.5) for maximum range
+                const intensity = 0.005 + curved * 1.495;
                 panels[index].mesh.material.color.setRGB(
                     Math.min(intensity, 1.0), 
                     Math.min(intensity * 0.95, 1.0), 
@@ -428,9 +446,9 @@ function handleStateUpdate(data) {
         document.getElementById('behavior-status').textContent = data.status || '';
     }
     
-    // Update wander box if changed
+    // Update wander box target if changed (will lerp in animate loop)
     if (data.wander_box) {
-        updateWanderBox(data.wander_box);
+        targetWanderBox = { ...data.wander_box };
     }
     
     // Store realtime trends (always update)
@@ -488,9 +506,9 @@ function createPersonMesh() {
     // Simple cylinder for body
     const bodyGeom = new THREE.CylinderGeometry(15, 15, 150, 12);
     const bodyMat = new THREE.MeshBasicMaterial({ 
-        color: 0x44aa66,
+        color: 0x66ee88,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.85,
     });
     const body = new THREE.Mesh(bodyGeom, bodyMat);
     group.add(body);
@@ -520,6 +538,9 @@ function animate() {
     // Update orbit controls
     controls.update();
     
+    // Lerp wander box towards target
+    lerpWanderBox();
+    
     // Pulse the light glow slightly
     if (lightGlow && currentState?.light) {
         const pulse = Math.sin(Date.now() * 0.003) * 0.1 + 1;
@@ -529,10 +550,257 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+function lerpWanderBox() {
+    // Check if we need to update (any value different)
+    const needsUpdate = 
+        Math.abs(currentWanderBox.min_x - targetWanderBox.min_x) > 0.01 ||
+        Math.abs(currentWanderBox.max_x - targetWanderBox.max_x) > 0.01 ||
+        Math.abs(currentWanderBox.min_y - targetWanderBox.min_y) > 0.01 ||
+        Math.abs(currentWanderBox.max_y - targetWanderBox.max_y) > 0.01 ||
+        Math.abs(currentWanderBox.min_z - targetWanderBox.min_z) > 0.01 ||
+        Math.abs(currentWanderBox.max_z - targetWanderBox.max_z) > 0.01;
+    
+    if (!needsUpdate) return;
+    
+    // Lerp each value towards target
+    currentWanderBox.min_x += (targetWanderBox.min_x - currentWanderBox.min_x) * WANDER_BOX_LERP_SPEED;
+    currentWanderBox.max_x += (targetWanderBox.max_x - currentWanderBox.max_x) * WANDER_BOX_LERP_SPEED;
+    currentWanderBox.min_y += (targetWanderBox.min_y - currentWanderBox.min_y) * WANDER_BOX_LERP_SPEED;
+    currentWanderBox.max_y += (targetWanderBox.max_y - currentWanderBox.max_y) * WANDER_BOX_LERP_SPEED;
+    currentWanderBox.min_z += (targetWanderBox.min_z - currentWanderBox.min_z) * WANDER_BOX_LERP_SPEED;
+    currentWanderBox.max_z += (targetWanderBox.max_z - currentWanderBox.max_z) * WANDER_BOX_LERP_SPEED;
+    
+    // Update the visual
+    updateWanderBox(currentWanderBox);
+}
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    resizeTrendsCanvas();
+}
+
+// =============================================================================
+// TRENDS OVERLAY (Bottom of screen time visualization)
+// =============================================================================
+
+function initTrendsOverlay() {
+    trendsCanvas = document.getElementById('trends-canvas');
+    if (!trendsCanvas) return;
+    
+    trendsCtx = trendsCanvas.getContext('2d');
+    resizeTrendsCanvas();
+    
+    // Start the render loop for trends
+    requestAnimationFrame(renderTrendsOverlay);
+}
+
+function resizeTrendsCanvas() {
+    if (!trendsCanvas || !trendsCtx) return;
+    
+    const rect = trendsCanvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    trendsCanvas.width = rect.width * dpr;
+    trendsCanvas.height = rect.height * dpr;
+    trendsCtx.setTransform(1, 0, 0, 1, 0, 0);
+    trendsCtx.scale(dpr, dpr);
+}
+
+function sampleTrendsData() {
+    // Sample event counts at regular intervals
+    // These are cumulative counts of zone-crossing events within time windows
+    const now = Date.now();
+    if (now - lastTrendsSample < TRENDS_SAMPLE_INTERVAL) return;
+    
+    lastTrendsSample = now;
+    
+    // Get event counts from realtime trends
+    // Engaged = active zone events (triggered installation response)
+    // Passing = passive zone events (walked through without engaging)
+    let engaged = 0;
+    let passing = 0;
+    
+    if (latestRealtimeTrends?.recent?.available) {
+        // Use realtime trends data (events in last 1 minute window)
+        engaged = latestRealtimeTrends.recent.active || 0;
+        passing = latestRealtimeTrends.recent.passive || 0;
+    } else if (currentState?.people) {
+        // Fallback: use current people count as proxy
+        const peopleCount = currentState.people.length;
+        if (currentState.mode === 'engaged' || currentState.mode === 'crowd') {
+            engaged = peopleCount;
+        } else {
+            passing = peopleCount;
+        }
+    }
+    
+    trendsHistory.push({
+        active: engaged,
+        passive: passing,
+        timestamp: now
+    });
+    
+    // Trim old data
+    while (trendsHistory.length > TRENDS_HISTORY_SIZE) {
+        trendsHistory.shift();
+    }
+}
+
+function renderTrendsOverlay() {
+    requestAnimationFrame(renderTrendsOverlay);
+    
+    // Sample new data
+    sampleTrendsData();
+    
+    if (!trendsCtx || !trendsCanvas) return;
+    
+    const rect = trendsCanvas.parentElement.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    
+    // Clear
+    trendsCtx.clearRect(0, 0, width, height);
+    
+    if (trendsHistory.length < 2) return;
+    
+    // Find max value for scaling
+    let maxValue = 1;
+    for (const point of trendsHistory) {
+        maxValue = Math.max(maxValue, point.active + point.passive);
+    }
+    
+    // Add headroom
+    maxValue = Math.ceil(maxValue * 1.2) || 1;
+    
+    // Chart dimensions (compact for top row)
+    const padding = { left: 30, right: 10, top: 8, bottom: 8 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    // Draw subtle grid lines
+    trendsCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    trendsCtx.lineWidth = 1;
+    for (let i = 0; i <= 2; i++) {
+        const y = padding.top + (chartHeight * i / 2);
+        trendsCtx.beginPath();
+        trendsCtx.moveTo(padding.left, y);
+        trendsCtx.lineTo(width - padding.right, y);
+        trendsCtx.stroke();
+    }
+    
+    // Draw Y-axis max label
+    trendsCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    trendsCtx.font = '8px Space Grotesk, sans-serif';
+    trendsCtx.textAlign = 'right';
+    trendsCtx.textBaseline = 'middle';
+    trendsCtx.fillText(maxValue.toString(), padding.left - 5, padding.top + 5);
+    
+    // Draw X-axis time labels
+    trendsCtx.textAlign = 'left';
+    trendsCtx.textBaseline = 'bottom';
+    trendsCtx.fillText('60s ago', padding.left, height - 2);
+    trendsCtx.textAlign = 'right';
+    trendsCtx.fillText('now', width - padding.right, height - 2);
+    
+    // Calculate point positions
+    const pointSpacing = chartWidth / (TRENDS_HISTORY_SIZE - 1);
+    
+    // Draw stacked area chart (passive on bottom, active on top)
+    // Draw passive area (blue)
+    trendsCtx.beginPath();
+    trendsCtx.moveTo(padding.left, height - padding.bottom);
+    
+    for (let i = 0; i < trendsHistory.length; i++) {
+        const x = padding.left + (i * pointSpacing);
+        const passiveHeight = (trendsHistory[i].passive / maxValue) * chartHeight;
+        const y = height - padding.bottom - passiveHeight;
+        
+        if (i === 0) {
+            trendsCtx.lineTo(x, y);
+        } else {
+            trendsCtx.lineTo(x, y);
+        }
+    }
+    
+    // Close the path
+    const lastX = padding.left + ((trendsHistory.length - 1) * pointSpacing);
+    trendsCtx.lineTo(lastX, height - padding.bottom);
+    trendsCtx.closePath();
+    
+    // Fill passing area (green - matches 3D tracked people)
+    const passingGradient = trendsCtx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    passingGradient.addColorStop(0, 'rgba(102, 238, 136, 0.4)');
+    passingGradient.addColorStop(1, 'rgba(102, 238, 136, 0.1)');
+    trendsCtx.fillStyle = passingGradient;
+    trendsCtx.fill();
+    
+    // Draw active area (green) stacked on top of passive
+    trendsCtx.beginPath();
+    
+    // Start from the passive line
+    for (let i = trendsHistory.length - 1; i >= 0; i--) {
+        const x = padding.left + (i * pointSpacing);
+        const passiveHeight = (trendsHistory[i].passive / maxValue) * chartHeight;
+        const y = height - padding.bottom - passiveHeight;
+        
+        if (i === trendsHistory.length - 1) {
+            trendsCtx.moveTo(x, y);
+        } else {
+            trendsCtx.lineTo(x, y);
+        }
+    }
+    
+    // Go up to active + passive level
+    for (let i = 0; i < trendsHistory.length; i++) {
+        const x = padding.left + (i * pointSpacing);
+        const totalHeight = ((trendsHistory[i].passive + trendsHistory[i].active) / maxValue) * chartHeight;
+        const y = height - padding.bottom - totalHeight;
+        trendsCtx.lineTo(x, y);
+    }
+    
+    trendsCtx.closePath();
+    
+    // Fill engaged area (orange - stands out from green people)
+    const engagedGradient = trendsCtx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    engagedGradient.addColorStop(0, 'rgba(255, 170, 68, 0.5)');
+    engagedGradient.addColorStop(1, 'rgba(255, 170, 68, 0.15)');
+    trendsCtx.fillStyle = engagedGradient;
+    trendsCtx.fill();
+    
+    // Draw active line on top
+    trendsCtx.beginPath();
+    for (let i = 0; i < trendsHistory.length; i++) {
+        const x = padding.left + (i * pointSpacing);
+        const totalHeight = ((trendsHistory[i].passive + trendsHistory[i].active) / maxValue) * chartHeight;
+        const y = height - padding.bottom - totalHeight;
+        
+        if (i === 0) {
+            trendsCtx.moveTo(x, y);
+        } else {
+            trendsCtx.lineTo(x, y);
+        }
+    }
+    trendsCtx.strokeStyle = 'rgba(255, 170, 68, 0.8)';
+    trendsCtx.lineWidth = 1.5;
+    trendsCtx.stroke();
+    
+    // Draw passing line (green)
+    trendsCtx.beginPath();
+    for (let i = 0; i < trendsHistory.length; i++) {
+        const x = padding.left + (i * pointSpacing);
+        const passiveHeight = (trendsHistory[i].passive / maxValue) * chartHeight;
+        const y = height - padding.bottom - passiveHeight;
+        
+        if (i === 0) {
+            trendsCtx.moveTo(x, y);
+        } else {
+            trendsCtx.lineTo(x, y);
+        }
+    }
+    trendsCtx.strokeStyle = 'rgba(102, 238, 136, 0.8)';
+    trendsCtx.lineWidth = 1.5;
+    trendsCtx.stroke();
 }
 
 // =============================================================================
@@ -548,68 +816,76 @@ function updateTrendsDisplay(report, realtime) {
 }
 
 function updateRealtimeSection(realtime) {
+    // Check if realtime elements exist (they may be commented out in HTML)
+    const periodEl = document.getElementById('stat-period');
+    if (!periodEl) return; // Elements not in DOM, skip update
+    
     if (!realtime) {
         // No realtime data - show placeholders
-        document.getElementById('stat-period').textContent = '--';
-        document.getElementById('stat-1m-active').textContent = '-';
-        document.getElementById('stat-1m-passive').textContent = '-';
-        document.getElementById('stat-5m-active').textContent = '-';
-        document.getElementById('stat-5m-passive').textContent = '-';
-        document.getElementById('stat-15m-active').textContent = '-';
-        document.getElementById('stat-15m-passive').textContent = '-';
-        document.getElementById('stat-60m-active').textContent = '-';
-        document.getElementById('stat-60m-passive').textContent = '-';
+        periodEl.textContent = '--';
+        const els = ['stat-1m-active', 'stat-1m-passive', 'stat-5m-active', 'stat-5m-passive', 
+                     'stat-15m-active', 'stat-15m-passive', 'stat-60m-active', 'stat-60m-passive'];
+        els.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '-'; });
         return;
     }
     
     // Period
     const period = realtime.period || 'unknown';
     const periodDisplay = period.replace('_', ' ').toUpperCase();
-    document.getElementById('stat-period').textContent = periodDisplay;
+    periodEl.textContent = periodDisplay;
+    
+    // Helper to safely set text content
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     
     // 1 minute (recent)
     if (realtime.recent?.available) {
-        document.getElementById('stat-1m-active').textContent = realtime.recent.active || 0;
-        document.getElementById('stat-1m-passive').textContent = realtime.recent.passive || 0;
+        setText('stat-1m-active', realtime.recent.active || 0);
+        setText('stat-1m-passive', realtime.recent.passive || 0);
     } else {
-        document.getElementById('stat-1m-active').textContent = '-';
-        document.getElementById('stat-1m-passive').textContent = '-';
+        setText('stat-1m-active', '-');
+        setText('stat-1m-passive', '-');
     }
     
     // 5 minute (short)
     if (realtime.short?.available) {
-        document.getElementById('stat-5m-active').textContent = realtime.short.active || 0;
-        document.getElementById('stat-5m-passive').textContent = realtime.short.passive || 0;
+        setText('stat-5m-active', realtime.short.active || 0);
+        setText('stat-5m-passive', realtime.short.passive || 0);
     } else {
-        document.getElementById('stat-5m-active').textContent = '-';
-        document.getElementById('stat-5m-passive').textContent = '-';
+        setText('stat-5m-active', '-');
+        setText('stat-5m-passive', '-');
     }
     
     // 15 minute (medium)
     if (realtime.medium?.available) {
-        document.getElementById('stat-15m-active').textContent = realtime.medium.active || 0;
-        document.getElementById('stat-15m-passive').textContent = realtime.medium.passive || 0;
+        setText('stat-15m-active', realtime.medium.active || 0);
+        setText('stat-15m-passive', realtime.medium.passive || 0);
     } else {
-        document.getElementById('stat-15m-active').textContent = '-';
-        document.getElementById('stat-15m-passive').textContent = '-';
+        setText('stat-15m-active', '-');
+        setText('stat-15m-passive', '-');
     }
     
     // 60 minute (long)
     if (realtime.long?.available) {
-        document.getElementById('stat-60m-active').textContent = realtime.long.active || 0;
-        document.getElementById('stat-60m-passive').textContent = realtime.long.passive || 0;
+        setText('stat-60m-active', realtime.long.active || 0);
+        setText('stat-60m-passive', realtime.long.passive || 0);
     } else {
-        document.getElementById('stat-60m-active').textContent = '-';
-        document.getElementById('stat-60m-passive').textContent = '-';
+        setText('stat-60m-active', '-');
+        setText('stat-60m-passive', '-');
     }
 }
 
 function updateDailySection(report) {
+    // Check if daily elements exist (they may be commented out in HTML)
+    const totalEl = document.getElementById('stat-total');
+    if (!totalEl) return; // Elements not in DOM, skip update
+    
     if (!report) {
         // No report available - show placeholder
-        document.getElementById('stat-total').textContent = '--';
-        document.getElementById('stat-current').textContent = '--';
-        document.getElementById('stat-peak').textContent = '--';
+        totalEl.textContent = '--';
+        const currentEl = document.getElementById('stat-current');
+        const peakEl = document.getElementById('stat-peak');
+        if (currentEl) currentEl.textContent = '--';
+        if (peakEl) peakEl.textContent = '--';
         
         // Clear the chart
         const canvas = document.getElementById('hourly-chart');
@@ -631,7 +907,7 @@ function updateDailySection(report) {
     
     // Update summary stats
     const summary = report.summary || {};
-    document.getElementById('stat-total').textContent = summary.total_unique_people || 0;
+    totalEl.textContent = summary.total_unique_people || 0;
     
     // Find current hour and peak hour from hourly data
     const hourlyData = report.hourly_trends || [];
@@ -639,16 +915,20 @@ function updateDailySection(report) {
     
     // Find current hour count
     const currentHourData = hourlyData.find(h => h.hour === currentHour);
-    document.getElementById('stat-current').textContent = currentHourData ? currentHourData.total_people : 0;
+    const currentEl = document.getElementById('stat-current');
+    if (currentEl) currentEl.textContent = currentHourData ? currentHourData.total_people : 0;
     
     // Use peak_times from report
     const peakTimes = report.peak_times || {};
-    if (peakTimes.peak_hour !== null && peakTimes.peak_hour !== undefined) {
-        const peakHour = peakTimes.peak_hour;
-        const label = peakHour === 0 ? '12a' : peakHour === 12 ? '12p' : peakHour < 12 ? `${peakHour}a` : `${peakHour-12}p`;
-        document.getElementById('stat-peak').textContent = label;
-    } else {
-        document.getElementById('stat-peak').textContent = '--';
+    const peakEl = document.getElementById('stat-peak');
+    if (peakEl) {
+        if (peakTimes.peak_hour !== null && peakTimes.peak_hour !== undefined) {
+            const peakHour = peakTimes.peak_hour;
+            const label = peakHour === 0 ? '12a' : peakHour === 12 ? '12p' : peakHour < 12 ? `${peakHour}a` : `${peakHour-12}p`;
+            peakEl.textContent = label;
+        } else {
+            peakEl.textContent = '--';
+        }
     }
     
     // Draw hourly chart

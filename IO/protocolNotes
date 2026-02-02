@@ -1,0 +1,17 @@
+create a new section ## Protocols before #sym:## Operating Software 
+
+- Input
+--RTSP
+The system uses standard POE security cameras. While these are often designed to work with proprietary NVRs, many also have the ability to broadcast using the standard Real Time Streaming (RTSP) protocol. [hyperlink to website that explains the sttandard]. This open protocol can be read by most any programming language. Drop Ceiling uses 2 Reolink RLC-520A cameras. [link to product page] These were chosen for their good low-light performance, wide field of view, and decent framerate. Others have higher resolution, but this isn't useful for tracking. 
+
+--Synthesis and Calibration
+The feeds are processed first using YOLOv11, a real-time object detection model optimized for identifying people in the frame. [link to Ultralytics YOLO] Each camera produces independent 2D detections with bounding boxes and confidence scores.
+
+To translate these 2D pixel coordinates into a shared 3D world coordinate system, the installation uses ArUco markers—square fiducial markers from the OpenCV library that encode unique IDs in their black and white patterns. [link to OpenCV ArUco documentation] Four markers are placed at known positions in the physical space, typically on the floor at measured distances. During calibration, each camera detects these markers and computes a homography matrix that maps its 2D image plane to the real-world ground plane.
+
+Because the two cameras have overlapping fields of view, their detections must be reconciled. The system uses spatial proximity matching: when two cameras detect people in the same region, detections within a configurable distance threshold are merged into a single tracked individual. Each camera's contribution is weighted by detection confidence and viewing angle. The result is a unified coordinate stream with X/Y positions in centimeters, updated at approximately 15-20Hz depending on network conditions and processing load.
+
+- Output
+--DMX over Art-Net
+The brightness of each LED panel is sent in real-time as DMX data over the Art-Net protocol. A standard DMX decoder receives the signals and a voltage divider circuit converts the 0-12V PWM signal into the standard 0-10V dimming protocol used by most LED ceiling panels. 
+

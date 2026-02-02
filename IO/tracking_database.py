@@ -237,6 +237,48 @@ class TrackingDatabase:
                 )
             ''')
             
+            # Hourly statistics (aggregated from raw events - kept forever)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS hourly_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL,
+                    hour INTEGER NOT NULL,
+                    total_events INTEGER DEFAULT 0,
+                    unique_people INTEGER DEFAULT 0,
+                    active_count INTEGER DEFAULT 0,
+                    passive_count INTEGER DEFAULT 0,
+                    avg_speed REAL DEFAULT 0,
+                    left_to_right INTEGER DEFAULT 0,
+                    right_to_left INTEGER DEFAULT 0,
+                    bloom_count INTEGER DEFAULT 0,
+                    dominant_mode TEXT,
+                    avg_brightness REAL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(date, hour)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_hourly_date ON hourly_stats(date)')
+            
+            # Daily statistics (aggregated from hourly - kept forever)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS daily_stats_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL UNIQUE,
+                    total_events INTEGER DEFAULT 0,
+                    unique_people INTEGER DEFAULT 0,
+                    total_active INTEGER DEFAULT 0,
+                    total_passive INTEGER DEFAULT 0,
+                    total_blooms INTEGER DEFAULT 0,
+                    peak_hour INTEGER,
+                    peak_count INTEGER,
+                    quietest_hour INTEGER,
+                    dominant_flow TEXT,
+                    flow_balance REAL DEFAULT 0,
+                    avg_speed REAL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             self.conn.commit()
     
     def _get_zone(self, x: float, z: float) -> Zone:
@@ -683,6 +725,222 @@ class TrackingDatabase:
                       row['ltr'], row['rtl']))
             
             self.conn.commit()
+    
+    # =========================================================================
+    # AGGREGATION METHODS (for long-term data retention)
+    # =========================================================================
+    
+    def aggregate_hour(self, date_str: str, hour: int) -> dict:
+        """
+        Aggregate raw events for a specific hour into hourly_stats.
+        Call this at the END of each hour or during maintenance.
+        
+        Returns stats dict for logging/verification.
+        """
+        # Calculate time bounds
+        start_dt = datetime.strptime(f"{date_str} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
+        end_dt = start_dt + timedelta(hours=1)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
+        
+        with self.lock:
+            cursor = self.conn.cursor()
+            
+            # Aggregate tracking events
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total_events,
+                    COUNT(DISTINCT person_id) as unique_people,
+                    SUM(CASE WHEN zone = 'active' THEN 1 ELSE 0 END) as active_count,
+                    SUM(CASE WHEN zone = 'passive' THEN 1 ELSE 0 END) as passive_count,
+                    AVG(speed) as avg_speed,
+                    SUM(CASE WHEN flow_direction = 'left_to_right' THEN 1 ELSE 0 END) as ltr,
+                    SUM(CASE WHEN flow_direction = 'right_to_left' THEN 1 ELSE 0 END) as rtl
+                FROM tracking_events
+                WHERE timestamp >= ? AND timestamp < ?
+            ''', (start_ts, end_ts))
+            tracking = cursor.fetchone()
+            
+            # Aggregate light behavior
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as behavior_count,
+                    AVG(brightness) as avg_brightness
+                FROM light_behavior
+                WHERE timestamp >= ? AND timestamp < ?
+            ''', (start_ts, end_ts))
+            behavior = cursor.fetchone()
+            
+            # Get dominant mode
+            cursor.execute('''
+                SELECT mode, COUNT(*) as cnt
+                FROM light_behavior
+                WHERE timestamp >= ? AND timestamp < ?
+                GROUP BY mode ORDER BY cnt DESC LIMIT 1
+            ''', (start_ts, end_ts))
+            mode_row = cursor.fetchone()
+            dominant_mode = mode_row[0] if mode_row else 'unknown'
+            
+            # Build stats dict
+            stats = {
+                'date': date_str,
+                'hour': hour,
+                'total_events': tracking[0] or 0,
+                'unique_people': tracking[1] or 0,
+                'active_count': tracking[2] or 0,
+                'passive_count': tracking[3] or 0,
+                'avg_speed': tracking[4] or 0.0,
+                'left_to_right': tracking[5] or 0,
+                'right_to_left': tracking[6] or 0,
+                'dominant_mode': dominant_mode,
+                'avg_brightness': behavior[1] or 0.0 if behavior else 0.0,
+            }
+            
+            # Insert or update hourly stats
+            cursor.execute('''
+                INSERT OR REPLACE INTO hourly_stats 
+                (date, hour, total_events, unique_people, active_count, passive_count,
+                 avg_speed, left_to_right, right_to_left, dominant_mode, avg_brightness)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (stats['date'], stats['hour'], stats['total_events'], 
+                  stats['unique_people'], stats['active_count'], stats['passive_count'],
+                  stats['avg_speed'], stats['left_to_right'], stats['right_to_left'],
+                  stats['dominant_mode'], stats['avg_brightness']))
+            
+            self.conn.commit()
+            return stats
+    
+    def aggregate_day(self, date_str: str) -> dict:
+        """
+        Aggregate hourly stats into daily summary.
+        Call this at midnight for the previous day.
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    SUM(total_events) as total_events,
+                    SUM(unique_people) as unique_people,
+                    SUM(active_count) as total_active,
+                    SUM(passive_count) as total_passive,
+                    AVG(avg_speed) as avg_speed,
+                    SUM(left_to_right) as ltr,
+                    SUM(right_to_left) as rtl
+                FROM hourly_stats
+                WHERE date = ?
+            ''', (date_str,))
+            row = cursor.fetchone()
+            
+            if not row or row[0] is None:
+                return {'date': date_str, 'total_events': 0}
+            
+            # Find peak and quietest hours
+            cursor.execute('''
+                SELECT hour, total_events FROM hourly_stats
+                WHERE date = ? ORDER BY total_events DESC LIMIT 1
+            ''', (date_str,))
+            peak = cursor.fetchone()
+            
+            cursor.execute('''
+                SELECT hour, total_events FROM hourly_stats
+                WHERE date = ? AND total_events > 0 ORDER BY total_events ASC LIMIT 1
+            ''', (date_str,))
+            quietest = cursor.fetchone()
+            
+            ltr = row[5] or 0
+            rtl = row[6] or 0
+            flow_balance = (ltr - rtl) / (ltr + rtl) if (ltr + rtl) > 0 else 0
+            dominant_flow = 'left_to_right' if ltr > rtl else 'right_to_left' if rtl > ltr else 'balanced'
+            
+            stats = {
+                'date': date_str,
+                'total_events': row[0] or 0,
+                'unique_people': row[1] or 0,
+                'total_active': row[2] or 0,
+                'total_passive': row[3] or 0,
+                'avg_speed': row[4] or 0.0,
+                'peak_hour': peak[0] if peak else 0,
+                'peak_count': peak[1] if peak else 0,
+                'quietest_hour': quietest[0] if quietest else 0,
+                'dominant_flow': dominant_flow,
+                'flow_balance': flow_balance,
+            }
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO daily_stats_v2
+                (date, total_events, unique_people, total_active, total_passive,
+                 avg_speed, peak_hour, peak_count, quietest_hour, dominant_flow, flow_balance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (stats['date'], stats['total_events'], stats['unique_people'],
+                  stats['total_active'], stats['total_passive'], stats['avg_speed'],
+                  stats['peak_hour'], stats['peak_count'], stats['quietest_hour'],
+                  stats['dominant_flow'], stats['flow_balance']))
+            
+            self.conn.commit()
+            return stats
+    
+    def prune_with_aggregation(self, raw_retention_hours: int = 48) -> dict:
+        """
+        Smart pruning: aggregate before deleting.
+        
+        1. Aggregate any un-aggregated hours from raw data
+        2. Delete raw events older than retention_hours
+        3. Hourly stats are kept FOREVER
+        
+        Returns dict with counts of aggregated/pruned records.
+        """
+        now = datetime.now()
+        results = {'hours_aggregated': 0, 'events_pruned': 0, 'behavior_pruned': 0}
+        
+        cutoff_raw = now - timedelta(hours=raw_retention_hours)
+        cutoff_ts = cutoff_raw.timestamp()
+        
+        # Find hours that need aggregation (have raw data but no hourly_stats)
+        with self.lock:
+            cursor = self.conn.cursor()
+            
+            # Get distinct date/hour combinations from old events
+            cursor.execute('''
+                SELECT DISTINCT 
+                    date(datetime) as date,
+                    CAST(strftime('%H', datetime) AS INTEGER) as hour
+                FROM tracking_events
+                WHERE timestamp < ?
+            ''', (cutoff_ts,))
+            old_hours = cursor.fetchall()
+        
+        # Aggregate each hour that's about to be pruned
+        for date_str, hour in old_hours:
+            # Check if already aggregated
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    'SELECT 1 FROM hourly_stats WHERE date = ? AND hour = ?',
+                    (date_str, hour)
+                )
+                if cursor.fetchone():
+                    continue  # Already aggregated
+            
+            try:
+                self.aggregate_hour(date_str, hour)
+                results['hours_aggregated'] += 1
+            except Exception as e:
+                print(f"Warning: Failed to aggregate {date_str} hour {hour}: {e}")
+        
+        # Now safe to delete old raw events
+        with self.lock:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('DELETE FROM tracking_events WHERE timestamp < ?', (cutoff_ts,))
+            results['events_pruned'] = cursor.rowcount
+            
+            cursor.execute('DELETE FROM light_behavior WHERE timestamp < ?', (cutoff_ts,))
+            results['behavior_pruned'] = cursor.rowcount
+            
+            self.conn.commit()
+        
+        return results
     
     def cleanup_old_events(self, keep_days: int = 30):
         """Remove raw events older than N days (keeps summaries)"""
