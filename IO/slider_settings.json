@@ -1,5 +1,5 @@
 {
-  "offset_x": -173.33333333333334,
+  "offset_x": -21.666666666666657,
   "offset_z": 206.25,
   "scale_x": 1.0,
   "scale_z": 1.0,
@@ -9,7 +9,7 @@
   "sociability": 0.5,
   "exploration": 0.5,
   "memory": 0.5,
-  "brightness_global": 1.6324999999999998,
+  "brightness_global": 1.8800000000000001,
   "speed_global": 1.0,
   "pulse_global": 1.0,
   "follow_speed_global": 0.5104166666666666,

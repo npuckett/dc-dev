@@ -843,6 +843,11 @@ class TrackedPersonManager:
         with self.lock:
             return list(self.people.values())
     
+    def get_person(self, track_id: int) -> Optional[TrackedPerson]:
+        """Get a specific tracked person by ID"""
+        with self.lock:
+            return self.people.get(track_id)
+    
     def count(self) -> int:
         """Get count of tracked people"""
         with self.lock:
@@ -1098,9 +1103,12 @@ class OSCHandler:
                 x, z = float(args[0]), float(args[1])
                 self.manager.update_person(track_id, x, z)
                 
-                # Record to database
+                # Record to database using CALIBRATED position (not raw)
+                # This ensures database zone classifications match real-time display
                 if self.database:
-                    self.database.record_position(track_id, x, z)
+                    person = self.manager.get_person(track_id)
+                    if person:
+                        self.database.record_position(track_id, person.x, person.z)
                 
                 # Debug output every 2 seconds
                 self.message_count += 1
@@ -1530,9 +1538,12 @@ def draw_trends_visualization(report: 'DailyReport', x: int, y: int, width: int,
     chart_width = width - 70
     chart_height = height - 100
     
-    # Find max value for scaling
-    max_people = max(h.total_people for h in report.hourly_trends) if report.hourly_trends else 1
-    max_people = max(max_people, 1)  # Avoid division by zero
+    # Find max values for scaling - use separate scales for active and passive
+    # Active counts are typically much lower than passive
+    max_active = max((h.active_count for h in report.hourly_trends), default=1) or 1
+    max_passive = max((h.passive_count for h in report.hourly_trends), default=1) or 1
+    # Use combined max for stacked bars, with minimum thresholds for visibility
+    max_combined = max(max_active + max_passive // 3, 10)  # Minimum scale of 10
     
     # Draw hour bars
     bar_width = chart_width / 24
@@ -1542,8 +1553,8 @@ def draw_trends_visualization(report: 'DailyReport', x: int, y: int, width: int,
         hour = trend.hour
         bx = chart_x + hour * bar_width
         
-        # Active zone bar (green)
-        active_height = (trend.active_count / max(max_people, 1)) * chart_height * 0.8
+        # Active zone bar (green) - scale to fill ~40% of chart max
+        active_height = (trend.active_count / max_combined) * chart_height * 0.8
         glColor4f(0.2, 0.7, 0.3, 0.8)
         glBegin(GL_QUADS)
         glVertex2f(bx + bar_gap, chart_y)
@@ -1552,8 +1563,8 @@ def draw_trends_visualization(report: 'DailyReport', x: int, y: int, width: int,
         glVertex2f(bx + bar_gap, chart_y + active_height)
         glEnd()
         
-        # Passive zone bar (stacked, blue)
-        passive_height = (trend.passive_count / max(max_people * 3, 1)) * chart_height * 0.8
+        # Passive zone bar (stacked, blue) - scale down since passive >> active
+        passive_height = (trend.passive_count / 3 / max_combined) * chart_height * 0.8
         glColor4f(0.3, 0.3, 0.7, 0.8)
         glBegin(GL_QUADS)
         glVertex2f(bx + bar_gap, chart_y + active_height)
@@ -1651,7 +1662,7 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
         return
     
     panel_width = 260
-    panel_height = 640  # Increased height for feedback learning display
+    panel_height = 520  # Reduced height - content is more compact now
     
     # Background panel
     glColor4f(0.08, 0.08, 0.12, 0.85)
@@ -1680,8 +1691,9 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
     update_color = (100, 255, 100) if seconds_since < 6 else (255, 200, 100) if seconds_since < 15 else (255, 100, 100)
     draw_text_2d(x + 130, y - 18, f"({seconds_since:.1f}s ago)", font_small, update_color)
     
-    curr_y = y - 40
-    line_height = 16
+    curr_y = y - 35
+    line_height = 14  # Reduced from 16 for more compact display
+    min_y = y - panel_height + 15  # Stop drawing before going off panel
     
     # Period indicator
     period = idle_trends.get('period', 'unknown')
@@ -1693,7 +1705,7 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
     }
     period_color = period_colors.get(period, (150, 150, 150))
     draw_text_2d(x + 10, curr_y, f"Period: {period.upper()}", font_small, period_color)
-    curr_y -= line_height + 5
+    curr_y -= line_height + 3
     
     # Database error if any
     db_error = idle_trends.get('database_error', '')
@@ -1702,6 +1714,7 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
         curr_y -= line_height
     
     # Section: REALTIME (1 min)
+    if curr_y < min_y: return
     has_recent = idle_trends.get('has_recent', False)
     status_char = "●" if has_recent else "○"
     status_color = (100, 255, 100) if has_recent else (100, 100, 100)
@@ -1759,19 +1772,19 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
     status_char = "●" if has_hist else "○"
     status_color = (100, 255, 100) if has_hist else (100, 100, 100)
     draw_text_2d(x + 10, curr_y, f"{status_char} Historical (7d)", font_small, status_color)
-    curr_y -= line_height + 10
+    curr_y -= line_height + 6
     
     # Divider line
+    if curr_y < min_y: return
     glColor4f(0.3, 0.4, 0.6, 0.5)
     glBegin(GL_LINES)
-    glVertex2f(x + 10, curr_y + 5)
-    glVertex2f(x + panel_width - 10, curr_y + 5)
+    glVertex2f(x + 10, curr_y + 3)
+    glVertex2f(x + panel_width - 10, curr_y + 3)
     glEnd()
-    curr_y -= 5
     
     # COMPUTED VALUES section
-    draw_text_2d(x + 10, curr_y, "COMPUTED VALUES", font_small, (180, 180, 200))
-    curr_y -= line_height + 2
+    draw_text_2d(x + 10, curr_y, "COMPUTED", font_small, (180, 180, 200))
+    curr_y -= line_height
     
     # Anticipation
     anticipation = idle_trends.get('activity_anticipation', 0.5)
@@ -1799,22 +1812,21 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
     energy_color = (255, 200, 100) if energy > 0.6 else (150, 200, 150) if energy > 0.3 else (100, 100, 150)
     draw_text_2d(x + 10, curr_y, "Energy:", font_small, (180, 180, 180))
     draw_text_2d(x + 65, curr_y, f"[{energy_bar}]", font_small, energy_color)
-    curr_y -= line_height + 10
+    curr_y -= line_height + 6
     
     # ======================
     # AGGRESSION SECTION
     # ======================
-    if aggression:
+    if aggression and curr_y > min_y:
         # Divider line
         glColor4f(0.3, 0.4, 0.6, 0.5)
         glBegin(GL_LINES)
-        glVertex2f(x + 10, curr_y + 5)
-        glVertex2f(x + panel_width - 10, curr_y + 5)
+        glVertex2f(x + 10, curr_y + 3)
+        glVertex2f(x + panel_width - 10, curr_y + 3)
         glEnd()
-        curr_y -= 5
         
         draw_text_2d(x + 10, curr_y, "AGGRESSION", font_small, (255, 150, 100))
-        curr_y -= line_height + 2
+        curr_y -= line_height
         
         # Aggression level bar
         level = aggression.get('level', 0)
@@ -1865,22 +1877,21 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
         # Current engagement indicator
         if aggression.get('current_engagement'):
             draw_text_2d(x + 160, curr_y, "ENGAGED", font_small, (100, 255, 100))
-        curr_y -= line_height + 10
+        curr_y -= line_height + 6
     
     # ======================
     # FLOW POSITIONING SECTION (Phase 2B)
     # ======================
-    if flow:
+    if flow and curr_y > min_y:
         # Divider line
         glColor4f(0.3, 0.4, 0.6, 0.5)
         glBegin(GL_LINES)
-        glVertex2f(x + 10, curr_y + 5)
-        glVertex2f(x + panel_width - 10, curr_y + 5)
+        glVertex2f(x + 10, curr_y + 3)
+        glVertex2f(x + panel_width - 10, curr_y + 3)
         glEnd()
-        curr_y -= 5
         
-        draw_text_2d(x + 10, curr_y, "FLOW POSITIONING", font_small, (100, 200, 255))
-        curr_y -= line_height + 2
+        draw_text_2d(x + 10, curr_y, "FLOW", font_small, (100, 200, 255))
+        curr_y -= line_height
         
         # Flow direction visualization with arrows
         direction = flow.get('direction', 0)
@@ -1927,22 +1938,21 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
         rtl = flow.get('right_to_left', 0)
         total = flow.get('total_events', 0)
         draw_text_2d(x + 10, curr_y, f"30s: L→R:{ltr} R→L:{rtl} ({total})", font_small, (120, 120, 150))
-        curr_y -= line_height + 10
+        curr_y -= line_height + 6
     
     # ======================
     # ALMOST-ENGAGED SECTION (Phase 2C)
     # ======================
-    if almost_engaged:
+    if almost_engaged and curr_y > min_y:
         # Divider line
         glColor4f(0.3, 0.4, 0.6, 0.5)
         glBegin(GL_LINES)
-        glVertex2f(x + 10, curr_y + 5)
-        glVertex2f(x + panel_width - 10, curr_y + 5)
+        glVertex2f(x + 10, curr_y + 3)
+        glVertex2f(x + panel_width - 10, curr_y + 3)
         glEnd()
-        curr_y -= 5
         
         draw_text_2d(x + 10, curr_y, "ALMOST-ENGAGED", font_small, (255, 200, 100))
-        curr_y -= line_height + 2
+        curr_y -= line_height
         
         # Conversion stats
         total_det = almost_engaged.get('total_detected', 0)
@@ -1988,37 +1998,35 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
             
             draw_text_2d(x + 10, curr_y, f"#{pid}: {speed:.0f}cm/s d={dist:.0f}cm t={dur:.1f}s", font_small, c_color)
             curr_y -= line_height
+            if curr_y < min_y: return
 
     # ======================
     # FEEDBACK LEARNING SECTION (Phase 3)
     # ======================
-    if feedback_learning:
+    if feedback_learning and curr_y > min_y:
         # Divider line
         glColor4f(0.4, 0.3, 0.6, 0.5)
         glBegin(GL_LINES)
-        glVertex2f(x + 10, curr_y + 5)
-        glVertex2f(x + panel_width - 10, curr_y + 5)
+        glVertex2f(x + 10, curr_y + 3)
+        glVertex2f(x + panel_width - 10, curr_y + 3)
         glEnd()
-        curr_y -= 5
         
-        draw_text_2d(x + 10, curr_y, "FEEDBACK LEARNING", font_small, (200, 150, 255))
-        curr_y -= line_height + 2
+        draw_text_2d(x + 10, curr_y, "LEARNING", font_small, (200, 150, 255))
+        curr_y -= line_height
         
         # Total engagements
         total_eng = feedback_learning.get('total_engagements', 0)
         session_eng = feedback_learning.get('session_engagements', 0)
-        lr = feedback_learning.get('learning_rate', 0.02)
         
-        draw_text_2d(x + 10, curr_y, f"Engagements: {total_eng}", font_small, (180, 180, 180))
-        draw_text_2d(x + 130, curr_y, f"(session: {session_eng})", font_small, (150, 150, 150))
-        curr_y -= line_height
-        
-        # Top weighted behaviors
-        top_weights = feedback_learning.get('top_weights', {})
-        if top_weights:
-            draw_text_2d(x + 10, curr_y, "Top weights:", font_small, (150, 200, 150))
+        if curr_y > min_y:
+            draw_text_2d(x + 10, curr_y, f"Eng: {total_eng} (sess: {session_eng})", font_small, (180, 180, 180))
             curr_y -= line_height
-            for name, weight in list(top_weights.items())[:3]:
+        
+        # Top weighted behaviors (compact - only show 2)
+        top_weights = feedback_learning.get('top_weights', {})
+        if top_weights and curr_y > min_y:
+            for name, weight in list(top_weights.items())[:2]:
+                if curr_y < min_y: break
                 # Color based on weight (> 1.0 = good, green tint)
                 if weight > 1.1:
                     w_color = (100, 255, 150)
@@ -2026,7 +2034,7 @@ def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, ag
                     w_color = (180, 255, 180)
                 else:
                     w_color = (180, 180, 180)
-                draw_text_2d(x + 20, curr_y, f"{name}: {weight:.2f}", font_small, w_color)
+                draw_text_2d(x + 10, curr_y, f"{name}: {weight:.2f}", font_small, w_color)
                 curr_y -= line_height - 2
 
 
@@ -2702,11 +2710,12 @@ def main():
     # Camera view framebuffers (initialized later when needed)
     camera_fbos = {}
     
-    # Camera
-    cam_rot_x = 20
-    cam_rot_y = -30
-    cam_distance = 500
-    cam_target = np.array([-160.0, 50.0, 50.0])  # Center on panels, look at tracking area
+    # Camera - positioned beyond passive zone (high Z), looking back at panels (low Z)
+    # Panels are near Z=0, passive zone ends at Z=553
+    cam_rot_x = 25          # Looking down at the scene
+    cam_rot_y = 0           # Looking toward panels (opposite of 180)
+    cam_distance = 900      # Even farther back
+    cam_target = np.array([-150.0, 0.0, 150.0])  # Target near panels
     cam_target_default = cam_target.copy()  # For reset
     cam_rot_x_default = cam_rot_x
     cam_rot_y_default = cam_rot_y
@@ -2989,13 +2998,20 @@ def main():
                 elif event.key == K_f:
                     # Toggle fullscreen mode
                     is_fullscreen = not is_fullscreen
+                    pygame.display.quit()
+                    pygame.display.init()
                     if is_fullscreen:
                         display = fullscreen_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | FULLSCREEN)
                     else:
                         display = windowed_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
-                    # Reinitialize OpenGL viewport
+                    pygame.display.set_caption("3D Light Controller V2 - Production")
+                    # Reinitialize OpenGL state after display change
+                    glEnable(GL_DEPTH_TEST)
+                    glEnable(GL_BLEND)
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+                    glClearColor(0.1, 0.1, 0.15, 1.0)
                     glViewport(0, 0, display[0], display[1])
                     print(f"{'Fullscreen' if is_fullscreen else 'Windowed'} mode ({display[0]}x{display[1]})")
                 elif event.key == K_HOME:
@@ -3233,6 +3249,7 @@ def main():
                         'passive': passive_count,
                         'total': len(tracked_manager.get_all())
                     },
+                    'wander_box': wander.wander_box,  # Current wander box (can change dynamically)
                     'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
                     'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,
                     'status': status_text,
@@ -3664,7 +3681,7 @@ def main():
             trends_width = 260
             trends_height = 200
             trends_x = 10  # Same x as realtime trends
-            trends_y = display[1] - 100 - 640 - 10  # Below realtime trends panel (height=640)
+            trends_y = display[1] - 100 - 520 - 10  # Below realtime trends panel (height=520)
             draw_trends_visualization(current_daily_report, trends_x, trends_y, 
                                      trends_width, trends_height, font, font_small)
         elif show_trends and not current_daily_report:

@@ -102,18 +102,22 @@ class TrackingDatabase:
         self._commit_interval = 1.0  # Commit at least every 1 second
         self._commit_batch_size = 50  # Or after 50 writes
         
-        # Zone boundaries (should match lightController)
+        # Zone boundaries (MUST match lightController_osc.py zones)
+        # Active zone: close to installation (engaging with it)
+        # center_x=-150, width=260, offset_z=78, depth=205
         self.active_zone = {
-            'x_min': 120 - 475/2,  # -117.5
-            'x_max': 120 + 475/2,  # 357.5
+            'x_min': -150 - 260/2,  # -280
+            'x_max': -150 + 260/2,  # -20
             'z_min': 78,
-            'z_max': 78 + 205,     # 283
+            'z_max': 78 + 205,      # 283
         }
+        # Passive zone: further out on sidewalk (passing by)
+        # center_x=-150, width=400, offset_z=283, depth=270
         self.passive_zone = {
-            'x_min': 120 - 650/2,  # -205
-            'x_max': 120 + 650/2,  # 445
+            'x_min': -150 - 400/2,  # -350
+            'x_max': -150 + 400/2,  # 50
             'z_min': 283,
-            'z_max': 283 + 330,    # 613
+            'z_max': 283 + 270,     # 553
         }
         
         self._create_tables()

@@ -62,6 +62,7 @@ const CONFIG = {
 let scene, camera, renderer, controls;
 let panels = [];
 let lightSphere, lightGlow, falloffSphere;
+let wanderBoxMesh = null;  // Dynamic wander box wireframe
 let trackedPeople = {};
 let wsConnection = null;
 let currentState = null;
@@ -286,24 +287,35 @@ function createTrackzone() {
     tzLine.position.set(tz.center_x, tz.offset_y + tz.height / 2, tz.offset_z + tz.depth / 2);
     scene.add(tzLine);
     
-    // Wander box wireframe (yellow) - where the light can wander
-    const wb = CONFIG.WANDER_BOX;
+    // Initial wander box wireframe (green) - will be updated dynamically
+    updateWanderBox(CONFIG.WANDER_BOX);
+}
+
+function updateWanderBox(wb) {
+    // Remove old wander box if exists
+    if (wanderBoxMesh) {
+        scene.remove(wanderBoxMesh);
+        wanderBoxMesh.geometry.dispose();
+        wanderBoxMesh.material.dispose();
+    }
+    
+    // Create new wander box with updated dimensions
     const wbWidth = wb.max_x - wb.min_x;
     const wbHeight = wb.max_y - wb.min_y;
     const wbDepth = wb.max_z - wb.min_z;
     const wbGeom = new THREE.BoxGeometry(wbWidth, wbHeight, wbDepth);
     const wbEdges = new THREE.EdgesGeometry(wbGeom);
-    const wbLine = new THREE.LineSegments(
+    wanderBoxMesh = new THREE.LineSegments(
         wbEdges,
-        new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.4 })
+        new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 })
     );
     // Position at center of wander box
-    wbLine.position.set(
+    wanderBoxMesh.position.set(
         (wb.min_x + wb.max_x) / 2,
         (wb.min_y + wb.max_y) / 2,
         (wb.min_z + wb.max_z) / 2
     );
-    scene.add(wbLine);
+    scene.add(wanderBoxMesh);
 }
 
 // =============================================================================
@@ -414,6 +426,11 @@ function handleStateUpdate(data) {
     // Update behavior status text
     if (data.status !== undefined) {
         document.getElementById('behavior-status').textContent = data.status || '';
+    }
+    
+    // Update wander box if changed
+    if (data.wander_box) {
+        updateWanderBox(data.wander_box);
     }
     
     // Store realtime trends (always update)

@@ -4,3 +4,5 @@ __pycache__/
 *.pt
 .venv/
 *-journal
+*.db.bak*
+*.db-journal
