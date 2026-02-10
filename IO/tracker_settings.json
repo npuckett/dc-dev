@@ -1,11 +1,6 @@
 {
-  "confidence_threshold": 40,
-  "fusion_threshold_cm": 177,
-  "fusion_threshold_far_cm": 200,
-  "track_match_threshold_cm": 94,
-  "position_smoothing": 6,
-  "velocity_smoothing": 8,
-  "max_track_age_frames": 60,
-  "zone_filter_enabled": 1,
-  "passive_zone_confidence": 70
+  "confidence": 0.74,
+  "fusion_dist": 287.0,
+  "smoothing": 0.42,
+  "max_lost_frames": 60
 }

@@ -170,13 +170,13 @@
     "active": {
       "description": "Primary tracking area - people engaging with installation",
       "bounds": {
-        "x": [-280, -20],
+        "x": [-350, 50],
         "y": [-66, 234],
         "z": [78, 283]
       },
-      "dimensions": {"width": 260, "height": 300, "depth": 205},
+      "dimensions": {"width": 400, "height": 300, "depth": 205},
       "center": [-150, -66, 180],
-      "note": "Narrowed X width to match camera FOV for better accuracy"
+      "note": "Widened X to match passive zone width"
     },
     "passive": {
       "description": "Secondary tracking area - sidewalk passersby",

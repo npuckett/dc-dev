@@ -588,7 +588,7 @@ PANEL_NORMALS = {
 # Panels span from X=0 to X=-300 (right edge at 0, 4 units with 80cm spacing, panel width 60cm)
 # OPTIMIZED: Narrowed X width to match camera FOV coverage for better accuracy
 TRACKZONE = {
-    'width': 260,           # Narrowed from 475 to 260 for better coverage
+    'width': 400,           # Matched to passive zone width
     'depth': 205,
     'height': 300,
     'offset_z': 78,
@@ -1198,8 +1198,14 @@ class PanelSystem:
             diff = panel['center'] - light.position
             distance = np.linalg.norm(diff)
             
+            if light.falloff_radius > 0 and distance > light.falloff_radius:
+                # Outside the radius — panel is off
+                panel['brightness'] = 0.0
+                panel['dmx_value'] = DMX_MIN
+                continue
+            
             if light.falloff_radius > 0:
-                falloff = max(0, 1.0 - distance / light.falloff_radius)
+                falloff = 1.0 - distance / light.falloff_radius
             else:
                 falloff = 1.0
             
@@ -1346,15 +1352,16 @@ def draw_box_wireframe(bounds, color):
     glEnd()
 
 
-def draw_panel(center, angle, size, brightness):
-    """Draw a panel as a quad"""
+def draw_panel(center, angle, size, dmx_value):
+    """Draw a panel as a quad. Brightness reflects actual DMX output (0-255)."""
     half = size / 2
     
     glPushMatrix()
     glTranslatef(*center)
     glRotatef(-angle, 1, 0, 0)
     
-    gray = 0.2 + brightness * 0.8
+    # Visual brightness proportional to actual DMX value
+    gray = 0.05 + (dmx_value / 255.0) * 0.95
     glColor4f(gray, gray, gray, 1.0)
     
     glBegin(GL_QUADS)
@@ -2459,7 +2466,7 @@ def render_camera_view(camera_data, fbo_data, panel_system, light, tracked_manag
     
     # Draw panels
     for (unit, panel_num), panel in panel_system.panels.items():
-        draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
+        draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
     
     # Draw calibration markers with ID indicators
     if show_markers:
@@ -3379,7 +3386,7 @@ def main():
         
         # Draw panels
         for (unit, panel_num), panel in panel_system.panels.items():
-            draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
+            draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
         
         # Draw panel center indicators (wireframe spheres with labels)
         draw_panel_centers(panel_system, font_label, show_labels)
