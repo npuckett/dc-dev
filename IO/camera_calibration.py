@@ -949,16 +949,15 @@ class CalibrationMode:
         self.aruco_params.cornerRefinementWinSize = 5
         self.aruco_params.cornerRefinementMaxIterations = 50
         self.aruco_params.cornerRefinementMinAccuracy = 0.05
-        # Widen adaptive threshold search for varying lighting
+        # Adaptive threshold — moderate step count to balance detection vs false positives
         self.aruco_params.adaptiveThreshWinSizeMin = 3
         self.aruco_params.adaptiveThreshWinSizeMax = 23
-        self.aruco_params.adaptiveThreshWinSizeStep = 10
-        # Accept smaller markers at distance, but not so small that noise matches
-        # Marker 5 at 550cm on 2048px/80°FOV ≈ 3.3% of perimeter, so 0.02 is safe
+        self.aruco_params.adaptiveThreshWinSizeStep = 4
+        # Minimum marker size — 0.02 rejects small reflection artifacts
         self.aruco_params.minMarkerPerimeterRate = 0.02
         self.aruco_params.maxMarkerPerimeterRate = 4.0
-        # Keep border check strict to reject false positives
-        self.aruco_params.maxErroneousBitsInBorderRate = 0.35
+        # Strict border check to reject reflections/noise that look like markers
+        self.aruco_params.maxErroneousBitsInBorderRate = 0.25
         # Default polygon approximation (tighter = fewer false detections)
         self.aruco_params.polygonalApproxAccuracyRate = 0.05
         # Minimum distances between corners/markers (prevent duplicates)
@@ -1737,6 +1736,7 @@ class CalibrationMode:
         results = []
         
         N = self.AUTO_CALIB_NUM_FRAMES
+        N = 10  # frames for multi-frame averaging
         use_multi = camera_readers is not None and len(camera_readers) > 0
         
         print("\n" + "=" * 50)
@@ -1821,7 +1821,7 @@ class CalibrationMode:
                     }
             
             # Require marker detected in at least half the frames to count as real
-            min_detections = max(2, num_frames // 2)
+            min_detections = max(3, num_frames // 2)
             
             for mid, corner_list in corner_accumulator[cam_name].items():
                 if len(corner_list) >= min_detections:
