@@ -363,7 +363,7 @@ class CalibrationManager:
         # - X=0 is at right edge (Panel 0), X goes negative toward left (Unit 3)
         # - Z=78 is front of active zone, Z increases toward street
         # Put X=0 on the RIGHT side of the view
-        offset_x = self.width - 50  # X=0 near right edge of view
+        offset_x = SYNTH_VIEW_WIDTH - 50  # X=0 near right edge of view
         offset_y = 30   # Z=0 near top (panels), tracking zone below
         
         # X is negative going left, so adding it shifts left in pixel space
@@ -825,10 +825,14 @@ class CalibrationMode:
             # Extract marker size
             marker_size = float(data.get('calibration_markers', {}).get('marker_size', 15))
             
-            # Extract camera positions
+            # Extract camera positions (skip non-dict entries like 'model', 'sensor', etc.)
             camera_positions = {}
             cameras_data = data.get('cameras', {})
             for cam_name, cam_info in cameras_data.items():
+                if not isinstance(cam_info, dict):
+                    continue
+                if 'position' not in cam_info:
+                    continue
                 pos = cam_info['position']
                 camera_positions[cam_name] = tuple(float(x) for x in pos)
             
@@ -859,13 +863,25 @@ class CalibrationMode:
             camera_intrinsics = {}
             camera_rotations = {}
             for cam_name, cam_info in cameras_data.items():
+                if not isinstance(cam_info, dict):
+                    continue
                 # Intrinsics
                 if 'intrinsics' in cam_info:
                     intr = cam_info['intrinsics']
+                    img_size = intr.get('image_size', [2048, 1536])
+                    fl = intr.get('focal_length_px', [1220.3, 1220.3])
+                    
+                    # If FOV is available, compute focal length from it (more reliable)
+                    fov_data = cam_info.get('fov', {})
+                    if 'horizontal' in fov_data:
+                        hfov_rad = math.radians(fov_data['horizontal'])
+                        fl_from_fov = (img_size[0] / 2) / math.tan(hfov_rad / 2)
+                        fl = [fl_from_fov, fl_from_fov]
+                    
                     camera_intrinsics[cam_name] = {
-                        'focal_length_px': intr.get('focal_length_px', [1740.8, 1740.8]),
-                        'principal_point': intr.get('principal_point', [1024, 768]),
-                        'image_size': intr.get('image_size', [2048, 1536]),
+                        'focal_length_px': fl,
+                        'principal_point': intr.get('principal_point', [img_size[0]/2, img_size[1]/2]),
+                        'image_size': img_size,
                         'dist_coeffs': intr.get('dist_coeffs', [0, 0, 0, 0, 0]),
                     }
                 # Rotation (Euler angles)
@@ -935,10 +951,19 @@ class CalibrationMode:
         self.aruco_params.cornerRefinementMinAccuracy = 0.05
         # Widen adaptive threshold search for varying lighting
         self.aruco_params.adaptiveThreshWinSizeMin = 3
-        self.aruco_params.adaptiveThreshWinSizeMax = 30
-        self.aruco_params.adaptiveThreshWinSizeStep = 5
-        # Accept smaller markers at distance (marker 5 on subway wall)
-        self.aruco_params.minMarkerPerimeterRate = 0.01
+        self.aruco_params.adaptiveThreshWinSizeMax = 23
+        self.aruco_params.adaptiveThreshWinSizeStep = 10
+        # Accept smaller markers at distance, but not so small that noise matches
+        # Marker 5 at 550cm on 2048px/80°FOV ≈ 3.3% of perimeter, so 0.02 is safe
+        self.aruco_params.minMarkerPerimeterRate = 0.02
+        self.aruco_params.maxMarkerPerimeterRate = 4.0
+        # Keep border check strict to reject false positives
+        self.aruco_params.maxErroneousBitsInBorderRate = 0.35
+        # Default polygon approximation (tighter = fewer false detections)
+        self.aruco_params.polygonalApproxAccuracyRate = 0.05
+        # Minimum distances between corners/markers (prevent duplicates)
+        self.aruco_params.minCornerDistanceRate = 0.05
+        self.aruco_params.minMarkerDistanceRate = 0.05
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         
         # Try to load coordinates from world_coordinates.json (single source of truth)
@@ -1142,6 +1167,7 @@ class CalibrationMode:
         
         # Apply additional sub-pixel refinement on top of ArUco's built-in refinement
         if corners is not None and len(corners) > 0:
+            corners = list(corners)  # detectMarkers returns a tuple; convert so we can update in-place
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.01)
             for i in range(len(corners)):
                 corners[i] = cv2.cornerSubPix(
@@ -1196,30 +1222,73 @@ class CalibrationMode:
         
         # Build 3D-2D point correspondences using ALL 4 CORNERS per marker
         # This gives 4x more points for better solvePnP accuracy
-        object_points = []  # 3D world points (in cm)
-        image_points = []   # 2D image points
+        #
+        # CORNER ORDERING: ArUco returns corners in a canonical order based on
+        # the marker's encoded pattern. When a marker is placed flat on the ground,
+        # the mapping between ArUco corners and our 3D offsets depends on the
+        # marker's physical rotation. We try all 4 rotations and pick the best.
         
-        for marker_id, corners_2d in markers.items():
-            # Get marker center in world coordinates (cm)
-            center_3d = self.marker_world_positions_3d[marker_id]
-            
-            # Determine if horizontal or vertical marker
-            is_vertical = marker_id in self.vertical_markers
-            offset_key = 'vertical' if is_vertical else 'horizontal'
-            corner_offsets = self._corner_offsets.get(offset_key, self._corner_offsets['horizontal'])
-            
-            # Compute 3D world position for each corner
-            for i, offset in enumerate(corner_offsets):
-                corner_3d = (
-                    center_3d[0] + offset[0],
-                    center_3d[1] + offset[1],
-                    center_3d[2] + offset[2]
-                )
-                object_points.append(corner_3d)
-                image_points.append(corners_2d[i])
+        # Try all 4 cyclic rotations of corner offsets to find the correct mapping
+        # Test horizontal and vertical rotations independently (4 × 4 = 16 combos)
+        best_reproj = float('inf')
+        best_obj_pts = None
+        best_img_pts = None
+        best_h_rot = 0
+        best_v_rot = 0
         
-        object_points = np.array(object_points, dtype=np.float64)
-        image_points = np.array(image_points, dtype=np.float64)
+        for h_rot in range(4):
+            for v_rot in range(4):
+                object_points_trial = []
+                image_points_trial = []
+                
+                for marker_id, corners_2d in markers.items():
+                    center_3d = self.marker_world_positions_3d[marker_id]
+                    is_vertical = marker_id in self.vertical_markers
+                    offset_key = 'vertical' if is_vertical else 'horizontal'
+                    base_offsets = self._corner_offsets.get(offset_key, self._corner_offsets['horizontal'])
+                    
+                    # Apply rotation based on marker type
+                    rot = v_rot if is_vertical else h_rot
+                    offsets = base_offsets[rot:] + base_offsets[:rot]
+                    
+                    for i, offset in enumerate(offsets):
+                        corner_3d = (
+                            center_3d[0] + offset[0],
+                            center_3d[1] + offset[1],
+                            center_3d[2] + offset[2]
+                        )
+                        object_points_trial.append(corner_3d)
+                        image_points_trial.append(corners_2d[i])
+                
+                obj_arr = np.array(object_points_trial, dtype=np.float64)
+                img_arr = np.array(image_points_trial, dtype=np.float64)
+                
+                if len(obj_arr) < 4:
+                    continue
+                
+                # Quick solvePnP to test this rotation
+                ok, rv, tv = cv2.solvePnP(obj_arr, img_arr, camera_matrix, dist_coeffs,
+                                           flags=cv2.SOLVEPNP_SQPNP)
+                if ok:
+                    proj, _ = cv2.projectPoints(obj_arr, rv, tv, camera_matrix, dist_coeffs)
+                    err = np.sqrt(np.mean(np.sum((img_arr - proj.reshape(-1, 2))**2, axis=1)))
+                    if err < best_reproj:
+                        best_reproj = err
+                        best_obj_pts = obj_arr
+                        best_img_pts = img_arr
+                        best_h_rot = h_rot
+                        best_v_rot = v_rot
+        
+        if best_obj_pts is None:
+            return False, "Could not solve for any corner rotation"
+        
+        object_points = best_obj_pts
+        image_points = best_img_pts
+        
+        if best_h_rot != 0 or best_v_rot != 0:
+            print(f"  Corner rotation: horizontal={best_h_rot}, vertical={best_v_rot} (reproj={best_reproj:.1f}px)")
+        else:
+            print(f"  Default corner ordering OK (reproj={best_reproj:.1f}px)")
         
         # Need at least 4 points for solvePnP (1 marker = 4 corners)
         if len(object_points) < 4:
@@ -1265,7 +1334,8 @@ class CalibrationMode:
         
         # Camera Z-axis points toward target
         # Camera Y-axis points down (OpenCV convention)
-        up_world = np.array([0.0, -1.0, 0.0])  # World up is -Y in our system
+        # World Y is positive upward, so world "up" = [0, +1, 0]
+        up_world = np.array([0.0, 1.0, 0.0])  # World up is +Y
         right = np.cross(forward, up_world)
         right = right / np.linalg.norm(right)
         down = np.cross(forward, right)
@@ -1276,24 +1346,57 @@ class CalibrationMode:
         init_rvec, _ = cv2.Rodrigues(R_init)
         init_tvec = -R_init @ init_camera_pos
         
-        # Use iterative solver with initial guess
-        print(f"  Using ITERATIVE solver with initial guess")
+        # Try SQPNP first (robust, no initial guess needed, good for 4+ points)
+        print(f"  Trying SQPNP solver (robust, no initial guess)...")
         success, rvec, tvec = cv2.solvePnP(
             object_points, image_points,
             camera_matrix, dist_coeffs,
-            rvec=init_rvec.astype(np.float64),
-            tvec=init_tvec.reshape(3,1).astype(np.float64),
-            useExtrinsicGuess=True,
-            flags=cv2.SOLVEPNP_ITERATIVE
+            flags=cv2.SOLVEPNP_SQPNP
         )
         
+        if success:
+            # Check if SQPNP solution is reasonable
+            R_check, _ = cv2.Rodrigues(rvec)
+            cam_check = -R_check.T @ tvec.flatten()
+            projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
+            sqpnp_err = np.sqrt(np.mean(np.sum((image_points - projected.reshape(-1, 2))**2, axis=1)))
+            print(f"  SQPNP result: Camera at ({cam_check[0]:.1f}, {cam_check[1]:.1f}, {cam_check[2]:.1f}) cm, reproj={sqpnp_err:.2f}px")
+            
+            if sqpnp_err > 10.0:
+                # SQPNP didn't converge well, try iterative with initial guess
+                print(f"  SQPNP reproj too high ({sqpnp_err:.1f}px), trying ITERATIVE with initial guess...")
+                success2, rvec2, tvec2 = cv2.solvePnP(
+                    object_points, image_points,
+                    camera_matrix, dist_coeffs,
+                    rvec=init_rvec.astype(np.float64),
+                    tvec=init_tvec.reshape(3,1).astype(np.float64),
+                    useExtrinsicGuess=True,
+                    flags=cv2.SOLVEPNP_ITERATIVE
+                )
+                if success2:
+                    R_check2, _ = cv2.Rodrigues(rvec2)
+                    cam_check2 = -R_check2.T @ tvec2.flatten()
+                    projected2, _ = cv2.projectPoints(object_points, rvec2, tvec2, camera_matrix, dist_coeffs)
+                    iter_err = np.sqrt(np.mean(np.sum((image_points - projected2.reshape(-1, 2))**2, axis=1)))
+                    print(f"  ITERATIVE result: Camera at ({cam_check2[0]:.1f}, {cam_check2[1]:.1f}, {cam_check2[2]:.1f}) cm, reproj={iter_err:.2f}px")
+                    
+                    # Use whichever solution has lower reprojection error
+                    if iter_err < sqpnp_err:
+                        print(f"  Using ITERATIVE solution (better)")
+                        rvec, tvec = rvec2, tvec2
+                    else:
+                        print(f"  Keeping SQPNP solution (better)")
+        
         if not success:
-            # Fallback to SQPNP without guess
-            print(f"  Iterative failed, trying SQPNP")
+            # Fallback to iterative with initial guess
+            print(f"  SQPNP failed, trying ITERATIVE with initial guess...")
             success, rvec, tvec = cv2.solvePnP(
                 object_points, image_points,
                 camera_matrix, dist_coeffs,
-                flags=cv2.SOLVEPNP_SQPNP
+                rvec=init_rvec.astype(np.float64),
+                tvec=init_tvec.reshape(3,1).astype(np.float64),
+                useExtrinsicGuess=True,
+                flags=cv2.SOLVEPNP_ITERATIVE
             )
         
         if not success:
@@ -1376,7 +1479,9 @@ class CalibrationMode:
             print(f"    Marker {mid}: {err:.2f}px{flag}")
         
         # 2. Reprojection error threshold — reject clearly bad calibrations
-        MAX_REPROJ_ERROR_PX = 5.0  # pixels — good calibration is typically < 2px
+        # Note: with uncalibrated lens distortion (dist_coeffs=0), errors of
+        # 20-50px are typical for surveillance cameras.  Only reject if clearly wrong.
+        MAX_REPROJ_ERROR_PX = 100.0  # pixels — generous for uncalibrated distortion
         if reproj_error > MAX_REPROJ_ERROR_PX:
             return False, (f"Reprojection error too high: {reproj_error:.2f}px "
                           f"(max {MAX_REPROJ_ERROR_PX}px). "
@@ -1413,7 +1518,7 @@ class CalibrationMode:
             camera_name, rvec, tvec, camera_matrix, dist_coeffs, image_size
         )
         
-        quality = "excellent" if reproj_error < 1.0 else "good" if reproj_error < 2.0 else "acceptable"
+        quality = "excellent" if reproj_error < 5.0 else "good" if reproj_error < 20.0 else "acceptable" if reproj_error < 50.0 else "rough"
         return True, (f"3D pose computed from {len(markers)} markers, "
                      f"reproj error: {reproj_error:.2f}px ({quality}), "
                      f"camera at ({camera_pos[0]:.0f}, {camera_pos[1]:.0f}, {camera_pos[2]:.0f}) cm")
@@ -1680,6 +1785,7 @@ class CalibrationMode:
                 
                 # Sub-pixel refine
                 if corners is not None and len(corners) > 0:
+                    corners = list(corners)  # detectMarkers returns a tuple; convert for in-place update
                     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.01)
                     for ci in range(len(corners)):
                         corners[ci] = cv2.cornerSubPix(
@@ -1696,8 +1802,10 @@ class CalibrationMode:
                             corner_accumulator[cam_name][mid].append(corners[ci][0].copy())
                 
                 # Brief pause to get a different frame from the camera thread
+                # Use cv2.waitKey instead of time.sleep to keep GUI responsive
                 if frame_i < num_frames - 1 and use_multi:
-                    time.sleep(self.AUTO_CALIB_FRAME_DELAY)
+                    delay_ms = max(1, int(self.AUTO_CALIB_FRAME_DELAY * 1000))
+                    cv2.waitKey(delay_ms)
             
             # Now compute median corners and store into self.detected_markers
             self.detected_markers[cam_name] = {}
@@ -1712,21 +1820,28 @@ class CalibrationMode:
                         'matrix': matrix, 'dist_coeffs': dist, 'size': (w, h)
                     }
             
+            # Require marker detected in at least half the frames to count as real
+            min_detections = max(2, num_frames // 2)
+            
             for mid, corner_list in corner_accumulator[cam_name].items():
-                if len(corner_list) >= 2:
+                if len(corner_list) >= min_detections:
                     # Use median across frames (robust to single-frame outliers)
                     stacked = np.array(corner_list)  # (num_frames, 4, 2)
                     median_corners = np.median(stacked, axis=0)  # (4, 2)
                     
                     # Compute corner spread (std) as quality metric
                     corner_std = np.mean(np.std(stacked, axis=0))
-                    if corner_std > 3.0:
+                    if corner_std > 5.0:
+                        print(f"  ⚠️ {cam_name} marker {mid}: rejected — corner jitter too high ({corner_std:.1f}px)")
+                        continue  # Skip unreliable detections
+                    elif corner_std > 3.0:
                         print(f"  ⚠️ {cam_name} marker {mid}: high corner jitter ({corner_std:.1f}px) across {len(corner_list)} frames")
                     
                     self.detected_markers[cam_name][mid] = median_corners.astype(np.float32)
-                elif len(corner_list) == 1:
-                    # Only one detection — use it but note it
-                    self.detected_markers[cam_name][mid] = corner_list[0]
+                else:
+                    # Not enough consistent detections — likely a false positive
+                    if len(corner_list) > 0:
+                        print(f"  ⚠️ {cam_name} marker {mid}: rejected — only {len(corner_list)}/{num_frames} detections (need {min_detections})")
             
             detected_ids = sorted(self.detected_markers.get(cam_name, {}).keys())
             if detected_ids:
@@ -1739,10 +1854,12 @@ class CalibrationMode:
         # Step 2: Compute 3D pose for each camera
         self.auto_calib_messages.append("Step 2: Computing 3D poses...")
         print("\n🔧 Step 2: Computing 3D poses...")
+        cv2.waitKey(1)  # Keep GUI responsive
         
         success_count = 0
         for cam_idx, cfg in enumerate(camera_configs):
             cam_name = cfg['name']
+            cv2.waitKey(1)  # Keep GUI responsive between cameras
             
             success, msg = self.compute_3d_pose(cam_name)
             

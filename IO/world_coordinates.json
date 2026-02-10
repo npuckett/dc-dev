@@ -60,10 +60,11 @@
         "note": "25° yaw allows seeing marker 0; 22° pitch for ground coverage"
       },
       "intrinsics": {
-        "focal_length_px": [1740.8, 1740.8],
+        "focal_length_px": [1220.3, 1220.3],
         "principal_point": [1024, 768],
         "image_size": [2048, 1536],
-        "dist_coeffs": [0, 0, 0, 0, 0]
+        "dist_coeffs": [0, 0, 0, 0, 0],
+        "note": "focal_length_px computed from 80deg HFOV: 1024/tan(40deg)=1220.3"
       },
       "fov": {"horizontal": 80, "vertical": 48}
     },
@@ -78,10 +79,11 @@
         "note": "25° yaw allows seeing marker 2; 22° pitch for ground coverage"
       },
       "intrinsics": {
-        "focal_length_px": [1740.8, 1740.8],
+        "focal_length_px": [1220.3, 1220.3],
         "principal_point": [1024, 768],
         "image_size": [2048, 1536],
-        "dist_coeffs": [0, 0, 0, 0, 0]
+        "dist_coeffs": [0, 0, 0, 0, 0],
+        "note": "focal_length_px computed from 80deg HFOV: 1024/tan(40deg)=1220.3"
       },
       "fov": {"horizontal": 80, "vertical": 48}
     },
