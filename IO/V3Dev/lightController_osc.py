@@ -610,7 +610,7 @@ PASSIVE_TRACKZONE = {
 
 # Street level Y coordinate (where tracked people are placed)
 STREET_LEVEL_Y = -66
-CAMERA_LEDGE_Y = -15  # Cameras are 51cm above street (15cm below floor)
+CAMERA_LEDGE_Y = -16  # Cameras are 50cm above street (16cm below floor)
 
 # Wander box (cm) - where the light can move
 # X range covers panels (Unit 0 at X=-30 to Unit 3 at X=-270) plus margin
@@ -678,14 +678,14 @@ MARKER_SIZE = 15  # cm - ArUco marker size
 # Marker 0 is on the RIGHT, Marker 2 is on the LEFT
 # Front row (0,1,2): 90cm from front edge of tracking zone (Z=78), so Z=168
 # Back row (3,6,4): 51cm behind front row, so Z=219
-# Marker 5: ~550cm from cameras (Z=78+550=628) on subway wall
+# Marker 5: ~500cm from cameras (Z=78+500=578) on subway wall
 MARKER_POSITIONS = {
     0: {'pos': (-30, STREET_LEVEL_Y, 168), 'desc': 'Right front', 'camera': 'Cam 1', 'vertical': False},
     1: {'pos': (-150, STREET_LEVEL_Y, 168), 'desc': 'Center front (SHARED)', 'camera': 'Both', 'vertical': False},
     2: {'pos': (-270, STREET_LEVEL_Y, 168), 'desc': 'Left front', 'camera': 'Cam 2', 'vertical': False},
     3: {'pos': (-30, STREET_LEVEL_Y, 219), 'desc': 'Right back', 'camera': 'Cam 1', 'vertical': False},
     4: {'pos': (-270, STREET_LEVEL_Y, 219), 'desc': 'Left back', 'camera': 'Cam 2', 'vertical': False},
-    5: {'pos': (-150, CAMERA_Y, 628), 'desc': 'Subway wall (VERTICAL, ~5.5m from cams)', 'camera': 'Both', 'vertical': True},
+    5: {'pos': (-150, CAMERA_Y, 578), 'desc': 'Subway wall (VERTICAL, ~5m from cams)', 'camera': 'Both', 'vertical': True},
     6: {'pos': (-150, STREET_LEVEL_Y, 219), 'desc': 'Center back (SHARED)', 'camera': 'Both', 'vertical': False},
 }
 

@@ -55,9 +55,9 @@
       "coverage": "Right half of tracking zone, sees markers 0, 1, 3, 5, 6",
       "mounting": "15cm below floor level, fixed position",
       "rotation": {
-        "euler_deg": {"pitch": 10, "yaw": -25, "roll": 0},
+        "euler_deg": {"pitch": 22, "yaw": -25, "roll": 0},
         "target_point": [-150, -66, 180],
-        "note": "25° yaw allows seeing marker 0; 10° pitch allows seeing marker 5"
+        "note": "25° yaw allows seeing marker 0; 22° pitch for ground coverage"
       },
       "intrinsics": {
         "focal_length_px": [1740.8, 1740.8],
@@ -73,9 +73,9 @@
       "coverage": "Left half of tracking zone, sees markers 1, 2, 4, 5, 6",
       "mounting": "15cm below floor level, fixed position",
       "rotation": {
-        "euler_deg": {"pitch": 10, "yaw": 25, "roll": 0},
+        "euler_deg": {"pitch": 22, "yaw": 25, "roll": 0},
         "target_point": [-150, -66, 180],
-        "note": "25° yaw allows seeing marker 2; 10° pitch allows seeing marker 5"
+        "note": "25° yaw allows seeing marker 2; 22° pitch for ground coverage"
       },
       "intrinsics": {
         "focal_length_px": [1740.8, 1740.8],
@@ -149,11 +149,11 @@
         "visible_to": ["camera_2"]
       },
       "5": {
-        "position": [-150, -15, 578],
+        "position": [-150, -15, 628],
         "orientation": "vertical",
-        "description": "Subway wall (vertical, 500cm from cameras)",
+        "description": "Subway wall (vertical, 550cm from cameras)",
         "visible_to": ["camera_1", "camera_2"],
-        "distance_from_cameras_cm": 500
+        "distance_from_cameras_cm": 550
       },
       "6": {
         "position": [-150, -66, 219],
@@ -166,26 +166,26 @@
 
   "tracking_zones": {
     "active": {
-      "description": "Primary tracking area - close to panels (stopping to look)",
+      "description": "Primary tracking area - people engaging with installation",
       "bounds": {
-        "x": [-100, 400],
-        "y": [-100, 300],
-        "z": [100, 240]
+        "x": [-280, -20],
+        "y": [-66, 234],
+        "z": [78, 283]
       },
-      "dimensions": {"width": 500, "height": 400, "depth": 140},
-      "center": [150, 100, 170],
-      "note": "Active zone: Z < 240 (close to panels, likely engaged)"
+      "dimensions": {"width": 260, "height": 300, "depth": 205},
+      "center": [-150, -66, 180],
+      "note": "Narrowed X width to match camera FOV for better accuracy"
     },
     "passive": {
       "description": "Secondary tracking area - sidewalk passersby",
       "bounds": {
-        "x": [-100, 400],
-        "y": [-100, 300],
-        "z": [240, 600]
+        "x": [-350, 50],
+        "y": [-66, 234],
+        "z": [283, 553]
       },
       "dimensions": {"width": 400, "height": 300, "depth": 270},
       "center": [-150, -66, 418],
-      "note": "Reduced from 650x330 to 400x270 for better tracking reliability"
+      "note": "Starts at back of active zone, extends toward street"
     }
   },
 

@@ -1,0 +1,30 @@
+# Drop Ceiling - X11 VNC Service
+# Shares the physical display (:0) so you can see/control it remotely
+#
+# Install: sudo apt install x11vnc
+#          sudo cp x11vnc.service /etc/systemd/system/
+# Enable:  sudo systemctl enable x11vnc
+# Start:   sudo systemctl start x11vnc
+# Connect: VNC to machine-ip:5900 (or via Tailscale)
+
+[Unit]
+Description=X11 VNC Server - Share Physical Display
+After=display-manager.service graphical.target
+Requires=graphical.target
+
+[Service]
+Type=simple
+User=nick
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/run/user/1000/gdm/Xauthority"
+
+# Share display :0, allow multiple connections, no password (use Tailscale for security)
+# Add -passwd yourpassword if you want VNC authentication
+ExecStart=/usr/bin/x11vnc -display :0 -forever -shared -noxdamage -noxfixes -repeat -rfbport 5900
+
+# Restart on failure
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

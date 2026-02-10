@@ -74,12 +74,12 @@ SYNTH_CM_PER_PIXEL = 1.0  # 1cm per pixel = 8m x 6m coverage (good for storefron
 #
 # Physical setup:
 #   - Storefront floor: Y = 0
-#   - Camera ledge: 16 cm below floor → Y = -16 (50 cm above street)
+#   - Camera ledge: 15 cm below floor → Y = -15 (51 cm above street)
 #   - Street level: 66 cm below floor → Y = -66 (where people walk)
 #
 STREET_LEVEL_Y = -66.0     # Where people walk (66 cm below floor)
-CAMERA_LEDGE_Y = -16.0     # Where cameras are mounted (50 cm above street)
-CAMERA_HEIGHT_ABOVE_STREET = 50.0  # Physical camera mount height
+CAMERA_LEDGE_Y = -15.0     # Where cameras are mounted (15cm below floor)
+CAMERA_HEIGHT_ABOVE_STREET = 51.0  # Physical camera mount height
 
 # YOLO settings
 MODEL_NAME = "yolo11n.pt"
@@ -925,9 +925,20 @@ class CalibrationMode:
         self.synth_width = synth_width
         self.synth_height = synth_height
         
-        # ArUco setup
+        # ArUco setup — tuned for surveillance camera conditions
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.aruco_params = cv2.aruco.DetectorParameters()
+        # Enable built-in sub-pixel corner refinement
+        self.aruco_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        self.aruco_params.cornerRefinementWinSize = 5
+        self.aruco_params.cornerRefinementMaxIterations = 50
+        self.aruco_params.cornerRefinementMinAccuracy = 0.05
+        # Widen adaptive threshold search for varying lighting
+        self.aruco_params.adaptiveThreshWinSizeMin = 3
+        self.aruco_params.adaptiveThreshWinSizeMax = 30
+        self.aruco_params.adaptiveThreshWinSizeStep = 5
+        # Accept smaller markers at distance (marker 5 on subway wall)
+        self.aruco_params.minMarkerPerimeterRate = 0.01
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         
         # Try to load coordinates from world_coordinates.json (single source of truth)
@@ -1006,6 +1017,13 @@ class CalibrationMode:
         self.auto_calib_step = 0
         self.auto_calib_messages = []
         
+        # Calibration result overlay state
+        self._calib_result = None       # 'success' or 'fail'
+        self._calib_result_msg = ''     # summary message
+        self._calib_result_details = [] # per-camera detail lines
+        self._calib_result_time = 0     # time.time() when result was set
+        self._calib_result_duration = 5.0  # seconds to show overlay
+        
         self.instructions = [
             "3D CALIBRATION - V2 COORDINATE SYSTEM",
             "----------------------------------------",
@@ -1018,7 +1036,7 @@ class CalibrationMode:
             "",
             "Front row (Z=168):  0---1---2",
             "Back row (Z=219):   3---6---4",
-            "Subway wall (Z=628):----5----",
+            "Subway wall (Z=628):  --5--  ",
             "",
             "Camera 1 (RIGHT): 0, 1, 3, 5, 6",
             "Camera 2 (LEFT):  1, 2, 4, 5, 6",
@@ -1104,7 +1122,11 @@ class CalibrationMode:
         return camera_matrix, dist_coeffs
     
     def detect_markers(self, frame, camera_name):
-        """Detect ArUco markers in frame and store corner points"""
+        """Detect ArUco markers in frame and store corner points.
+        
+        Applies sub-pixel corner refinement after detection for improved
+        localization accuracy (~0.1px vs ~0.5-1px without refinement).
+        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = self.detector.detectMarkers(gray)
         
@@ -1117,6 +1139,16 @@ class CalibrationMode:
                 'dist_coeffs': dist,
                 'size': (w, h)
             }
+        
+        # Apply additional sub-pixel refinement on top of ArUco's built-in refinement
+        if corners is not None and len(corners) > 0:
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.01)
+            for i in range(len(corners)):
+                corners[i] = cv2.cornerSubPix(
+                    gray, corners[i],
+                    winSize=(3, 3), zeroZone=(-1, -1),
+                    criteria=criteria
+                )
         
         if ids is not None:
             if camera_name not in self.detected_markers:
@@ -1223,53 +1255,23 @@ class CalibrationMode:
             else:
                 init_camera_pos = np.array([-270.0, -15.0, 78.0])
         
-        # Build initial rotation from Euler angles if available from world_coordinates.json
-        # Map display name to JSON key
-        cam_key = 'camera_1' if 'Camera 1' in camera_name or camera_name == 'Camera 1' else 'camera_2'
+        # Build initial rotation guess using look-at toward center of tracking zone.
+        # Exact Euler angles from config are not used as initial guess — cameras are
+        # manually aimed in the same general direction (down, toward center) and
+        # solvePnP computes the precise rotation from detected markers.
+        init_target = np.array([-150.0, -66.0, 200.0])
+        forward = init_target - init_camera_pos
+        forward = forward / np.linalg.norm(forward)
         
-        if hasattr(self, '_camera_rotations') and cam_key in self._camera_rotations:
-            rot = self._camera_rotations[cam_key]
-            pitch_deg = rot.get('pitch', 10)  # Down tilt
-            yaw_deg = rot.get('yaw', 0)       # Left/right pan
-            roll_deg = rot.get('roll', 0)     # Roll
-            
-            print(f"  Using Euler angles from JSON: pitch={pitch_deg}°, yaw={yaw_deg}°, roll={roll_deg}°")
-            
-            # Convert to radians
-            pitch = math.radians(pitch_deg)
-            yaw = math.radians(yaw_deg)
-            roll = math.radians(roll_deg)
-            
-            # Build rotation matrix: R = Rz(yaw) @ Rx(pitch) @ Ry(roll)
-            # This matches OpenCV convention where camera looks along +Z
-            cy, sy = math.cos(yaw), math.sin(yaw)
-            cp, sp = math.cos(pitch), math.sin(pitch)
-            cr, sr = math.cos(roll), math.sin(roll)
-            
-            # Yaw (rotation around Y - vertical axis)
-            Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
-            # Pitch (rotation around X - tilt down)
-            Rx = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]])
-            # Roll (rotation around Z - camera roll)
-            Rz = np.array([[cr, -sr, 0], [sr, cr, 0], [0, 0, 1]])
-            
-            # Combined rotation: first yaw, then pitch, then roll
-            R_init = Ry @ Rx @ Rz
-        else:
-            # Fallback: Look toward center of tracking zone
-            init_target = np.array([-150.0, -66.0, 200.0])
-            forward = init_target - init_camera_pos
-            forward = forward / np.linalg.norm(forward)
-            
-            # Camera Z-axis points toward target
-            # Camera Y-axis points down (OpenCV convention)
-            up_world = np.array([0.0, -1.0, 0.0])  # World up is -Y in our system
-            right = np.cross(forward, up_world)
-            right = right / np.linalg.norm(right)
-            down = np.cross(forward, right)
-            
-            R_init = np.column_stack([right, down, forward])
-            print(f"  Using look-at initial rotation (no Euler angles in JSON)")
+        # Camera Z-axis points toward target
+        # Camera Y-axis points down (OpenCV convention)
+        up_world = np.array([0.0, -1.0, 0.0])  # World up is -Y in our system
+        right = np.cross(forward, up_world)
+        right = right / np.linalg.norm(right)
+        down = np.cross(forward, right)
+        
+        R_init = np.column_stack([right, down, forward])
+        print(f"  Using look-at initial rotation toward tracking zone center")
         
         init_rvec, _ = cv2.Rodrigues(R_init)
         init_tvec = -R_init @ init_camera_pos
@@ -1344,30 +1346,76 @@ class CalibrationMode:
             rvec, tvec
         )
         
-        # Compute camera position and validate it makes physical sense
+        # Compute camera position
         R, _ = cv2.Rodrigues(rvec)
         camera_pos = -R.T @ tvec.flatten()
         
-        # VALIDATION: Camera should be at positive Z (in front of storefront, looking at street)
-        if camera_pos[2] < 0:
-            print(f"  ⚠️ WARNING: Camera Z={camera_pos[2]:.1f} still negative after selection!")
-            print(f"     The marker positions or corner ordering may need adjustment")
+        # ================================================================
+        # VALIDATION GATE — reject bad calibrations before saving
+        # ================================================================
         
-        # Compute reprojection error
+        # 1. Compute per-corner reprojection errors to identify outlier markers
         projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
-        reproj_error = np.sqrt(np.mean((image_points - projected.reshape(-1, 2))**2))
+        per_point_errors = np.sqrt(np.sum((image_points - projected.reshape(-1, 2))**2, axis=1))
+        reproj_error = np.sqrt(np.mean(per_point_errors**2))  # RMS
         
-        # Store calibration
+        # Per-marker error analysis (4 corners per marker)
+        marker_ids_list = list(markers.keys())
+        marker_errors = {}
+        for idx, mid in enumerate(marker_ids_list):
+            corner_errors = per_point_errors[idx*4:(idx+1)*4]
+            marker_errors[mid] = float(np.mean(corner_errors))
+        
+        # Report per-marker errors
+        worst_marker = max(marker_errors, key=marker_errors.get)
+        best_marker = min(marker_errors, key=marker_errors.get)
+        print(f"  Per-marker reproj errors:")
+        for mid in sorted(marker_errors.keys()):
+            err = marker_errors[mid]
+            flag = " <-- WORST" if mid == worst_marker and err > 3.0 else ""
+            print(f"    Marker {mid}: {err:.2f}px{flag}")
+        
+        # 2. Reprojection error threshold — reject clearly bad calibrations
+        MAX_REPROJ_ERROR_PX = 5.0  # pixels — good calibration is typically < 2px
+        if reproj_error > MAX_REPROJ_ERROR_PX:
+            return False, (f"Reprojection error too high: {reproj_error:.2f}px "
+                          f"(max {MAX_REPROJ_ERROR_PX}px). "
+                          f"Worst marker: #{worst_marker} at {marker_errors[worst_marker]:.1f}px")
+        
+        # 3. Camera Z must be positive (in front of storefront)
+        if camera_pos[2] < 0:
+            return False, (f"Camera Z={camera_pos[2]:.1f}cm is behind storefront. "
+                          f"Marker positions or corner ordering may be wrong.")
+        
+        # 4. Validate camera position against expected physical location
+        cam_key = 'camera_1' if 'Camera 1' in camera_name or camera_name == 'Camera 1' else 'camera_2'
+        if hasattr(self, '_camera_positions') and cam_key in self._camera_positions:
+            expected = np.array([float(c) for c in self._camera_positions[cam_key]])
+            pos_delta = np.linalg.norm(camera_pos - expected)
+            MAX_POSITION_DRIFT_CM = 50.0  # generous tolerance for imprecise mounting
+            if pos_delta > MAX_POSITION_DRIFT_CM:
+                print(f"  ⚠️ WARNING: Computed position is {pos_delta:.0f}cm from expected {tuple(expected.astype(int))}")
+                print(f"     This may indicate a detection/correspondence error.")
+                # Warning only — don't reject, since cameras may be repositioned
+            else:
+                print(f"  Position delta from expected: {pos_delta:.1f}cm (OK)")
+        
+        # 5. Camera Y should be near mounting height (-15 ± tolerance)
+        expected_y = self._reference_levels.get('camera_ledge', -15) if hasattr(self, '_reference_levels') else -15
+        y_delta = abs(camera_pos[1] - expected_y)
+        if y_delta > 30:
+            print(f"  ⚠️ WARNING: Camera Y={camera_pos[1]:.1f}cm, expected ~{expected_y}cm (delta={y_delta:.0f}cm)")
+        
+        # ================================================================
+        # PASSED — store calibration
+        # ================================================================
         self.calibration.set_calibration(
             camera_name, rvec, tvec, camera_matrix, dist_coeffs, image_size
         )
         
-        # Compute camera position for display
-        R, _ = cv2.Rodrigues(rvec)
-        camera_pos = -R.T @ tvec.flatten()
-        
+        quality = "excellent" if reproj_error < 1.0 else "good" if reproj_error < 2.0 else "acceptable"
         return True, (f"3D pose computed from {len(markers)} markers, "
-                     f"reproj error: {reproj_error:.2f}px, "
+                     f"reproj error: {reproj_error:.2f}px ({quality}), "
                      f"camera at ({camera_pos[0]:.0f}, {camera_pos[1]:.0f}, {camera_pos[2]:.0f}) cm")
     
     def render_overlay(self, frame, camera_name, detected_corners, detected_ids):
@@ -1494,14 +1542,87 @@ class CalibrationMode:
         
         return panel
     
-    def run_auto_calibration(self, raw_frames, camera_configs, calibration_manager):
+    def render_calibration_result_overlay(self, frame):
+        """Render a prominent on-screen banner showing calibration success or failure.
+        
+        Returns the frame with overlay drawn, or the original frame if no result
+        is active or the display duration has expired.
         """
-        Run automatic calibration for all cameras.
+        import time as _time
+        if self._calib_result is None:
+            return frame
+        
+        elapsed = _time.time() - self._calib_result_time
+        if elapsed > self._calib_result_duration:
+            self._calib_result = None  # expire
+            return frame
+        
+        h, w = frame.shape[:2]
+        overlay = frame.copy()
+        
+        # Banner dimensions
+        banner_h = 50 + 28 * len(self._calib_result_details)
+        banner_w = min(w - 40, 500)
+        x0 = (w - banner_w) // 2
+        y0 = (h - banner_h) // 2
+        
+        # Colors based on result
+        if self._calib_result == 'success':
+            bg_color = (30, 120, 30)      # dark green
+            border_color = (80, 255, 80)   # bright green
+            title = "CALIBRATION SUCCESSFUL"
+        else:
+            bg_color = (30, 30, 120)       # dark red
+            border_color = (80, 80, 255)   # bright red
+            title = "CALIBRATION FAILED"
+        
+        # Draw filled banner with border
+        cv2.rectangle(overlay, (x0, y0), (x0 + banner_w, y0 + banner_h), bg_color, -1)
+        cv2.rectangle(overlay, (x0, y0), (x0 + banner_w, y0 + banner_h), border_color, 3)
+        
+        # Blend overlay (semi-transparent background)
+        alpha = 0.85
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+        
+        # Title text
+        cv2.putText(frame, title, (x0 + 20, y0 + 32),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, border_color, 2)
+        
+        # Summary line
+        cv2.putText(frame, self._calib_result_msg, (x0 + 20, y0 + 58),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1)
+        
+        # Detail lines (camera positions)
+        for i, detail in enumerate(self._calib_result_details):
+            color = (200, 255, 200) if self._calib_result == 'success' else (200, 200, 255)
+            cv2.putText(frame, detail, (x0 + 30, y0 + 86 + i * 24),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+        
+        # Countdown bar at bottom of banner
+        remaining = max(0, 1.0 - elapsed / self._calib_result_duration)
+        bar_y = y0 + banner_h - 6
+        bar_w = int((banner_w - 4) * remaining)
+        cv2.rectangle(frame, (x0 + 2, bar_y), (x0 + 2 + bar_w, bar_y + 4), border_color, -1)
+        
+        return frame
+    
+    # Number of frames to accumulate for robust corner averaging
+    AUTO_CALIB_NUM_FRAMES = 10
+    AUTO_CALIB_FRAME_DELAY = 0.05  # seconds between frame captures
+    
+    def run_auto_calibration(self, raw_frames, camera_configs, calibration_manager, camera_readers=None):
+        """
+        Run automatic calibration for all cameras with multi-frame accumulation.
+        
+        Captures AUTO_CALIB_NUM_FRAMES frames per camera, detects markers on each,
+        and uses median corner positions across frames.  This eliminates single-frame
+        noise from motion blur, compression artefacts, or lighting flicker.
         
         Args:
-            raw_frames: dict of camera_name -> current frame
+            raw_frames: dict of camera_name -> current frame (used as fallback)
             camera_configs: list of camera config dicts with 'name' key
             calibration_manager: CalibrationManager instance to save to
+            camera_readers: optional list of CameraReader objects for multi-frame capture
             
         Returns:
             (success, message) tuple
@@ -1510,39 +1631,110 @@ class CalibrationMode:
         self.auto_calib_messages = []
         results = []
         
+        N = self.AUTO_CALIB_NUM_FRAMES
+        use_multi = camera_readers is not None and len(camera_readers) > 0
+        
         print("\n" + "=" * 50)
         print("🎯 AUTO-CALIBRATION STARTED")
+        if use_multi:
+            print(f"   Accumulating {N} frames per camera for robust detection")
         print("=" * 50)
         
-        # Step 1: Detect markers on all cameras
-        self.auto_calib_messages.append("Step 1: Detecting markers on all cameras...")
-        print("\n📍 Step 1: Detecting markers on all cameras...")
+        # ---------------------------------------------------------------
+        # Step 1: Multi-frame marker detection with corner accumulation
+        # ---------------------------------------------------------------
+        step1_label = f"Step 1: Capturing {N} frames per camera..." if use_multi else "Step 1: Detecting markers..."
+        self.auto_calib_messages.append(step1_label)
+        print(f"\n📍 {step1_label}")
+        
+        # corner_accumulator[cam_name][marker_id] = list of (4,2) arrays
+        corner_accumulator = {}
         
         for cam_idx, cfg in enumerate(camera_configs):
             cam_name = cfg['name']
-            frame = raw_frames.get(cam_name)
+            corner_accumulator[cam_name] = {}
+            frame_ok_count = 0
             
-            if frame is None:
-                msg = f"  ⚠️ {cam_name}: No frame available"
-                self.auto_calib_messages.append(msg)
-                print(msg)
-                continue
+            num_frames = N if use_multi else 1
             
-            # Clear previous detections for this camera
+            for frame_i in range(num_frames):
+                # Get a fresh frame from the camera reader if available
+                frame = None
+                if use_multi and cam_idx < len(camera_readers):
+                    ret, f, _, _ = camera_readers[cam_idx].read_new()
+                    if not ret:
+                        ret, f, _ = camera_readers[cam_idx].read()
+                    if ret and f is not None:
+                        frame = f
+                
+                # Fallback to raw_frames on first iteration
+                if frame is None and frame_i == 0:
+                    frame = raw_frames.get(cam_name)
+                
+                if frame is None:
+                    continue
+                
+                # Detect markers (without storing — we accumulate ourselves)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                corners, ids, _ = self.detector.detectMarkers(gray)
+                
+                # Sub-pixel refine
+                if corners is not None and len(corners) > 0:
+                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.01)
+                    for ci in range(len(corners)):
+                        corners[ci] = cv2.cornerSubPix(
+                            gray, corners[ci],
+                            winSize=(3, 3), zeroZone=(-1, -1), criteria=criteria)
+                
+                if ids is not None:
+                    frame_ok_count += 1
+                    for ci, mid in enumerate(ids.flatten()):
+                        mid = int(mid)
+                        if mid in self.marker_world_positions_3d:
+                            if mid not in corner_accumulator[cam_name]:
+                                corner_accumulator[cam_name][mid] = []
+                            corner_accumulator[cam_name][mid].append(corners[ci][0].copy())
+                
+                # Brief pause to get a different frame from the camera thread
+                if frame_i < num_frames - 1 and use_multi:
+                    time.sleep(self.AUTO_CALIB_FRAME_DELAY)
+            
+            # Now compute median corners and store into self.detected_markers
             self.detected_markers[cam_name] = {}
             
-            # Detect markers
-            corners, ids = self.detect_markers(frame, cam_name)
+            # Ensure camera intrinsics are initialized
+            if cam_name not in self.camera_intrinsics:
+                frame = raw_frames.get(cam_name)
+                if frame is not None:
+                    h, w = frame.shape[:2]
+                    matrix, dist = self.get_camera_intrinsics(cam_name, (w, h))
+                    self.camera_intrinsics[cam_name] = {
+                        'matrix': matrix, 'dist_coeffs': dist, 'size': (w, h)
+                    }
             
-            if ids is not None:
-                detected_ids = sorted(self.detected_markers.get(cam_name, {}).keys())
-                msg = f"  ✓ {cam_name}: Found markers {detected_ids}"
-                self.auto_calib_messages.append(msg)
-                print(msg)
+            for mid, corner_list in corner_accumulator[cam_name].items():
+                if len(corner_list) >= 2:
+                    # Use median across frames (robust to single-frame outliers)
+                    stacked = np.array(corner_list)  # (num_frames, 4, 2)
+                    median_corners = np.median(stacked, axis=0)  # (4, 2)
+                    
+                    # Compute corner spread (std) as quality metric
+                    corner_std = np.mean(np.std(stacked, axis=0))
+                    if corner_std > 3.0:
+                        print(f"  ⚠️ {cam_name} marker {mid}: high corner jitter ({corner_std:.1f}px) across {len(corner_list)} frames")
+                    
+                    self.detected_markers[cam_name][mid] = median_corners.astype(np.float32)
+                elif len(corner_list) == 1:
+                    # Only one detection — use it but note it
+                    self.detected_markers[cam_name][mid] = corner_list[0]
+            
+            detected_ids = sorted(self.detected_markers.get(cam_name, {}).keys())
+            if detected_ids:
+                msg = f"  ✓ {cam_name}: Markers {detected_ids} ({frame_ok_count}/{num_frames} frames used)"
             else:
                 msg = f"  ✗ {cam_name}: No markers detected"
-                self.auto_calib_messages.append(msg)
-                print(msg)
+            self.auto_calib_messages.append(msg)
+            print(msg)
         
         # Step 2: Compute 3D pose for each camera
         self.auto_calib_messages.append("Step 2: Computing 3D poses...")
@@ -1576,19 +1768,48 @@ class CalibrationMode:
             print(f"\n💾 Step 3: Saving calibration...")
             calibration_manager.save()
             
-            final_msg = f"✅ AUTO-CALIBRATION COMPLETE: {success_count}/{len(camera_configs)} cameras calibrated"
+            final_msg = f"AUTO-CALIBRATION COMPLETE: {success_count}/{len(camera_configs)} cameras calibrated"
             self.auto_calib_messages.append(final_msg)
-            print(f"\n{final_msg}")
+            print(f"\n✅ {final_msg}")
             print("=" * 50 + "\n")
+            
+            # Set on-screen success overlay
+            self._calib_result = 'success'
+            self._calib_result_msg = f"{success_count}/{len(camera_configs)} cameras calibrated successfully"
+            self._calib_result_details = []
+            for cam_name, ok, msg in results:
+                cam_pos = calibration_manager.get_camera_position(cam_name) if ok else None
+                if ok and cam_pos is not None:
+                    # Extract reproj error from msg (format: "...reproj error: X.XXpx (quality)...")
+                    import re as _re
+                    reproj_match = _re.search(r'reproj error: ([\d.]+)px \((\w+)\)', msg)
+                    reproj_info = f" | {reproj_match.group(2)} ({reproj_match.group(1)}px)" if reproj_match else ""
+                    self._calib_result_details.append(
+                        f"{cam_name}: ({cam_pos[0]:.0f}, {cam_pos[1]:.0f}, {cam_pos[2]:.0f}) cm{reproj_info}")
+                elif ok:
+                    self._calib_result_details.append(f"{cam_name}: calibrated")
+                else:
+                    self._calib_result_details.append(f"{cam_name}: FAILED - {msg}")
+            import time as _time
+            self._calib_result_time = _time.time()
             
             self.auto_calibrating = False
             return True, final_msg
         else:
-            final_msg = "❌ AUTO-CALIBRATION FAILED: No cameras could be calibrated"
+            final_msg = "AUTO-CALIBRATION FAILED: No cameras could be calibrated"
             self.auto_calib_messages.append(final_msg)
-            print(f"\n{final_msg}")
+            print(f"\n❌ {final_msg}")
             print("   Make sure markers are visible to all cameras")
             print("=" * 50 + "\n")
+            
+            # Set on-screen failure overlay
+            self._calib_result = 'fail'
+            self._calib_result_msg = "No cameras could be calibrated"
+            self._calib_result_details = ["Ensure markers are visible to all cameras"]
+            for cam_name, ok, msg in results:
+                self._calib_result_details.append(f"{cam_name}: {msg}")
+            import time as _time
+            self._calib_result_time = _time.time()
             
             self.auto_calibrating = False
             return False, final_msg
@@ -2357,6 +2578,11 @@ def main():
             combined = cv2.vconcat([combined, status_bar])
         
         window_title = "Multi-Camera Person Tracker"
+        
+        # Draw calibration result overlay (success/fail banner) if active
+        if calib_mode is not None:
+            combined = calib_mode.render_calibration_result_overlay(combined)
+        
         cv2.imshow(window_title, combined)
         
         # Handle key input
@@ -2368,7 +2594,7 @@ def main():
         elif key == ord('a') and view_mode == ViewMode.CALIBRATION:
             # AUTO-CALIBRATE: detect all cameras, compute poses, save
             print("\n🎯 Starting auto-calibration...")
-            success, msg = calib_mode.run_auto_calibration(raw_frames, camera_configs, calibration)
+            success, msg = calib_mode.run_auto_calibration(raw_frames, camera_configs, calibration, cameras)
             if success:
                 # Switch to synthesized view to show results
                 view_mode = ViewMode.SYNTHESIZED
