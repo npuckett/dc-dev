@@ -29,8 +29,8 @@ Environment="DISPLAY=:0"
 # Run in headless mode for production
 Environment="HEADLESS=1"
 
-# The command to run
-ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python camera_tracker_osc.py
+# The command to run (--headless prevents OpenCV GUI windows)
+ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python camera_tracker_osc.py --headless
 
 # Restart policy - always restart on failure
 Restart=always

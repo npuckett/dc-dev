@@ -975,7 +975,9 @@ class Tracker:
 
 def main():
     parser = argparse.ArgumentParser(description="Camera Tracker V2.5")
-    parser.add_argument('--headless', action='store_true', help="Run without GUI")
+    parser.add_argument('--headless', action='store_true',
+                        default=os.environ.get('HEADLESS', '').strip() in ('1', 'true', 'yes'),
+                        help="Run without GUI (also set via HEADLESS=1 env var)")
     parser.add_argument('--process-width', type=int, default=416, help="YOLO input width (default: 416)")
     parser.add_argument('--osc-ip', default="127.0.0.1", help="OSC target IP")
     parser.add_argument('--osc-port', type=int, default=7000, help="OSC target port")

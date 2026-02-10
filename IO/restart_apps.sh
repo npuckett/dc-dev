@@ -9,9 +9,9 @@ pkill -f "camera_tracker_osc.py" 2>/dev/null
 pkill -f "lightController_osc.py" 2>/dev/null
 sleep 1
 
-echo "Starting camera tracker..."
+echo "Starting camera tracker (headless)..."
 cd "$SCRIPT_DIR"
-python3 camera_tracker_osc.py &
+python3 camera_tracker_osc.py --headless &
 
 echo "Starting light controller..."
 python3 lightController_osc.py &

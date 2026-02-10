@@ -554,7 +554,7 @@ FPS = 30
 
 # DMX range
 DMX_MIN = 1
-DMX_MAX = 50
+DMX_MAX = 255
 
 # Panel dimensions (cm)
 PANEL_SIZE = 60
@@ -1474,6 +1474,28 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
     
     gluDeleteQuadric(quadric)
     glPopMatrix()
+    
+    # Draw track ID label above head
+    label_pos = np.array([pos[0], pos[1] + height + radius + 10, pos[2]])
+    # Project 3D position to screen using current matrices
+    modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
+    projection = glGetDoublev(GL_PROJECTION_MATRIX)
+    viewport = glGetIntegerv(GL_VIEWPORT)
+    try:
+        sx, sy, sz = gluProject(label_pos[0], label_pos[1], label_pos[2],
+                                modelview, projection, viewport)
+        if sz > 0 and sz < 1:  # Visible (in front of camera)
+            label = f"#{person.track_id}"
+            _id_font = pygame.font.SysFont('monospace', 16, bold=True)
+            text_surface = _id_font.render(label, True, (255, 255, 255))
+            text_data = pygame.image.tostring(text_surface, "RGBA", True)
+            glDisable(GL_DEPTH_TEST)
+            glWindowPos2d(int(sx) - text_surface.get_width() // 2, int(sy))
+            glDrawPixels(text_surface.get_width(), text_surface.get_height(),
+                         GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+            glEnable(GL_DEPTH_TEST)
+    except Exception:
+        pass  # Skip if projection fails
 
 
 def draw_floor(y_level, color, z_max=None):
@@ -2604,12 +2626,17 @@ class Slider:
         self.label = label
         self.format_str = format_str
         self.dragging = False
+        # Store original Y offset from display height for repositioning
+        self._y_offset = None
     
     def handle_event(self, event, screen_height):
         """Handle mouse events. Returns True if value changed."""
         if event.type == MOUSEBUTTONDOWN and event.button == 1:
             mouse_y = screen_height - event.pos[1]
-            if self.rect.collidepoint(event.pos[0], mouse_y):
+            # Expand click area: include label above (+22px) and padding below (-5px)
+            # Total clickable height = height + 27px (much easier to hit)
+            expanded = pygame.Rect(self.rect.x, self.rect.y - 5, self.rect.width, self.rect.height + 27)
+            if expanded.collidepoint(event.pos[0], mouse_y):
                 self.dragging = True
                 self._update_value(event.pos[0])
                 return True
@@ -2649,8 +2676,29 @@ class Slider:
         glVertex2f(x, y + h)
         glEnd()
         
+        # Thumb indicator
+        thumb_x = x + fill_w
+        glColor4f(0.9, 0.9, 0.9, 1.0)
+        glBegin(GL_QUADS)
+        glVertex2f(thumb_x - 2, y - 2)
+        glVertex2f(thumb_x + 2, y - 2)
+        glVertex2f(thumb_x + 2, y + h + 2)
+        glVertex2f(thumb_x - 2, y + h + 2)
+        glEnd()
+        
+        # Highlight when dragging
+        if self.dragging:
+            glColor4f(0.4, 0.8, 1.0, 0.3)
+            glBegin(GL_QUADS)
+            glVertex2f(x, y)
+            glVertex2f(x + w, y)
+            glVertex2f(x + w, y + h)
+            glVertex2f(x, y + h)
+            glEnd()
+        
         # Border
-        glColor4f(0.5, 0.5, 0.5, 1.0)
+        border_color = (0.6, 0.8, 1.0, 1.0) if self.dragging else (0.5, 0.5, 0.5, 1.0)
+        glColor4f(*border_color)
         glLineWidth(1)
         glBegin(GL_LINE_LOOP)
         glVertex2f(x, y)
@@ -2831,7 +2879,38 @@ def main():
     # Create sliders
     slider_x = view_width + 20
     slider_w = gui_width - 40
-    slider_h = 12
+    slider_h = 16
+    
+    # Y-offset definitions (from top of screen)
+    # These are stored so sliders can be repositioned on display size change
+    slider_y_offsets = {
+        # Calibration sliders (top section - below title)
+        'offset_x': 100, 'offset_z': 140,
+        'scale_x': 190, 'scale_z': 230,
+        # Checkbox
+        'invert_x_cb': 265,
+        # Personality sliders (middle section)
+        'responsiveness': 330, 'energy': 370, 'attention_span': 410,
+        'sociability': 450, 'exploration': 490, 'memory': 530,
+        # Global multiplier sliders (lower section)
+        'brightness_global': 600, 'speed_global': 640, 'pulse_global': 680,
+        'follow_speed_global': 720, 'dwell_influence': 760, 'idle_trend_weight': 800,
+    }
+    
+    def reposition_sliders():
+        """Reposition all sliders/checkboxes based on current display size"""
+        nonlocal slider_x, slider_w
+        slider_x = view_width + 20
+        slider_w = gui_width - 40
+        for name, slider in all_sliders.items():
+            y_off = slider_y_offsets[name]
+            slider.rect.x = slider_x
+            slider.rect.y = display[1] - y_off
+            slider.rect.width = slider_w
+        for name, checkbox in checkboxes.items():
+            cb_off = slider_y_offsets.get(f'{name}_cb', 265)
+            checkbox.rect.x = slider_x
+            checkbox.rect.y = display[1] - cb_off
     
     # Calibration sliders (top section - below title)
     sliders = {
@@ -2860,7 +2939,7 @@ def main():
     
     # Global multiplier sliders (lower section)
     global_sliders = {
-        'brightness_global': Slider(slider_x, display[1] - 600, slider_w, slider_h, 0.2, 2.0, 1.0, "Brightness ×", "{:.2f}"),
+        'brightness_global': Slider(slider_x, display[1] - 600, slider_w, slider_h, 0.2, 5.0, 1.0, "Brightness ×", "{:.2f}"),
         'speed_global': Slider(slider_x, display[1] - 640, slider_w, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}"),
         'pulse_global': Slider(slider_x, display[1] - 680, slider_w, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}"),
         'follow_speed_global': Slider(slider_x, display[1] - 720, slider_w, slider_h, 0.5, 3.0, 1.0, "Follow Speed ×", "{:.2f}"),
@@ -2963,6 +3042,21 @@ def main():
                     elif name in global_sliders:
                         setattr(meta_params, name, slider.value)
             
+            # Debug: log click position when clicking in GUI area
+            if event.type == MOUSEBUTTONDOWN and event.button == 1 and event.pos[0] >= view_width:
+                mouse_y_gl = display[1] - event.pos[1]
+                hit_any = False
+                for sname, s in all_sliders.items():
+                    expanded = pygame.Rect(s.rect.x, s.rect.y - 5, s.rect.width, s.rect.height + 25)
+                    if expanded.collidepoint(event.pos[0], mouse_y_gl):
+                        hit_any = True
+                        break
+                if not hit_any:
+                    print(f"🎯 Click in GUI at pygame=({event.pos[0]}, {event.pos[1]}) gl_y={mouse_y_gl} - no slider hit")
+                    # Find nearest slider
+                    nearest = min(all_sliders.items(), key=lambda kv: abs(kv[1].rect.y - mouse_y_gl))
+                    print(f"   Nearest slider: {nearest[0]} at gl_y={nearest[1].rect.y} (dist={abs(nearest[1].rect.y - mouse_y_gl)})")
+            
             # Check checkboxes
             for name, checkbox in checkboxes.items():
                 if checkbox.handle_event(event, display[1]):
@@ -3023,6 +3117,9 @@ def main():
                     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
                     glClearColor(0.1, 0.1, 0.15, 1.0)
                     glViewport(0, 0, display[0], display[1])
+                    # Update layout for new display size
+                    view_width = display[0] - gui_width
+                    reposition_sliders()
                     print(f"{'Fullscreen' if is_fullscreen else 'Windowed'} mode ({display[0]}x{display[1]})")
                 elif event.key == K_HOME:
                     # Reset camera to default view
