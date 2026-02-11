@@ -711,12 +711,15 @@ CAMERA_VIEW_SIZE = (320, 240)  # Size of each camera preview window
 class TrackedPerson:
     """Represents a person tracked via OSC"""
     track_id: int
+    daily_id: int
     x: float  # World X position (cm)
     z: float  # World Z position (cm)
     y: float = STREET_LEVEL_Y  # Fixed at street level
     last_update: float = 0.0
     first_seen: float = 0.0  # When first tracked
     zone: str = "unknown"  # "active", "passive", or "unknown"
+    vx: float = 0.0  # Velocity X (cm/s)
+    vz: float = 0.0  # Velocity Z (cm/s)
     
     def get_position(self) -> np.ndarray:
         return np.array([self.x, self.y, self.z])
@@ -735,6 +738,7 @@ class TrackedPersonManager:
         self.people: Dict[int, TrackedPerson] = {}
         self.lock = threading.Lock()
         self.timeout = 1.0  # Remove person after 1 second without updates
+        self.daily_count = 0
         
         # Calibration offsets and scales
         self.offset_x = 0.0
@@ -793,17 +797,22 @@ class TrackedPersonManager:
         zone = self._get_zone(x, z)
         
         now = time.time()
+        now_dt = datetime.now()
         
         with self.lock:
             is_new = track_id not in self.people
             
             if is_new:
+                self.daily_count += 1
                 self.people[track_id] = TrackedPerson(
                     track_id=track_id,
+                    daily_id=self.daily_count,
                     x=x, z=z, y=y,
                     last_update=now,
                     first_seen=now,
-                    zone=zone
+                    zone=zone,
+                    vx=0.0,
+                    vz=0.0,
                 )
                 # Notify behavior system
                 if self.on_person_entered:
@@ -811,11 +820,15 @@ class TrackedPersonManager:
                     is_active = zone == "active"
                     self.on_person_entered(track_id, pos, is_active)
             else:
-                self.people[track_id].x = x
-                self.people[track_id].z = z
-                self.people[track_id].y = y
-                self.people[track_id].zone = zone
-                self.people[track_id].last_update = now
+                person = self.people[track_id]
+                dt = max(1e-6, now - person.last_update)
+                person.vx = (x - person.x) / dt
+                person.vz = (z - person.z) / dt
+                person.x = x
+                person.z = z
+                person.y = y
+                person.zone = zone
+                person.last_update = now
                 
                 # Notify position update
                 pos = np.array([x, y, z])
@@ -837,6 +850,14 @@ class TrackedPersonManager:
                 del self.people[pid]
                 if self.on_person_left:
                     self.on_person_left(pid)
+
+    def reset_daily_population(self):
+        """Reset daily population count and reassign IDs to active people."""
+        with self.lock:
+            self.daily_count = 0
+            for person in self.people.values():
+                self.daily_count += 1
+                person.daily_id = self.daily_count
     
     def get_all(self) -> List[TrackedPerson]:
         """Get list of all tracked people"""
@@ -964,6 +985,7 @@ class WebSocketBroadcaster:
             state.get('mode'),
             len(state.get('people', [])),
             state.get('report_version', 0),
+            state.get('auto_tuning', {}).get('revision', 0),
             int(state.get('light', {}).get('x', 0) * 10),
             int(state.get('light', {}).get('y', 0) * 10),
         ))
@@ -1076,6 +1098,281 @@ class WebSocketBroadcaster:
                 asyncio.run_coroutine_threadsafe(cleanup(), self.loop)
             except Exception:
                 pass
+
+
+# =============================================================================
+# AUTO TUNING (trend-responsive behavior adjustments)
+# =============================================================================
+
+@dataclass
+class AutoTuningConfig:
+    update_interval: float = 5.0
+    min_step: float = 0.002
+    max_step_personality: float = 0.03
+    max_step_global: float = 0.08
+    target_activity: float = 0.6
+    damping_strong: float = 0.4
+    damping_moderate: float = 0.7
+    budget_cost_scale: float = 100.0
+
+
+class AutoTuningManager:
+    def __init__(self, meta: MetaParameters, sliders: dict, database: TrackingDatabase = None):
+        self.meta = meta
+        self.sliders = sliders
+        self.database = database
+        self.config = AutoTuningConfig()
+        self.enabled = True
+        self.last_update = 0.0
+        self.last_adjustment: Optional[dict] = None
+        self.revision = 0
+        self.history: List[dict] = []
+        self.budget_current = 60.0
+        self.budget_last_time = time.time()
+
+        self.param_order = [
+            'responsiveness', 'energy', 'attention_span', 'sociability',
+            'exploration', 'memory', 'brightness_global', 'speed_global',
+            'pulse_global', 'follow_speed_global', 'dwell_influence',
+            'idle_trend_weight'
+        ]
+
+        self.min_vals = {
+            'responsiveness': 0.0,
+            'energy': 0.0,
+            'attention_span': 0.0,
+            'sociability': 0.0,
+            'exploration': 0.0,
+            'memory': 0.0,
+            'brightness_global': 0.2,
+            'speed_global': 0.2,
+            'pulse_global': 0.3,
+            'follow_speed_global': 0.5,
+            'dwell_influence': 0.0,
+            'idle_trend_weight': 0.0,
+        }
+
+        self.max_vals = {
+            'responsiveness': 1.0,
+            'energy': 1.0,
+            'attention_span': 1.0,
+            'sociability': 1.0,
+            'exploration': 1.0,
+            'memory': 1.0,
+            'brightness_global': 5.0,
+            'speed_global': 2.0,
+            'pulse_global': 3.0,
+            'follow_speed_global': 3.0,
+            'dwell_influence': 2.0,
+            'idle_trend_weight': 2.0,
+        }
+
+        # Soft caps to avoid obnoxious behavior
+        self.caps = {
+            'brightness_global': 2.2,
+            'speed_global': 1.4,
+            'pulse_global': 1.6,
+            'energy': 0.75,
+            'responsiveness': 0.85,
+        }
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+
+    def _get_values(self) -> dict:
+        return {name: float(getattr(self.meta, name)) for name in self.param_order}
+
+    def _budget_max(self) -> float:
+        slider = self.sliders.get('interaction_budget')
+        if slider is None:
+            return 60.0
+        return max(0.0, float(slider.value))
+
+    def _apply_values(self, new_values: dict):
+        for name, value in new_values.items():
+            setattr(self.meta, name, value)
+            if name in self.sliders:
+                self.sliders[name].value = value
+
+    def _clamp(self, name: str, value: float) -> float:
+        max_val = min(self.max_vals.get(name, 1.0), self.caps.get(name, self.max_vals.get(name, 1.0)))
+        min_val = self.min_vals.get(name, 0.0)
+        return max(min_val, min(max_val, value))
+
+    def update(self, behavior_status: dict, now: float) -> Optional[dict]:
+        budget_max = self._budget_max()
+        dt_budget = max(0.0, now - self.budget_last_time)
+        if dt_budget > 0:
+            restore_rate = budget_max / 300.0 if budget_max > 0 else 0.0
+            aggression = behavior_status.get('aggression', {})
+            engagement_bonus = budget_max / 90.0 if aggression.get('current_engagement') else 0.0
+            self.budget_current = min(budget_max, self.budget_current + dt_budget * (restore_rate + engagement_bonus))
+            self.budget_last_time = now
+
+        if not self.enabled or budget_max <= 0:
+            return None
+
+        if now - self.last_update < self.config.update_interval:
+            return None
+
+        idle_trends = behavior_status.get('idle_trends', {})
+        if not idle_trends or not idle_trends.get('has_short', False):
+            return None
+
+        short_activity = float(idle_trends.get('short_activity', 0.0))
+        medium_activity = float(idle_trends.get('medium_activity', short_activity))
+        long_activity = float(idle_trends.get('long_activity', medium_activity))
+        energy_level = float(idle_trends.get('energy_level', 0.5))
+
+        aggression = behavior_status.get('aggression', {})
+        aggression_level = float(aggression.get('level', 0.0))
+        seconds_since_eng = float(aggression.get('seconds_since_engagement', 9999))
+
+        damping = 1.0
+        if aggression_level > 0.6 or seconds_since_eng < 30:
+            damping = self.config.damping_strong
+        elif aggression_level > 0.4:
+            damping = self.config.damping_moderate
+
+        target = self.config.target_activity
+        need_short = max(-0.4, min(0.4, target - short_activity))
+        need_medium = max(-0.4, min(0.4, target - medium_activity))
+        need_long = max(-0.4, min(0.4, target - long_activity))
+        combined_need = 0.5 * need_short + 0.3 * need_medium + 0.2 * need_long
+
+        deltas = {
+            'responsiveness': combined_need * 0.08 * damping,
+            'sociability': combined_need * 0.07 * damping,
+            'follow_speed_global': combined_need * 0.12 * damping,
+            'energy': combined_need * 0.06 * damping,
+            'brightness_global': need_long * 0.10 * damping,
+            'speed_global': need_short * 0.07 * damping,
+            'pulse_global': need_short * 0.06 * damping,
+        }
+
+        if medium_activity < 0.4:
+            deltas['exploration'] = (0.4 - medium_activity) * 0.10 * damping
+            deltas['attention_span'] = (0.4 - medium_activity) * 0.08 * damping
+        elif medium_activity > 0.75:
+            deltas['exploration'] = -(medium_activity - 0.75) * 0.08 * damping
+            deltas['attention_span'] = (medium_activity - 0.75) * 0.04 * damping
+
+        deltas['memory'] = (long_activity - 0.5) * 0.04 * damping
+        deltas['dwell_influence'] = (energy_level - 0.5) * 0.04 * damping
+        deltas['idle_trend_weight'] = (0.5 - short_activity) * 0.04 * damping
+
+        old_values = self._get_values()
+        new_values = dict(old_values)
+        applied = {}
+
+        for name, delta in deltas.items():
+            max_step = self.config.max_step_personality if name in (
+                'responsiveness', 'energy', 'attention_span', 'sociability',
+                'exploration', 'memory'
+            ) else self.config.max_step_global
+            if delta > max_step:
+                delta = max_step
+            elif delta < -max_step:
+                delta = -max_step
+
+            if abs(delta) < self.config.min_step:
+                continue
+
+            new_val = self._clamp(name, old_values[name] + delta)
+            applied_delta = new_val - old_values[name]
+            if abs(applied_delta) < self.config.min_step:
+                continue
+
+            new_values[name] = new_val
+            applied[name] = applied_delta
+
+        if not applied:
+            return None
+
+        raw_cost = sum(abs(val) for val in applied.values()) * self.config.budget_cost_scale
+        scale = 1.0
+        if raw_cost > self.budget_current and raw_cost > 0:
+            scale = max(0.0, self.budget_current / raw_cost)
+
+        if scale < 1.0:
+            new_values = dict(old_values)
+            applied = {}
+            for name, delta in deltas.items():
+                max_step = self.config.max_step_personality if name in (
+                    'responsiveness', 'energy', 'attention_span', 'sociability',
+                    'exploration', 'memory'
+                ) else self.config.max_step_global
+                delta = max(-max_step, min(max_step, delta * scale))
+                if abs(delta) < self.config.min_step:
+                    continue
+                new_val = self._clamp(name, old_values[name] + delta)
+                applied_delta = new_val - old_values[name]
+                if abs(applied_delta) < self.config.min_step:
+                    continue
+                new_values[name] = new_val
+                applied[name] = applied_delta
+
+            if not applied:
+                return None
+
+        self._apply_values(new_values)
+        self.last_update = now
+        self.revision += 1
+
+        cost_used = sum(abs(val) for val in applied.values()) * self.config.budget_cost_scale
+        budget_before = self.budget_current
+        self.budget_current = max(0.0, self.budget_current - cost_used)
+
+        adjustment = {
+            'timestamp': now,
+            'revision': self.revision,
+            'enabled': self.enabled,
+            'short_activity': short_activity,
+            'medium_activity': medium_activity,
+            'long_activity': long_activity,
+            'energy_level': energy_level,
+            'aggression_level': aggression_level,
+            'seconds_since_engagement': seconds_since_eng,
+            'damping': damping,
+            'budget_before': budget_before,
+            'budget_after': self.budget_current,
+            'budget_max': budget_max,
+            'budget_cost': cost_used,
+            'old_values': old_values,
+            'new_values': new_values,
+            'applied_deltas': applied,
+            'caps': self.caps,
+        }
+
+        self.last_adjustment = adjustment
+        top_deltas = sorted(applied.items(), key=lambda kv: abs(kv[1]), reverse=True)[:3]
+        self.history.append({
+            'timestamp': now,
+            'short_activity': short_activity,
+            'medium_activity': medium_activity,
+            'long_activity': long_activity,
+            'deltas': top_deltas,
+        })
+        if len(self.history) > 8:
+            self.history = self.history[-8:]
+
+        if self.database:
+            try:
+                self.database.record_behavior_adjustment(
+                    enabled=self.enabled,
+                    reason='auto_tune',
+                    short_activity=short_activity,
+                    medium_activity=medium_activity,
+                    long_activity=long_activity,
+                    energy_level=energy_level,
+                    aggression_level=aggression_level,
+                    adjustments=adjustment,
+                    timestamp=now
+                )
+            except Exception as e:
+                logger.warning(f"Auto-tune adjustment log failed: {e}")
+
+        return adjustment
 
 
 # =============================================================================
@@ -1360,8 +1657,10 @@ def draw_panel(center, angle, size, dmx_value):
     glTranslatef(*center)
     glRotatef(-angle, 1, 0, 0)
     
-    # Visual brightness proportional to actual DMX value
-    gray = 0.05 + (dmx_value / 255.0) * 0.95
+    # Visual brightness proportional to DMX range (DMX_MIN..DMX_MAX)
+    dmx_range = max(1, DMX_MAX - DMX_MIN)
+    normalized = max(0.0, min(1.0, (dmx_value - DMX_MIN) / dmx_range))
+    gray = 0.05 + normalized * 0.95
     glColor4f(gray, gray, gray, 1.0)
     
     glBegin(GL_QUADS)
@@ -1475,7 +1774,7 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
     gluDeleteQuadric(quadric)
     glPopMatrix()
     
-    # Draw track ID label above head
+    # Draw population ID label above head
     label_pos = np.array([pos[0], pos[1] + height + radius + 10, pos[2]])
     # Project 3D position to screen using current matrices
     modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
@@ -1485,7 +1784,7 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
         sx, sy, sz = gluProject(label_pos[0], label_pos[1], label_pos[2],
                                 modelview, projection, viewport)
         if sz > 0 and sz < 1:  # Visible (in front of camera)
-            label = f"#{person.track_id}"
+            label = f"#{person.daily_id}"
             _id_font = pygame.font.SysFont('monospace', 16, bold=True)
             text_surface = _id_font.render(label, True, (255, 255, 255))
             text_data = pygame.image.tostring(text_surface, "RGBA", True)
@@ -1496,6 +1795,20 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
             glEnable(GL_DEPTH_TEST)
     except Exception:
         pass  # Skip if projection fails
+
+    # Draw velocity vector (scaled)
+    speed = math.sqrt(person.vx ** 2 + person.vz ** 2)
+    if speed > 5:
+        vec_scale = 0.2
+        vx = person.vx * vec_scale
+        vz = person.vz * vec_scale
+        glLineWidth(2)
+        glColor4f(color[0], color[1], color[2], 0.9)
+        glBegin(GL_LINES)
+        glVertex3f(pos[0], pos[1] + 10, pos[2])
+        glVertex3f(pos[0] + vx, pos[1] + 10, pos[2] + vz)
+        glEnd()
+        glLineWidth(1)
 
 
 def draw_floor(y_level, color, z_max=None):
@@ -1671,6 +1984,93 @@ def draw_trends_visualization(report: 'DailyReport', x: int, y: int, width: int,
     
     # Close hint
     draw_text_2d(x + width - 80, y + 10, "T to close", font_small, (120, 120, 120))
+
+
+def draw_auto_tuning_panel(x: int, y: int, width: int, height: int, font, font_small,
+                           enabled: bool, last_adjustment: Optional[dict], history: List[dict],
+                           budget_current: float, budget_max: float):
+    """Draw a compact auto-tuning status panel with latest adjustment and history."""
+    glColor4f(0.08, 0.08, 0.12, 0.9)
+    glBegin(GL_QUADS)
+    glVertex2f(x, y)
+    glVertex2f(x + width, y)
+    glVertex2f(x + width, y + height)
+    glVertex2f(x, y + height)
+    glEnd()
+
+    glColor4f(0.3, 0.4, 0.6, 0.8)
+    glLineWidth(1)
+    glBegin(GL_LINE_LOOP)
+    glVertex2f(x, y)
+    glVertex2f(x + width, y)
+    glVertex2f(x + width, y + height)
+    glVertex2f(x, y + height)
+    glEnd()
+
+    status_color = (100, 255, 100) if enabled else (180, 180, 180)
+    status_text = "ON" if enabled else "OFF"
+    draw_text_2d(x + 10, y + height - 18, "AUTO TUNE", font, (120, 200, 255))
+    draw_text_2d(x + width - 50, y + height - 18, status_text, font_small, status_color)
+
+    budget_ratio = budget_current / budget_max if budget_max > 0 else 0.0
+    budget_bar = "#" * int(budget_ratio * 12) + "." * (12 - int(budget_ratio * 12))
+    draw_text_2d(
+        x + 10,
+        y + height - 36,
+        f"Budget [{budget_bar}] {budget_current:.0f}/{budget_max:.0f}",
+        font_small,
+        (180, 180, 180)
+    )
+
+    if not last_adjustment:
+        draw_text_2d(x + 10, y + height - 54, "No adjustments yet", font_small, (150, 150, 150))
+        return
+
+    now = time.time()
+    age = max(0.0, now - last_adjustment.get('timestamp', now))
+    short_act = last_adjustment.get('short_activity', 0.0)
+    med_act = last_adjustment.get('medium_activity', 0.0)
+    long_act = last_adjustment.get('long_activity', 0.0)
+    damping = last_adjustment.get('damping', 1.0)
+
+    draw_text_2d(
+        x + 10,
+        y + height - 54,
+        f"Last: {age:.0f}s  S/M/L: {short_act:.2f}/{med_act:.2f}/{long_act:.2f}  Damp:{damping:.2f}",
+        font_small,
+        (180, 180, 180)
+    )
+
+    label_map = {
+        'responsiveness': 'resp',
+        'energy': 'energy',
+        'attention_span': 'attn',
+        'sociability': 'social',
+        'exploration': 'explore',
+        'memory': 'memory',
+        'brightness_global': 'bright',
+        'speed_global': 'speed',
+        'pulse_global': 'pulse',
+        'follow_speed_global': 'follow',
+        'dwell_influence': 'dwell',
+        'idle_trend_weight': 'idle',
+    }
+
+    deltas = last_adjustment.get('applied_deltas', {})
+    top = sorted(deltas.items(), key=lambda kv: abs(kv[1]), reverse=True)[:4]
+    if top:
+        delta_text = ", ".join(f"{label_map.get(k, k)}{v:+.2f}" for k, v in top)
+        draw_text_2d(x + 10, y + height - 72, f"Delta {delta_text}", font_small, (120, 200, 120))
+
+    hist_y = y + height - 90
+    for item in reversed(history[-4:]):
+        h_age = max(0.0, now - item.get('timestamp', now))
+        h_deltas = item.get('deltas', [])
+        if not h_deltas:
+            continue
+        h_text = ", ".join(f"{label_map.get(k, k)}{v:+.2f}" for k, v in h_deltas)
+        draw_text_2d(x + 10, hist_y, f"{h_age:.0f}s: {h_text}", font_small, (140, 140, 160))
+        hist_y -= 14
 
 
 def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, aggression: dict = None, flow: dict = None, almost_engaged: dict = None, feedback_learning: dict = None):
@@ -2867,6 +3267,7 @@ def main():
     report_version = 0  # Increment when report changes
     last_sent_report_version = -1  # Track what version client has
     show_trends = True  # Toggle with 'T' key - ON by default
+    population_day = datetime.now().date()
     
     def on_report_ready(report: DailyReport):
         nonlocal current_daily_report, cached_report_dict, report_version
@@ -2895,6 +3296,7 @@ def main():
         # Global multiplier sliders (lower section)
         'brightness_global': 600, 'speed_global': 640, 'pulse_global': 680,
         'follow_speed_global': 720, 'dwell_influence': 760, 'idle_trend_weight': 800,
+        'interaction_budget': 840,
     }
     
     def reposition_sliders():
@@ -2945,6 +3347,7 @@ def main():
         'follow_speed_global': Slider(slider_x, display[1] - 720, slider_w, slider_h, 0.5, 3.0, 1.0, "Follow Speed ×", "{:.2f}"),
         'dwell_influence': Slider(slider_x, display[1] - 760, slider_w, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}"),
         'idle_trend_weight': Slider(slider_x, display[1] - 800, slider_w, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}"),
+        'interaction_budget': Slider(slider_x, display[1] - 840, slider_w, slider_h, 0.0, 120.0, 60.0, "Interaction Budget", "{:.0f}"),
     }
     
     # Combine all sliders
@@ -2964,8 +3367,12 @@ def main():
         for name, slider in personality_sliders.items():
             setattr(meta_params, name, slider.value)
         for name, slider in global_sliders.items():
-            setattr(meta_params, name, slider.value)
+            if name != 'interaction_budget':
+                setattr(meta_params, name, slider.value)
         print(f"📁 Restored {len(saved_settings)} slider settings")
+
+    # Auto-tuning manager (trend responsive adjustments)
+    auto_tuner = AutoTuningManager(meta=meta_params, sliders=all_sliders, database=tracking_db)
     
     # Track when to save sliders (debounce saves)
     last_slider_save = time.time()
@@ -3008,6 +3415,7 @@ def main():
     print("  L = Toggle coordinate labels")
     print("  M = Toggle AR markers")
     print("  SPACE = Toggle wandering")
+    print("  A = Toggle auto-tuning")
     print("  P = Cycle presets")
     print("  T = Toggle trends visualization")
     print("  F = Toggle fullscreen/windowed")
@@ -3040,7 +3448,8 @@ def main():
                         setattr(meta_params, name, slider.value)
                     # Update global multipliers
                     elif name in global_sliders:
-                        setattr(meta_params, name, slider.value)
+                        if name != 'interaction_budget':
+                            setattr(meta_params, name, slider.value)
             
             # Debug: log click position when clicking in GUI area
             if event.type == MOUSEBUTTONDOWN and event.button == 1 and event.pos[0] >= view_width:
@@ -3073,6 +3482,9 @@ def main():
                     running = False
                 elif event.key == K_SPACE:
                     wander.enabled = not wander.enabled
+                elif event.key == K_a:
+                    auto_tuner.set_enabled(not auto_tuner.enabled)
+                    print(f"Auto-tuning {'enabled' if auto_tuner.enabled else 'disabled'}")
                 elif event.key == K_m:
                     show_markers = not show_markers
                     print(f"Markers {'visible' if show_markers else 'hidden'}")
@@ -3234,6 +3646,11 @@ def main():
         now = time.time()
         dt = min(now - last_time, 0.1)
         last_time = now
+        now_dt = datetime.now()
+
+        if now_dt.date() != population_day and (now_dt.hour > 0 or now_dt.minute >= 1):
+            tracked_manager.reset_daily_population()
+            population_day = now_dt.date()
         
         # Cleanup stale tracked people
         tracked_manager.cleanup_stale()
@@ -3261,6 +3678,9 @@ def main():
             passive_rate=passive_rate,
             flow_balance=flow_balance
         )
+
+        behavior_status = behavior.get_status()
+        auto_tuner.update(behavior_status, now)
         
         # Update light position for feedback learning context
         behavior.set_light_position(*current_pos)
@@ -3298,7 +3718,6 @@ def main():
                                 time.time() - ws_broadcaster.last_broadcast >= WEBSOCKET_BROADCAST_INTERVAL):
             try:
                 # Build behavior status text
-                behavior_status = behavior.get_status()
                 status_text = behavior_status.get('status_text', '')
                 
                 # Extract realtime trends for public viewer
@@ -3357,7 +3776,16 @@ def main():
                     },
                     'panels': panel_system.get_dmx_values()[:12],
                     'people': [
-                        {'id': p.track_id, 'x': p.x, 'y': p.y, 'z': p.z, 'zone': p.zone}
+                        {
+                            'id': p.track_id,
+                            'daily_id': p.daily_id,
+                            'x': p.x,
+                            'y': p.y,
+                            'z': p.z,
+                            'vx': p.vx,
+                            'vz': p.vz,
+                            'zone': p.zone
+                        }
                         for p in tracked_manager.get_all()
                     ],
                     'counts': {
@@ -3365,11 +3793,17 @@ def main():
                         'passive': passive_count,
                         'total': len(tracked_manager.get_all())
                     },
+                    'population_count': tracked_manager.daily_count,
                     'wander_box': wander.wander_box,  # Current wander box (can change dynamically)
                     'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
                     'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,
                     'status': status_text,
                     'realtime_trends': realtime_trends,
+                    'auto_tuning': {
+                        'enabled': auto_tuner.enabled,
+                        'revision': auto_tuner.revision,
+                        'last_adjustment': auto_tuner.last_adjustment,
+                    },
                     'daily_report_available': current_daily_report is not None,
                     'daily_report_date': current_daily_report.date if current_daily_report else None,
                     'report_version': report_version,
@@ -3484,6 +3918,13 @@ def main():
         # Draw panels
         for (unit, panel_num), panel in panel_system.panels.items():
             draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
+            draw_text_3d_billboard(
+                panel['center'],
+                str(panel['dmx_value']),
+                font_small,
+                (255, 0, 255),
+                offset_y=10
+            )
         
         # Draw panel center indicators (wireframe spheres with labels)
         draw_panel_centers(panel_system, font_label, show_labels)
@@ -3610,7 +4051,6 @@ def main():
         # Get driving factors
         factors = behavior_status.get('driving_factors', {})
         params = factors.get('current_params', {})
-        thresholds = factors.get('thresholds', {})
         
         # DECISION INPUTS - what's actually driving the mode
         active = factors.get('active_count', 0)
@@ -3633,9 +4073,6 @@ def main():
         passive_color = (200, 200, 100) if passive_rate >= flow_thresh else (150, 150, 150)
         flow_indicator = " → FLOW" if (passive_rate >= flow_thresh and active == 0 and flow_enabled) else ""
         draw_text_2d(view_width + 20, status_y + 1, f"  Passive: {passive} ({passive_rate:.1f}/min){flow_indicator}", font_small, passive_color)
-        
-        # Thresholds reference
-        draw_text_2d(view_width + 20, status_y - 15, f"  Thresholds: CROWD≥2, ENG≥1, FLOW≥{flow_thresh}/m", font_small, (120, 120, 120))
         
         # Mode with duration and stability
         mode_duration = factors.get('mode_duration', 0)
@@ -3663,52 +4100,6 @@ def main():
         draw_text_2d(view_width + 20, y_next, f"  Output: B{params.get('brightness_min', 0):.0f}-{params.get('brightness_max', 0):.0f} P{params.get('pulse_speed', 0):.0f} R{params.get('falloff_radius', 0):.0f}", font_small, (150, 150, 150))
         y_next -= 14
         
-        # Time of day influence
-        time_mood = factors.get('time_mood', 'active')
-        time_bright = factors.get('time_brightness', 1.0)
-        draw_text_2d(view_width + 20, y_next, f"  Time: {time_mood} (×{time_bright:.1f})", font_small, (150, 150, 180))
-        y_next -= 14
-        
-        # Dwell bonus if active
-        dwell_bonus = factors.get('dwell_bonus', 0)
-        if dwell_bonus > 0:
-            dwell_time = factors.get('dwell_time', 0)
-            draw_text_2d(view_width + 20, y_next, f"  Dwell: +{dwell_bonus:.0f} ({dwell_time:.0f}s)", font_small, (100, 255, 100))
-            y_next -= 14
-        
-        # Bloom if active
-        bloom_progress = factors.get('bloom_progress', 0)
-        if bloom_progress > 0:
-            draw_text_2d(view_width + 20, y_next, f"  BLOOM: {bloom_progress*100:.0f}%", font_small, (255, 200, 100))
-            y_next -= 14
-        
-        # Idle trends (when in IDLE mode)
-        idle_trends = behavior_status.get('idle_trends')
-        if idle_trends and behavior_status['mode'] == 'idle':
-            anticipation = idle_trends.get('activity_anticipation', 0.5)
-            momentum = idle_trends.get('flow_momentum', 0)
-            energy = idle_trends.get('energy_level', 0.5)
-            period = idle_trends.get('period', 'unknown')
-            
-            # Anticipation bar (how ready for action)
-            ant_bar = "█" * int(anticipation * 10) + "░" * (10 - int(anticipation * 10))
-            ant_color = (100, 255, 100) if anticipation > 0.6 else (150, 150, 150)
-            draw_text_2d(view_width + 20, y_next, f"  Anticipation: [{ant_bar}]", font_small, ant_color)
-            y_next -= 14
-            
-            # Flow momentum indicator (-1 to +1)
-            if abs(momentum) > 0.1:
-                flow_dir = "→" if momentum > 0 else "←"
-                flow_str = f"{flow_dir * int(abs(momentum) * 5)}"
-                flow_color = (100, 200, 255) if momentum > 0 else (255, 200, 100)
-                draw_text_2d(view_width + 20, y_next, f"  Flow: {flow_str} ({momentum:+.2f})", font_small, flow_color)
-                y_next -= 14
-            
-            # Energy level
-            energy_bar = "█" * int(energy * 10) + "░" * (10 - int(energy * 10))
-            draw_text_2d(view_width + 20, y_next, f"  Energy: [{energy_bar}] {period}", font_small, (180, 180, 255))
-            y_next -= 14
-        
         # Preset and status text
         draw_text_2d(view_width + 20, y_next, f"  Preset: {current_preset}", font_small)
         y_next -= 14
@@ -3717,28 +4108,44 @@ def main():
         if behavior_status['status_text']:
             draw_text_2d(view_width + 20, y_next, f"  \"{behavior_status['status_text']}\"", font_small, (200, 200, 255))
 
+        # Auto-tuning panel (compact)
+        auto_panel_width = gui_width - 40
+        auto_panel_height = 110
+        auto_panel_x = view_width + 20
+        auto_panel_y = 320
+        draw_auto_tuning_panel(
+            auto_panel_x,
+            auto_panel_y,
+            auto_panel_width,
+            auto_panel_height,
+            font,
+            font_small,
+            auto_tuner.enabled,
+            auto_tuner.last_adjustment,
+            auto_tuner.history,
+            auto_tuner.budget_current,
+            auto_tuner._budget_max(),
+        )
+
         # Controls help at bottom (three lines now with database info)
-        draw_text_2d(view_width + 20, 50, "SPC=wander M=markers L=labels P=preset Q=quit", font_small, (120, 120, 120))
-        draw_text_2d(view_width + 20, 35, "T=trends R=report D=database", font_small, (120, 120, 120))
+        draw_text_2d(view_width + 20, 50, "SPC=wander A=tune T=trends P=preset M=markers L=labels R=report D=db Q=quit", font_small, (120, 120, 120))
         # Current database indicator
         db_color = (100, 180, 255) if len(db_files) > 1 else (120, 120, 120)
         draw_text_2d(view_width + 20, 20, f"DB: {current_db_file} ({current_db_index+1}/{len(db_files)})", font_small, db_color)
         
         # Legend in 3D view area (top left)
-        draw_text_2d(10, display[1] - 20, "V2 VISUAL DEBUG:", font_small, (255, 200, 100))
-        draw_text_2d(10, display[1] - 40, "  Yellow sphere = ORIGIN (0,0,0)", font_small, (255, 255, 0))
-        draw_text_2d(10, display[1] - 55, "  Red sphere = Camera 1", font_small, (255, 100, 100))
-        draw_text_2d(10, display[1] - 70, "  Blue sphere = Camera 2", font_small, (100, 100, 255))
-        draw_text_2d(10, display[1] - 85, "  Axis: R=X, G=Y, B=Z", font_small, (200, 200, 200))
+        if show_labels or show_markers or show_camera_views:
+            draw_text_2d(10, display[1] - 20, "DEBUG:", font_small, (255, 200, 100))
+            draw_text_2d(10, display[1] - 40, "  Origin = yellow sphere", font_small, (255, 255, 0))
+            draw_text_2d(10, display[1] - 55, "  Axis: R=X, G=Y, B=Z", font_small, (200, 200, 200))
         
         # Marker legend
         if show_markers:
             draw_text_2d(10, 350, "AR MARKERS:", font_small, (255, 255, 0))
             y_offset = 330
             for marker_id, marker_data in MARKER_POSITIONS.items():
-                pos = marker_data['pos']
                 desc = marker_data['desc']
-                draw_text_2d(10, y_offset, f"  [{marker_id}] ({pos[0]}, {pos[1]}, {pos[2]}) - {desc}", font_small)
+                draw_text_2d(10, y_offset, f"  [{marker_id}] {desc}", font_small)
                 y_offset -= 16
         
         # HUD text in 3D view (bottom left)
@@ -3768,15 +4175,13 @@ def main():
         
         info_lines = [
             f"Light: ({light.position[0]:.0f}, {light.position[1]:.0f}, {light.position[2]:.0f}) cm",
-            f"DMX: {dmx_vals}",
             mode_text + pulse_text,
             prox_text,
-            f"Labels: {'ON' if show_labels else 'OFF'}  Markers: {'ON' if show_markers else 'OFF'}  Trends: {'ON' if show_trends else 'OFF'}",
         ]
         
         for i, line in enumerate(info_lines):
             # Highlight proximity line when someone is close
-            if i == 3 and prox_factor > 0.5:
+            if i == 2 and prox_factor > 0.5:
                 draw_text_2d(10, 100 + i * 18, line, font_small, (100, 255, 100))
             elif "⚡PULSE" in line:
                 draw_text_2d(10, 100 + i * 18, line, font_small, (255, 255, 100))
@@ -3816,7 +4221,7 @@ def main():
             draw_text_2d(msg_x + 10, msg_y - 36, "(Auto at 12:01 AM)", font_small, (120, 120, 120))
         
         # Status text overlay (bottom center of 3D view)
-        if behavior_status['status_text'] and meta_params.status_text_enabled:
+        if behavior_status['status_text'] and meta_params.status_text_enabled and not show_trends:
             status = behavior_status['status_text']
             # Draw with a background
             glColor4f(0.0, 0.0, 0.0, 0.6)

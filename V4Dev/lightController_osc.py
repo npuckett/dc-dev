@@ -3646,6 +3646,7 @@ def main():
         now = time.time()
         dt = min(now - last_time, 0.1)
         last_time = now
+        now_dt = datetime.now()
 
         if now_dt.date() != population_day and (now_dt.hour > 0 or now_dt.minute >= 1):
             tracked_manager.reset_daily_population()
