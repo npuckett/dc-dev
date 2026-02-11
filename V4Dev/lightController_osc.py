@@ -711,12 +711,15 @@ CAMERA_VIEW_SIZE = (320, 240)  # Size of each camera preview window
 class TrackedPerson:
     """Represents a person tracked via OSC"""
     track_id: int
+    daily_id: int
     x: float  # World X position (cm)
     z: float  # World Z position (cm)
     y: float = STREET_LEVEL_Y  # Fixed at street level
     last_update: float = 0.0
     first_seen: float = 0.0  # When first tracked
     zone: str = "unknown"  # "active", "passive", or "unknown"
+    vx: float = 0.0  # Velocity X (cm/s)
+    vz: float = 0.0  # Velocity Z (cm/s)
     
     def get_position(self) -> np.ndarray:
         return np.array([self.x, self.y, self.z])
@@ -735,6 +738,7 @@ class TrackedPersonManager:
         self.people: Dict[int, TrackedPerson] = {}
         self.lock = threading.Lock()
         self.timeout = 1.0  # Remove person after 1 second without updates
+        self.daily_count = 0
         
         # Calibration offsets and scales
         self.offset_x = 0.0
@@ -793,17 +797,22 @@ class TrackedPersonManager:
         zone = self._get_zone(x, z)
         
         now = time.time()
+        now_dt = datetime.now()
         
         with self.lock:
             is_new = track_id not in self.people
             
             if is_new:
+                self.daily_count += 1
                 self.people[track_id] = TrackedPerson(
                     track_id=track_id,
+                    daily_id=self.daily_count,
                     x=x, z=z, y=y,
                     last_update=now,
                     first_seen=now,
-                    zone=zone
+                    zone=zone,
+                    vx=0.0,
+                    vz=0.0,
                 )
                 # Notify behavior system
                 if self.on_person_entered:
@@ -811,11 +820,15 @@ class TrackedPersonManager:
                     is_active = zone == "active"
                     self.on_person_entered(track_id, pos, is_active)
             else:
-                self.people[track_id].x = x
-                self.people[track_id].z = z
-                self.people[track_id].y = y
-                self.people[track_id].zone = zone
-                self.people[track_id].last_update = now
+                person = self.people[track_id]
+                dt = max(1e-6, now - person.last_update)
+                person.vx = (x - person.x) / dt
+                person.vz = (z - person.z) / dt
+                person.x = x
+                person.z = z
+                person.y = y
+                person.zone = zone
+                person.last_update = now
                 
                 # Notify position update
                 pos = np.array([x, y, z])
@@ -837,6 +850,14 @@ class TrackedPersonManager:
                 del self.people[pid]
                 if self.on_person_left:
                     self.on_person_left(pid)
+
+    def reset_daily_population(self):
+        """Reset daily population count and reassign IDs to active people."""
+        with self.lock:
+            self.daily_count = 0
+            for person in self.people.values():
+                self.daily_count += 1
+                person.daily_id = self.daily_count
     
     def get_all(self) -> List[TrackedPerson]:
         """Get list of all tracked people"""
@@ -1751,7 +1772,7 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
     gluDeleteQuadric(quadric)
     glPopMatrix()
     
-    # Draw track ID label above head
+    # Draw population ID label above head
     label_pos = np.array([pos[0], pos[1] + height + radius + 10, pos[2]])
     # Project 3D position to screen using current matrices
     modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
@@ -1761,7 +1782,7 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
         sx, sy, sz = gluProject(label_pos[0], label_pos[1], label_pos[2],
                                 modelview, projection, viewport)
         if sz > 0 and sz < 1:  # Visible (in front of camera)
-            label = f"#{person.track_id}"
+            label = f"#{person.daily_id}"
             _id_font = pygame.font.SysFont('monospace', 16, bold=True)
             text_surface = _id_font.render(label, True, (255, 255, 255))
             text_data = pygame.image.tostring(text_surface, "RGBA", True)
@@ -1772,6 +1793,20 @@ def draw_tracked_person(person: TrackedPerson, zone_checker=None):
             glEnable(GL_DEPTH_TEST)
     except Exception:
         pass  # Skip if projection fails
+
+    # Draw velocity vector (scaled)
+    speed = math.sqrt(person.vx ** 2 + person.vz ** 2)
+    if speed > 5:
+        vec_scale = 0.2
+        vx = person.vx * vec_scale
+        vz = person.vz * vec_scale
+        glLineWidth(2)
+        glColor4f(color[0], color[1], color[2], 0.9)
+        glBegin(GL_LINES)
+        glVertex3f(pos[0], pos[1] + 10, pos[2])
+        glVertex3f(pos[0] + vx, pos[1] + 10, pos[2] + vz)
+        glEnd()
+        glLineWidth(1)
 
 
 def draw_floor(y_level, color, z_max=None):
@@ -3230,6 +3265,7 @@ def main():
     report_version = 0  # Increment when report changes
     last_sent_report_version = -1  # Track what version client has
     show_trends = True  # Toggle with 'T' key - ON by default
+    population_day = datetime.now().date()
     
     def on_report_ready(report: DailyReport):
         nonlocal current_daily_report, cached_report_dict, report_version
@@ -3608,6 +3644,10 @@ def main():
         now = time.time()
         dt = min(now - last_time, 0.1)
         last_time = now
+
+        if now_dt.date() != population_day and (now_dt.hour > 0 or now_dt.minute >= 1):
+            tracked_manager.reset_daily_population()
+            population_day = now_dt.date()
         
         # Cleanup stale tracked people
         tracked_manager.cleanup_stale()
@@ -3733,7 +3773,16 @@ def main():
                     },
                     'panels': panel_system.get_dmx_values()[:12],
                     'people': [
-                        {'id': p.track_id, 'x': p.x, 'y': p.y, 'z': p.z, 'zone': p.zone}
+                        {
+                            'id': p.track_id,
+                            'daily_id': p.daily_id,
+                            'x': p.x,
+                            'y': p.y,
+                            'z': p.z,
+                            'vx': p.vx,
+                            'vz': p.vz,
+                            'zone': p.zone
+                        }
                         for p in tracked_manager.get_all()
                     ],
                     'counts': {
@@ -3741,6 +3790,7 @@ def main():
                         'passive': passive_count,
                         'total': len(tracked_manager.get_all())
                     },
+                    'population_count': tracked_manager.daily_count,
                     'wander_box': wander.wander_box,  # Current wander box (can change dynamically)
                     'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
                     'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,

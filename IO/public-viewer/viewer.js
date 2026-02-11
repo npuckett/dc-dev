@@ -496,7 +496,10 @@ function updateTrackedPeople(peopleData) {
         }
         
         // Update position
-        trackedPeople[person.id].position.set(person.x, person.y + 85, person.z);
+        const personMesh = trackedPeople[person.id];
+        personMesh.position.set(person.x, person.y + 85, person.z);
+        const labelId = person.daily_id ?? person.id;
+        updateTextSprite(personMesh.userData.labelSprite, `#${labelId}`);
     });
 }
 
@@ -519,7 +522,45 @@ function createPersonMesh() {
     head.position.y = 85;
     group.add(head);
     
+    const label = createTextSprite('');
+    label.position.y = 120;
+    group.add(label);
+    group.userData.labelSprite = label;
+    
     return group;
+}
+
+function createTextSprite(text) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(70, 18, 1);
+    sprite.userData = { canvas, ctx, texture, text: '' };
+    updateTextSprite(sprite, text);
+    return sprite;
+}
+
+function updateTextSprite(sprite, text) {
+    if (!sprite || !sprite.userData) return;
+    if (sprite.userData.text === text) return;
+    const { canvas, ctx, texture } = sprite.userData;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '28px Space Grotesk, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2 + 2);
+    texture.needsUpdate = true;
+    sprite.userData.text = text;
 }
 
 function updateModeDisplay(mode, statusText) {
