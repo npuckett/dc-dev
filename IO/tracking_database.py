@@ -301,6 +301,24 @@ class TrackingDatabase:
                 )
             ''')
             
+            # Auto-tune daily learnings (what the system learned each day)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS autotune_daily_learnings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL UNIQUE,
+                    total_adjustments INTEGER DEFAULT 0,
+                    total_unique_people INTEGER DEFAULT 0,
+                    peak_hour INTEGER,
+                    optimal_values_json TEXT,
+                    param_journeys_json TEXT,
+                    hourly_activity_json TEXT,
+                    strategy_summary TEXT,
+                    learned_caps_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_learnings_date ON autotune_daily_learnings(date)')
+            
             self.conn.commit()
     
     def _get_zone(self, x: float, z: float) -> Zone:
@@ -457,6 +475,218 @@ class TrackingDatabase:
                 self.conn.commit()
                 self._pending_writes = 0
                 self._last_commit_time = now
+
+    def get_daily_adjustments(self, date_str: str) -> Dict:
+        """
+        Get auto-tuning adjustment analysis for a specific day.
+        Returns summary of parameter changes, strategies used, and trends.
+        
+        Args:
+            date_str: Date in YYYY-MM-DD format
+        """
+        start_dt = datetime.strptime(date_str, '%Y-%m-%d')
+        end_dt = start_dt + timedelta(days=1)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
+        
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT timestamp, short_activity, medium_activity, long_activity,
+                       energy_level, aggression_level, adjustments_json
+                FROM behavior_adjustments
+                WHERE timestamp >= ? AND timestamp < ? AND enabled = 1
+                ORDER BY timestamp
+            ''', (start_ts, end_ts))
+            
+            rows = cursor.fetchall()
+            
+        if not rows:
+            return {
+                'total_adjustments': 0,
+                'param_journeys': {},
+                'hourly_activity': {},
+                'strategy_summary': 'No auto-tuning adjustments recorded.',
+            }
+        
+        # Track parameter evolution over the day
+        param_start = {}  # First values seen
+        param_end = {}    # Last values seen
+        param_min = {}    # Minimum values
+        param_max = {}    # Maximum values
+        param_total_delta = {}  # Sum of absolute deltas
+        hourly_adjustment_counts = {}  # Adjustments per hour
+        hourly_activity_levels = {}    # Activity levels per hour
+        
+        for row in rows:
+            ts = row['timestamp']
+            hour = datetime.fromtimestamp(ts).hour
+            hourly_adjustment_counts[hour] = hourly_adjustment_counts.get(hour, 0) + 1
+            
+            # Track activity levels by hour
+            if hour not in hourly_activity_levels:
+                hourly_activity_levels[hour] = []
+            hourly_activity_levels[hour].append({
+                'short': row['short_activity'],
+                'medium': row['medium_activity'],
+                'long': row['long_activity'],
+                'energy': row['energy_level'],
+                'aggression': row['aggression_level'],
+            })
+            
+            try:
+                adj = json.loads(row['adjustments_json'])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            
+            new_values = adj.get('new_values', {})
+            applied_deltas = adj.get('applied_deltas', {})
+            
+            for name, val in new_values.items():
+                if name not in param_start:
+                    # First occurrence - set from old_values
+                    old_vals = adj.get('old_values', {})
+                    param_start[name] = old_vals.get(name, val)
+                    param_min[name] = param_start[name]
+                    param_max[name] = param_start[name]
+                    param_total_delta[name] = 0.0
+                
+                param_end[name] = val
+                param_min[name] = min(param_min[name], val)
+                param_max[name] = max(param_max[name], val)
+            
+            for name, delta in applied_deltas.items():
+                param_total_delta[name] = param_total_delta.get(name, 0.0) + abs(delta)
+        
+        # Build parameter journeys
+        param_journeys = {}
+        for name in param_start:
+            net_change = param_end.get(name, 0) - param_start.get(name, 0)
+            param_journeys[name] = {
+                'start': round(param_start[name], 3),
+                'end': round(param_end[name], 3),
+                'min': round(param_min[name], 3),
+                'max': round(param_max[name], 3),
+                'net_change': round(net_change, 3),
+                'total_movement': round(param_total_delta.get(name, 0), 3),
+                'direction': 'up' if net_change > 0.01 else ('down' if net_change < -0.01 else 'stable'),
+            }
+        
+        # Identify strategies: which params moved the most and in which direction
+        sorted_by_movement = sorted(param_journeys.items(), 
+                                     key=lambda kv: kv[1]['total_movement'], reverse=True)
+        most_active_params = sorted_by_movement[:5]
+        
+        # Build strategy narrative
+        strategies = []
+        for name, journey in most_active_params:
+            if journey['total_movement'] < 0.01:
+                continue
+            direction = journey['direction']
+            label = name.replace('_', ' ').title()
+            if direction == 'up':
+                strategies.append(f"{label} increased {journey['start']:.2f} → {journey['end']:.2f} (range {journey['min']:.2f}–{journey['max']:.2f})")
+            elif direction == 'down':
+                strategies.append(f"{label} decreased {journey['start']:.2f} → {journey['end']:.2f} (range {journey['min']:.2f}–{journey['max']:.2f})")
+            else:
+                strategies.append(f"{label} explored around {journey['end']:.2f} (range {journey['min']:.2f}–{journey['max']:.2f})")
+        
+        # Compute avg activity per hour
+        hourly_activity = {}
+        for hour, levels in hourly_activity_levels.items():
+            hourly_activity[hour] = {
+                'adjustments': hourly_adjustment_counts[hour],
+                'avg_short_activity': round(sum(l['short'] for l in levels) / len(levels), 3),
+                'avg_energy': round(sum(l['energy'] for l in levels) / len(levels), 3),
+                'avg_aggression': round(sum(l['aggression'] for l in levels) / len(levels), 3),
+            }
+        
+        return {
+            'total_adjustments': len(rows),
+            'param_journeys': param_journeys,
+            'hourly_activity': hourly_activity,
+            'most_tuned_params': [name for name, _ in most_active_params if _['total_movement'] >= 0.01],
+            'strategy_summary': '; '.join(strategies) if strategies else 'Minimal tuning activity.',
+        }
+    
+    def save_autotune_learnings(self, date_str: str, report_data: Dict, 
+                                 tuning_analysis: Dict, optimal_values: Dict = None,
+                                 learned_caps: Dict = None):
+        """
+        Save auto-tune daily learnings derived from the daily report analysis.
+        
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            report_data: Dict with total_unique_people, peak_hour etc.
+            tuning_analysis: The auto_tuning_analysis from the daily report
+            optimal_values: Computed optimal starting values for next day
+            learned_caps: Any adjusted caps based on the day's experience
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO autotune_daily_learnings 
+                (date, total_adjustments, total_unique_people, peak_hour,
+                 optimal_values_json, param_journeys_json, hourly_activity_json,
+                 strategy_summary, learned_caps_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                date_str,
+                tuning_analysis.get('total_adjustments', 0),
+                report_data.get('total_unique_people', 0),
+                report_data.get('peak_hour', 0),
+                json.dumps(optimal_values or {}),
+                json.dumps(tuning_analysis.get('param_journeys', {})),
+                json.dumps(tuning_analysis.get('hourly_activity', {})),
+                tuning_analysis.get('strategy_summary', ''),
+                json.dumps(learned_caps or {}),
+            ))
+            self.conn.commit()
+    
+    def get_recent_autotune_learnings(self, days: int = 7) -> List[Dict]:
+        """
+        Get the most recent auto-tune learnings from the database.
+        Returns a list of daily learning records, newest first.
+        
+        Args:
+            days: Number of days of history to retrieve
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT date, total_adjustments, total_unique_people, peak_hour,
+                       optimal_values_json, param_journeys_json, hourly_activity_json,
+                       strategy_summary, learned_caps_json
+                FROM autotune_daily_learnings
+                ORDER BY date DESC
+                LIMIT ?
+            ''', (days,))
+            
+            rows = cursor.fetchall()
+            
+        results = []
+        for row in rows:
+            try:
+                optimal = json.loads(row['optimal_values_json']) if row['optimal_values_json'] else {}
+                journeys = json.loads(row['param_journeys_json']) if row['param_journeys_json'] else {}
+                hourly = json.loads(row['hourly_activity_json']) if row['hourly_activity_json'] else {}
+                caps = json.loads(row['learned_caps_json']) if row['learned_caps_json'] else {}
+            except (json.JSONDecodeError, TypeError):
+                optimal, journeys, hourly, caps = {}, {}, {}, {}
+            
+            results.append({
+                'date': row['date'],
+                'total_adjustments': row['total_adjustments'],
+                'total_unique_people': row['total_unique_people'],
+                'peak_hour': row['peak_hour'],
+                'optimal_values': optimal,
+                'param_journeys': journeys,
+                'hourly_activity': hourly,
+                'strategy_summary': row['strategy_summary'],
+                'learned_caps': caps,
+            })
+        
+        return results
     
     def get_light_position_history(self, minutes: int = 5) -> List[Tuple[float, float, float]]:
         """Get recent light positions for pattern analysis"""
@@ -640,6 +870,16 @@ class TrackingDatabase:
             ''', (one_minute_ago,))
             
             row = cursor.fetchone()
+            
+            # Also get today's unique people count
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            cursor.execute('''
+                SELECT COUNT(DISTINCT person_id) as daily_unique
+                FROM tracking_events
+                WHERE datetime >= ?
+            ''', (today_str,))
+            daily_row = cursor.fetchone()
+            
             return {
                 'people_last_minute': row['people'] or 0,
                 'avg_speed': row['avg_speed'] or 0,
@@ -647,6 +887,7 @@ class TrackingDatabase:
                 'passive_events': row['passive_events'] or 0,
                 'flow_left_to_right': row['ltr'] or 0,
                 'flow_right_to_left': row['rtl'] or 0,
+                'daily_unique_people': daily_row['daily_unique'] or 0,
             }
     
     def get_trends(self, minutes: int = 60) -> TrendSummary:

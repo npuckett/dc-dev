@@ -417,15 +417,43 @@ function handleStateUpdate(data) {
         data.panels.forEach((dmxValue, index) => {
             if (panels[index]) {
                 const normalizedBrightness = (dmxValue - 1) / 49; // Map 1-50 to 0-1
-                // Apply steep curve - low values stay dark, only high values get bright
-                const curved = Math.pow(normalizedBrightness, 2.0);
-                // Nearly black minimum (0.005) to bright (1.5) for maximum range
-                const intensity = 0.005 + curved * 1.495;
-                panels[index].mesh.material.color.setRGB(
-                    Math.min(intensity, 1.0), 
-                    Math.min(intensity * 0.95, 1.0), 
-                    Math.min(intensity * 0.85, 1.0)
+                const curved = Math.pow(normalizedBrightness, 0.8); // Boost low values
+                
+                // Lit area: warm white, fully visible
+                const r = 0.03 + curved * 0.97;
+                const g = 0.03 + curved * 0.94;
+                const b = 0.02 + curved * 0.78;
+                panels[index].mesh.material.color.setRGB(r, g, b);
+                panels[index].mesh.material.opacity = 0.1 + curved * 0.9;
+                
+                // Frame also picks up light - subtle ambient glow
+                const frameGlow = curved * 0.35;
+                panels[index].frame.material.color.setRGB(
+                    0.16 + frameGlow,
+                    0.16 + frameGlow * 0.95,
+                    0.18 + frameGlow * 0.7
                 );
+                
+                // Create/update glow plane if it doesn't exist
+                if (!panels[index].glowPlane) {
+                    const glowGeom = new THREE.PlaneGeometry(60, 60);
+                    const glowMat = new THREE.MeshBasicMaterial({
+                        color: 0xfff5e0,
+                        transparent: true,
+                        opacity: 0,
+                        side: THREE.DoubleSide,
+                        depthWrite: false,
+                    });
+                    const glowPlane = new THREE.Mesh(glowGeom, glowMat);
+                    glowPlane.position.z = 1.2; // In front of panel
+                    panels[index].group.add(glowPlane);
+                    panels[index].glowPlane = glowPlane;
+                }
+                // Glow plane becomes visible at mid-high brightness
+                const glowOpacity = Math.max(0, (curved - 0.2) * 0.5);
+                panels[index].glowPlane.material.opacity = glowOpacity;
+                panels[index].glowPlane.scale.setScalar(1.0 + curved * 0.3);
+                
                 panels[index].brightness = normalizedBrightness;
             }
         });
@@ -444,6 +472,19 @@ function handleStateUpdate(data) {
     // Update behavior status text
     if (data.status !== undefined) {
         document.getElementById('behavior-status').textContent = data.status || '';
+    }
+    
+    // Update population stats
+    if (data.population) {
+        const popCurrent = document.getElementById('pop-current');
+        const popDaily = document.getElementById('pop-daily');
+        if (popCurrent) popCurrent.textContent = data.population.current || 0;
+        if (popDaily) popDaily.textContent = data.population.daily_total || 0;
+    }
+    
+    // Update auto-tuning parameter display
+    if (data.auto_tuning && data.auto_tuning.params) {
+        updateAutoTuneDisplay(data.auto_tuning);
     }
     
     // Update wander box target if changed (will lerp in animate loop)
@@ -569,6 +610,49 @@ function updateModeDisplay(mode, statusText) {
     modeLabel.className = `visible ${mode}`;
 }
 
+function updateAutoTuneDisplay(autoTuning) {
+    // Build or update the auto-tune parameter display in stats overlay
+    let container = document.getElementById('autotune-params');
+    if (!container) {
+        const overlay = document.getElementById('stats-overlay');
+        if (!overlay) return;
+        container = document.createElement('div');
+        container.id = 'autotune-params';
+        overlay.appendChild(container);
+    }
+    
+    const params = autoTuning.params || {};
+    const enabled = autoTuning.enabled;
+    
+    // Friendly short names
+    const labels = {
+        'responsiveness': 'Resp',
+        'energy': 'Enrg',
+        'attention_span': 'Attn',
+        'sociability': 'Socl',
+        'exploration': 'Expl',
+        'memory': 'Mem',
+        'brightness_global': 'Brt×',
+        'speed_global': 'Spd×',
+        'pulse_global': 'Pls×',
+        'follow_speed_global': 'Flw×',
+        'dwell_influence': 'Dwl×',
+        'idle_trend_weight': 'Idl×',
+    };
+    
+    let html = `<div class="autotune-header">${enabled ? '🤖 Auto-Tune' : '⏸ Auto-Tune Off'}</div>`;
+    html += '<div class="autotune-grid">';
+    for (const [key, val] of Object.entries(params)) {
+        const label = labels[key] || key;
+        const pct = key.includes('global') || key.includes('dwell') || key.includes('idle') 
+            ? val.toFixed(2) 
+            : (val * 100).toFixed(0) + '%';
+        html += `<span class="at-label">${label}</span><span class="at-value">${pct}</span>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 // =============================================================================
 // ANIMATION
 // =============================================================================
@@ -666,8 +750,16 @@ function sampleTrendsData() {
         // Use realtime trends data (events in last 1 minute window)
         engaged = latestRealtimeTrends.recent.active || 0;
         passing = latestRealtimeTrends.recent.passive || 0;
+    } else if (currentState?.population) {
+        // Use population counts (active/passive from zone classification)
+        engaged = currentState.population.active || 0;
+        passing = currentState.population.passive || 0;
+    } else if (currentState?.counts) {
+        // Legacy fallback using counts field
+        engaged = currentState.counts.active || 0;
+        passing = currentState.counts.passive || 0;
     } else if (currentState?.people) {
-        // Fallback: use current people count as proxy
+        // Last resort: use people array length
         const peopleCount = currentState.people.length;
         if (currentState.mode === 'engaged' || currentState.mode === 'crowd') {
             engaged = peopleCount;

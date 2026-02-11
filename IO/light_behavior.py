@@ -1470,7 +1470,7 @@ class BehaviorSystem:
                 if ltr + rtl > 0:
                     trends.short_flow_direction = (ltr - rtl) / (ltr + rtl)
                 total_short = trends.short_passive_count + trends.short_active_count
-                trends.short_activity_level = min(1.0, total_short / 50.0)
+                trends.short_activity_level = min(1.0, total_short / 8000.0)
                 trends.has_short_data = (total_short > 0)
             
             # Medium term (30 minutes) - simplified query
@@ -1490,7 +1490,7 @@ class BehaviorSystem:
                 if ltr + rtl > 0:
                     trends.medium_flow_direction = (ltr - rtl) / (ltr + rtl)
                 total_medium = trends.medium_passive_count + trends.medium_active_count
-                trends.medium_activity_level = min(1.0, total_medium / 200.0)
+                trends.medium_activity_level = min(1.0, total_medium / 50000.0)
                 trends.has_medium_data = (total_medium > 0)
             
             # Skip expensive historical queries for performance
@@ -1526,7 +1526,7 @@ class BehaviorSystem:
         medium_weight = 0.2
         historical_weight = 0.1
         
-        recent = min(1.0, trends.recent_passive_count / 5.0)  # 5+ in a minute = very active
+        recent = min(1.0, trends.recent_passive_count / 500.0)  # 500+ in a minute = very active
         short = trends.short_activity_level
         medium = trends.medium_activity_level
         

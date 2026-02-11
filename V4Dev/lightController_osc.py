@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-3D Light Controller V2 - Development Version
+3D Light Controller V3 - Development Version
 
 This is a development version with enhanced visual debugging:
 - Origin sphere at (0,0,0) with label
@@ -237,6 +237,9 @@ class DailyReport:
     mode_distribution: Dict[str, float] = field(default_factory=dict)
     position_entropy: float = 0.0
     
+    # Auto-tuning strategy analysis
+    auto_tuning_analysis: Dict = field(default_factory=dict)
+    
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict"""
         return {
@@ -273,7 +276,8 @@ class DailyReport:
             'light_behavior': {
                 'mode_distribution': {k: round(v, 3) for k, v in self.mode_distribution.items()},
                 'position_entropy': round(self.position_entropy, 3),
-            }
+            },
+            'auto_tuning': self.auto_tuning_analysis,
         }
 
 
@@ -400,6 +404,14 @@ class DailyReportGenerator:
         mode_dist = self.database.get_mode_distribution(24)
         pos_entropy = self.database.get_position_entropy(60 * 24)  # Full day
         
+        # Get auto-tuning strategy analysis
+        tuning_analysis = {}
+        try:
+            tuning_analysis = self.database.get_daily_adjustments(date_str)
+        except Exception as e:
+            logger.warning(f"Auto-tuning analysis failed: {e}")
+            tuning_analysis = {'total_adjustments': 0, 'strategy_summary': 'Analysis unavailable.'}
+        
         # Create report
         report = DailyReport(
             date=date_str,
@@ -417,6 +429,7 @@ class DailyReportGenerator:
             hourly_trends=hourly_trends,
             mode_distribution=mode_dist,
             position_entropy=pos_entropy,
+            auto_tuning_analysis=tuning_analysis,
         )
         
         self.last_report = report
@@ -981,6 +994,7 @@ class WebSocketBroadcaster:
     def update_state(self, state: dict):
         """Update the current state (called from main thread) - optimized"""
         # Compute simple hash to detect meaningful changes
+        population = state.get('population', {})
         state_hash = hash((
             state.get('mode'),
             len(state.get('people', [])),
@@ -988,6 +1002,8 @@ class WebSocketBroadcaster:
             state.get('auto_tuning', {}).get('revision', 0),
             int(state.get('light', {}).get('x', 0) * 10),
             int(state.get('light', {}).get('y', 0) * 10),
+            population.get('daily_total', 0),
+            population.get('current', 0),
         ))
         
         # Only re-serialize if state actually changed
@@ -1110,10 +1126,10 @@ class AutoTuningConfig:
     min_step: float = 0.002
     max_step_personality: float = 0.03
     max_step_global: float = 0.08
-    target_activity: float = 0.6
+    target_activity: float = 0.5
     damping_strong: float = 0.4
     damping_moderate: float = 0.7
-    budget_cost_scale: float = 100.0
+    budget_cost_scale: float = 40.0
 
 
 class AutoTuningManager:
@@ -1169,15 +1185,175 @@ class AutoTuningManager:
 
         # Soft caps to avoid obnoxious behavior
         self.caps = {
-            'brightness_global': 2.2,
-            'speed_global': 1.4,
-            'pulse_global': 1.6,
-            'energy': 0.75,
-            'responsiveness': 0.85,
+            'brightness_global': 3.0,
+            'speed_global': 1.6,
+            'pulse_global': 2.0,
+            'energy': 0.85,
+            'responsiveness': 0.9,
         }
+        
+        # Safe minimums — auto-tuner cannot push below these
+        # Prevents the "crash to floor" problem when activity is persistently high
+        self.safe_floors = {
+            'responsiveness': 0.15,
+            'energy': 0.10,
+            'brightness_global': 0.6,
+            'speed_global': 0.3,
+            'pulse_global': 0.3,
+            'follow_speed_global': 0.5,
+            'exploration': 0.05,
+            'sociability': 0.05,
+        }
+        
+        # Learned biases from previous days' reports (loaded from DB)
+        self.learned_starting_values: Dict[str, float] = {}
+        self.learned_caps_adjustments: Dict[str, float] = {}
+        self.days_of_learning: int = 0
 
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
+    
+    def load_learnings_from_db(self):
+        """
+        Load historical auto-tune learnings from the database.
+        Uses the last 7 days of data to compute weighted optimal starting values
+        and any learned cap adjustments.
+        """
+        if not self.database:
+            return
+        
+        try:
+            learnings = self.database.get_recent_autotune_learnings(days=7)
+            if not learnings:
+                logger.info("🧠 No previous auto-tune learnings found")
+                return
+            
+            self.days_of_learning = len(learnings)
+            
+            # Compute weighted average of optimal values from recent days
+            # More recent days get higher weight
+            weighted_values: Dict[str, float] = {}
+            weight_counts: Dict[str, float] = {}
+            
+            for i, day in enumerate(learnings):
+                # Weight: most recent = 1.0, oldest = 0.3
+                weight = 1.0 - (i * 0.1)
+                weight = max(0.3, weight)
+                
+                optimal = day.get('optimal_values', {})
+                for name, val in optimal.items():
+                    if name in self.param_order:
+                        weighted_values[name] = weighted_values.get(name, 0.0) + val * weight
+                        weight_counts[name] = weight_counts.get(name, 0.0) + weight
+            
+            # Compute averages
+            for name in weighted_values:
+                if weight_counts.get(name, 0) > 0:
+                    self.learned_starting_values[name] = weighted_values[name] / weight_counts[name]
+            
+            # Merge any learned cap adjustments from the most recent day
+            if learnings:
+                most_recent_caps = learnings[0].get('learned_caps', {})
+                self.learned_caps_adjustments = most_recent_caps
+            
+            if self.learned_starting_values:
+                logger.info(f"🧠 Loaded auto-tune learnings from {self.days_of_learning} days")
+                top3 = sorted(self.learned_starting_values.items(), 
+                             key=lambda kv: abs(kv[1] - self._get_values().get(kv[0], 0.5)))[:3]
+                for name, val in top3:
+                    current = self._get_values().get(name, 0.5)
+                    logger.info(f"   {name}: learned={val:.3f} current={current:.3f}")
+        except Exception as e:
+            logger.warning(f"Failed to load auto-tune learnings: {e}")
+    
+    def apply_learnings_to_values(self):
+        """
+        Blend learned optimal values with current slider values.
+        Only applies if learnings exist and values differ meaningfully.
+        Uses a gentle blend (30% learned, 70% current) to avoid jarring changes.
+        """
+        if not self.learned_starting_values:
+            return
+        
+        current = self._get_values()
+        blended = {}
+        blend_factor = min(0.3, 0.1 * self.days_of_learning)  # More data = more confidence, max 30%
+        
+        for name, learned_val in self.learned_starting_values.items():
+            current_val = current.get(name)
+            if current_val is None:
+                continue
+            
+            # Only blend if there's a meaningful difference
+            diff = abs(learned_val - current_val)
+            if diff < 0.01:
+                continue
+            
+            new_val = current_val * (1 - blend_factor) + learned_val * blend_factor
+            new_val = self._clamp(name, new_val)
+            blended[name] = new_val
+        
+        if blended:
+            self._apply_values(blended)
+            logger.info(f"🧠 Applied learned values to {len(blended)} params (blend={blend_factor:.0%})")
+    
+    def compute_daily_learnings(self, report) -> Dict:
+        """
+        Analyze a daily report and extract learnings for future auto-tuning.
+        Computes optimal starting values based on end-of-day parameter positions
+        and parameter journey analysis.
+        
+        Args:
+            report: DailyReport instance
+            
+        Returns:
+            Dict with optimal_values and learned_caps
+        """
+        tuning = report.auto_tuning_analysis
+        journeys = tuning.get('param_journeys', {})
+        
+        if not journeys:
+            return {'optimal_values': {}, 'learned_caps': {}}
+        
+        # The "optimal" values are where each parameter settled by end of day
+        # weighted by how much the tuner moved them (more movement = more confidence)
+        optimal_values = {}
+        for name, journey in journeys.items():
+            if name not in self.param_order:
+                continue
+            
+            end_val = journey.get('end', None)
+            if end_val is None:
+                continue
+            
+            # Use the end-of-day value as the optimal starting point
+            # But bias toward the middle of the range it explored
+            min_val = journey.get('min', end_val)
+            max_val = journey.get('max', end_val)
+            midpoint = (min_val + max_val) / 2.0
+            
+            # Blend: 60% end value (where it settled) + 40% midpoint (where it explored)
+            optimal = end_val * 0.6 + midpoint * 0.4
+            optimal_values[name] = round(optimal, 4)
+        
+        # Learn cap adjustments: if a param consistently hit its cap,
+        # and the tuner kept pushing, consider loosening the cap
+        learned_caps = dict(self.caps)  # Start from current caps
+        for name, journey in journeys.items():
+            if name not in self.caps:
+                continue
+            current_cap = self.caps[name]
+            end_val = journey.get('end', 0)
+            max_val = journey.get('max', 0)
+            
+            # If the param spent time at or near the cap, nudge cap up slightly
+            if max_val >= current_cap * 0.95 and journey.get('direction') == 'up':
+                learned_caps[name] = round(min(current_cap * 1.1, self.max_vals.get(name, current_cap)), 3)
+        
+        return {
+            'optimal_values': optimal_values,
+            'learned_caps': learned_caps,
+        }
 
     def _get_values(self) -> dict:
         return {name: float(getattr(self.meta, name)) for name in self.param_order}
@@ -1196,16 +1372,16 @@ class AutoTuningManager:
 
     def _clamp(self, name: str, value: float) -> float:
         max_val = min(self.max_vals.get(name, 1.0), self.caps.get(name, self.max_vals.get(name, 1.0)))
-        min_val = self.min_vals.get(name, 0.0)
+        min_val = max(self.min_vals.get(name, 0.0), self.safe_floors.get(name, 0.0))
         return max(min_val, min(max_val, value))
 
     def update(self, behavior_status: dict, now: float) -> Optional[dict]:
         budget_max = self._budget_max()
         dt_budget = max(0.0, now - self.budget_last_time)
         if dt_budget > 0:
-            restore_rate = budget_max / 300.0 if budget_max > 0 else 0.0
+            restore_rate = budget_max / 120.0 if budget_max > 0 else 0.0
             aggression = behavior_status.get('aggression', {})
-            engagement_bonus = budget_max / 90.0 if aggression.get('current_engagement') else 0.0
+            engagement_bonus = budget_max / 45.0 if aggression.get('current_engagement') else 0.0
             self.budget_current = min(budget_max, self.budget_current + dt_budget * (restore_rate + engagement_bonus))
             self.budget_last_time = now
 
@@ -1229,9 +1405,9 @@ class AutoTuningManager:
         seconds_since_eng = float(aggression.get('seconds_since_engagement', 9999))
 
         damping = 1.0
-        if aggression_level > 0.6 or seconds_since_eng < 30:
+        if aggression_level > 0.8 or seconds_since_eng < 10:
             damping = self.config.damping_strong
-        elif aggression_level > 0.4:
+        elif aggression_level > 0.6:
             damping = self.config.damping_moderate
 
         target = self.config.target_activity
@@ -1346,6 +1522,11 @@ class AutoTuningManager:
 
         self.last_adjustment = adjustment
         top_deltas = sorted(applied.items(), key=lambda kv: abs(kv[1]), reverse=True)[:3]
+        
+        # Debug print for monitoring
+        delta_str = ', '.join(f"{n}:{d:+.3f}" for n, d in top_deltas)
+        print(f"🎛️  Auto-tune #{self.revision}: activity={short_activity:.2f}/{medium_activity:.2f} → {delta_str}")
+        
         self.history.append({
             'timestamp': now,
             'short_activity': short_activity,
@@ -1649,19 +1830,22 @@ def draw_box_wireframe(bounds, color):
     glEnd()
 
 
-def draw_panel(center, angle, size, dmx_value):
-    """Draw a panel as a quad. Brightness reflects actual DMX output (0-255)."""
+def draw_panel(center, angle, size, brightness):
+    """Draw a panel as a quad. Brightness is 0.0-1.0 float from panel system."""
     half = size / 2
     
     glPushMatrix()
     glTranslatef(*center)
     glRotatef(-angle, 1, 0, 0)
     
-    # Visual brightness proportional to DMX range (DMX_MIN..DMX_MAX)
-    dmx_range = max(1, DMX_MAX - DMX_MIN)
-    normalized = max(0.0, min(1.0, (dmx_value - DMX_MIN) / dmx_range))
-    gray = 0.05 + normalized * 0.95
-    glColor4f(gray, gray, gray, 1.0)
+    # Panel face: dark base + warm white proportional to brightness
+    # V2-style: simple 0.2 + brightness * 0.8 mapping
+    b = max(0.0, min(1.0, brightness))
+    base = 0.08
+    r = base + b * 0.92  # Warm white: slightly more red
+    g = base + b * 0.88
+    bl = base + b * 0.78  # Less blue for warm LED look
+    glColor4f(r, g, bl, 1.0)
     
     glBegin(GL_QUADS)
     glVertex3f(-half, -half, 0)
@@ -1670,7 +1854,21 @@ def draw_panel(center, angle, size, dmx_value):
     glVertex3f(-half, half, 0)
     glEnd()
     
-    glColor4f(0.3, 0.3, 0.3, 1.0)
+    # Additive glow quad (slightly larger, semi-transparent)
+    if b > 0.05:
+        glow_half = half * (1.0 + b * 0.15)  # Grow slightly with brightness
+        glow_alpha = b * 0.25
+        glColor4f(1.0, 0.95, 0.8, glow_alpha)
+        glBegin(GL_QUADS)
+        glVertex3f(-glow_half, -glow_half, 0.5)
+        glVertex3f(glow_half, -glow_half, 0.5)
+        glVertex3f(glow_half, glow_half, 0.5)
+        glVertex3f(-glow_half, glow_half, 0.5)
+        glEnd()
+    
+    # Border frame
+    frame_brightness = 0.2 + b * 0.3
+    glColor4f(frame_brightness, frame_brightness, frame_brightness, 1.0)
     glLineWidth(2)
     glBegin(GL_LINE_LOOP)
     glVertex3f(-half, -half, 0)
@@ -2033,44 +2231,61 @@ def draw_auto_tuning_panel(x: int, y: int, width: int, height: int, font, font_s
     long_act = last_adjustment.get('long_activity', 0.0)
     damping = last_adjustment.get('damping', 1.0)
 
-    draw_text_2d(
-        x + 10,
-        y + height - 54,
-        f"Last: {age:.0f}s  S/M/L: {short_act:.2f}/{med_act:.2f}/{long_act:.2f}  Damp:{damping:.2f}",
-        font_small,
-        (180, 180, 180)
-    )
+    # Split into two shorter lines to fit column
+    draw_text_2d(x + 10, y + height - 54, f"Last: {age:.0f}s ago  Damp:{damping:.2f}", font_small, (180, 180, 180))
+    draw_text_2d(x + 10, y + height - 68, f"S:{short_act:.2f} M:{med_act:.2f} L:{long_act:.2f}", font_small, (160, 160, 160))
 
     label_map = {
         'responsiveness': 'resp',
-        'energy': 'energy',
+        'energy': 'enrg',
         'attention_span': 'attn',
-        'sociability': 'social',
-        'exploration': 'explore',
-        'memory': 'memory',
-        'brightness_global': 'bright',
-        'speed_global': 'speed',
-        'pulse_global': 'pulse',
-        'follow_speed_global': 'follow',
-        'dwell_influence': 'dwell',
+        'sociability': 'socl',
+        'exploration': 'expl',
+        'memory': 'mem',
+        'brightness_global': 'brit',
+        'speed_global': 'spd',
+        'pulse_global': 'puls',
+        'follow_speed_global': 'fllw',
+        'dwell_influence': 'dwel',
         'idle_trend_weight': 'idle',
     }
 
     deltas = last_adjustment.get('applied_deltas', {})
-    top = sorted(deltas.items(), key=lambda kv: abs(kv[1]), reverse=True)[:4]
-    if top:
-        delta_text = ", ".join(f"{label_map.get(k, k)}{v:+.2f}" for k, v in top)
-        draw_text_2d(x + 10, y + height - 72, f"Delta {delta_text}", font_small, (120, 200, 120))
+    # Show all deltas, sorted by magnitude
+    all_deltas = sorted(deltas.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    
+    # Current values section
+    draw_text_2d(x + 10, y + height - 86, "Adjustments:", font_small, (120, 200, 120))
+    delta_y = y + height - 102
+    for k, v in all_deltas:
+        color = (120, 220, 120) if v > 0 else (220, 120, 120)
+        draw_text_2d(x + 10, delta_y, f" {label_map.get(k, k):>4s} {v:+.3f}", font_small, color)
+        delta_y -= 14
+        if delta_y < y + 40:  # Don't overflow past bottom
+            break
 
-    hist_y = y + height - 90
-    for item in reversed(history[-4:]):
-        h_age = max(0.0, now - item.get('timestamp', now))
-        h_deltas = item.get('deltas', [])
-        if not h_deltas:
-            continue
-        h_text = ", ".join(f"{label_map.get(k, k)}{v:+.2f}" for k, v in h_deltas)
-        draw_text_2d(x + 10, hist_y, f"{h_age:.0f}s: {h_text}", font_small, (140, 140, 160))
-        hist_y -= 14
+    # History section - use remaining space
+    if delta_y > y + 30:
+        delta_y -= 8
+        draw_text_2d(x + 10, delta_y, "History:", font_small, (140, 140, 180))
+        delta_y -= 16
+        max_history = min(8, len(history))
+        for item in reversed(history[-max_history:]):
+            h_age = max(0.0, now - item.get('timestamp', now))
+            h_deltas = item.get('deltas', [])
+            if not h_deltas:
+                continue
+            # One delta per line to stay within column
+            first = True
+            for k, v in h_deltas:
+                prefix = f"{h_age:3.0f}s " if first else "     "
+                first = False
+                draw_text_2d(x + 10, delta_y, f"{prefix}{label_map.get(k, k):>4s}{v:+.2f}", font_small, (140, 140, 160))
+                delta_y -= 14
+                if delta_y < y + 10:
+                    break
+            if delta_y < y + 10:
+                break
 
 
 def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, aggression: dict = None, flow: dict = None, almost_engaged: dict = None, feedback_learning: dict = None):
@@ -2888,7 +3103,7 @@ def render_camera_view(camera_data, fbo_data, panel_system, light, tracked_manag
     
     # Draw panels
     for (unit, panel_num), panel in panel_system.panels.items():
-        draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
+        draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
     
     # Draw calibration markers with ID indicators
     if show_markers:
@@ -3018,7 +3233,7 @@ class Checkbox:
 
 class Slider:
     """Simple horizontal slider for GUI"""
-    def __init__(self, x, y, width, height, min_val, max_val, value, label, format_str="{:.1f}"):
+    def __init__(self, x, y, width, height, min_val, max_val, value, label, format_str="{:.1f}", autotuned=False):
         self.rect = pygame.Rect(x, y, width, height)
         self.min_val = min_val
         self.max_val = max_val
@@ -3026,6 +3241,7 @@ class Slider:
         self.label = label
         self.format_str = format_str
         self.dragging = False
+        self.autotuned = autotuned  # If True, slider shows auto-tuned visual style
         # Store original Y offset from display height for repositioning
         self._y_offset = None
     
@@ -3056,8 +3272,11 @@ class Slider:
         """Draw the slider using OpenGL"""
         x, y, w, h = self.rect.x, self.rect.y, self.rect.width, self.rect.height
         
-        # Background
-        glColor4f(0.2, 0.2, 0.25, 1.0)
+        # Background - slightly different for autotuned
+        if self.autotuned:
+            glColor4f(0.15, 0.15, 0.22, 1.0)
+        else:
+            glColor4f(0.2, 0.2, 0.25, 1.0)
         glBegin(GL_QUADS)
         glVertex2f(x, y)
         glVertex2f(x + w, y)
@@ -3065,10 +3284,13 @@ class Slider:
         glVertex2f(x, y + h)
         glEnd()
         
-        # Fill based on value
+        # Fill based on value - auto-tuned uses a distinct color
         ratio = (self.value - self.min_val) / (self.max_val - self.min_val)
         fill_w = w * ratio
-        glColor4f(0.3, 0.6, 0.8, 1.0)
+        if self.autotuned:
+            glColor4f(0.25, 0.45, 0.55, 0.8)  # Muted teal for auto-tuned
+        else:
+            glColor4f(0.3, 0.6, 0.8, 1.0)     # Bright blue for manual
         glBegin(GL_QUADS)
         glVertex2f(x, y)
         glVertex2f(x + fill_w, y)
@@ -3076,15 +3298,16 @@ class Slider:
         glVertex2f(x, y + h)
         glEnd()
         
-        # Thumb indicator
-        thumb_x = x + fill_w
-        glColor4f(0.9, 0.9, 0.9, 1.0)
-        glBegin(GL_QUADS)
-        glVertex2f(thumb_x - 2, y - 2)
-        glVertex2f(thumb_x + 2, y - 2)
-        glVertex2f(thumb_x + 2, y + h + 2)
-        glVertex2f(thumb_x - 2, y + h + 2)
-        glEnd()
+        # Thumb indicator (only for manual sliders)
+        if not self.autotuned:
+            thumb_x = x + fill_w
+            glColor4f(0.9, 0.9, 0.9, 1.0)
+            glBegin(GL_QUADS)
+            glVertex2f(thumb_x - 2, y - 2)
+            glVertex2f(thumb_x + 2, y - 2)
+            glVertex2f(thumb_x + 2, y + h + 2)
+            glVertex2f(thumb_x - 2, y + h + 2)
+            glEnd()
         
         # Highlight when dragging
         if self.dragging:
@@ -3096,8 +3319,13 @@ class Slider:
             glVertex2f(x, y + h)
             glEnd()
         
-        # Border
-        border_color = (0.6, 0.8, 1.0, 1.0) if self.dragging else (0.5, 0.5, 0.5, 1.0)
+        # Border - auto-tuned gets dashed-look subtle border
+        if self.dragging:
+            border_color = (0.6, 0.8, 1.0, 1.0)
+        elif self.autotuned:
+            border_color = (0.35, 0.45, 0.55, 0.6)
+        else:
+            border_color = (0.5, 0.5, 0.5, 1.0)
         glColor4f(*border_color)
         glLineWidth(1)
         glBegin(GL_LINE_LOOP)
@@ -3109,7 +3337,29 @@ class Slider:
         
         # Label and value
         val_str = self.format_str.format(self.value)
-        draw_text_2d(x, y + h + 5, f"{self.label}: {val_str}", font)
+        if self.autotuned:
+            draw_text_2d(x, y + h + 5, f"{self.label}: {val_str}", font, (160, 180, 190))
+        else:
+            draw_text_2d(x, y + h + 5, f"{self.label}: {val_str}", font)
+
+
+# =============================================================================
+# GUI SECTION HEADERS
+# =============================================================================
+
+def draw_section_header(x, y, width, title, font, color=(150, 150, 200), icon=""):
+    """Draw a section header with a horizontal line and title"""
+    label = f"{icon} {title}" if icon else title
+    # Draw header text
+    draw_text_2d(x, y, label, font, color)
+    # Draw subtle line under title
+    line_y = y - 4
+    glColor4f(color[0]/255*0.5, color[1]/255*0.5, color[2]/255*0.5, 0.4)
+    glLineWidth(1)
+    glBegin(GL_LINES)
+    glVertex2f(x, line_y)
+    glVertex2f(x + width, line_y)
+    glEnd()
 
 
 # =============================================================================
@@ -3145,7 +3395,7 @@ def main():
     display = fullscreen_size
     # Use NOFRAME instead of FULLSCREEN - stays visible when focus is lost
     screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | NOFRAME)
-    pygame.display.set_caption("3D Light Controller V2 - Production")
+    pygame.display.set_caption("3D Light Controller V3 - Production")
     
     font = pygame.font.SysFont('monospace', 14)
     font_small = pygame.font.SysFont('monospace', 12)
@@ -3178,8 +3428,8 @@ def main():
     cam_distance_default = cam_distance
     middle_mouse_down = False  # For panning
     
-    # GUI panel width
-    gui_width = 280
+    # GUI panel width (two-column layout)
+    gui_width = 560
     view_width = display[0] - gui_width
     
     # Create systems
@@ -3206,6 +3456,15 @@ def main():
     # Tracking database
     tracking_db = TrackingDatabase(current_db_file)
     print(f"💾 Tracking database: {current_db_file}")
+    
+    # Restore daily_count from database so it persists across restarts
+    try:
+        startup_stats = tracking_db.get_current_stats()
+        restored_count = startup_stats.get('daily_unique_people', 0)
+        tracked_manager.daily_count = restored_count
+        print(f"📊 Restored daily count from DB: {restored_count} unique people today")
+    except Exception as e:
+        print(f"⚠️ Could not restore daily count from DB: {e}")
     
     # Behavior system with default personality
     meta_params = MetaParameters()
@@ -3274,80 +3533,129 @@ def main():
         current_daily_report = report
         cached_report_dict = report.to_dict() if report else None
         report_version += 1
+        
+        # Save auto-tune learnings to database and apply them
+        try:
+            if report.auto_tuning_analysis:
+                learnings = auto_tuner.compute_daily_learnings(report)
+                
+                # Save to database
+                report_data = {
+                    'total_unique_people': report.total_unique_people,
+                    'peak_hour': report.peak_hour,
+                }
+                tracking_db.save_autotune_learnings(
+                    date_str=report.date,
+                    report_data=report_data,
+                    tuning_analysis=report.auto_tuning_analysis,
+                    optimal_values=learnings.get('optimal_values'),
+                    learned_caps=learnings.get('learned_caps'),
+                )
+                logger.info(f"🧠 Auto-tune learnings saved for {report.date}")
+                
+                # Apply learned caps immediately for tomorrow
+                learned_caps = learnings.get('learned_caps', {})
+                if learned_caps:
+                    auto_tuner.learned_caps_adjustments = learned_caps
+                    for name, cap_val in learned_caps.items():
+                        if name in auto_tuner.caps:
+                            auto_tuner.caps[name] = cap_val
+                    logger.info(f"🧠 Applied {len(learned_caps)} learned cap adjustments")
+        except Exception as e:
+            logger.warning(f"Failed to save/apply auto-tune learnings: {e}")
     
     daily_report_scheduler.on_report_ready = on_report_ready
     
-    # Create sliders
-    slider_x = view_width + 20
-    slider_w = gui_width - 40
+    # Create sliders - Two column layout
+    # Left column: Manual controls (calibration + budget + mode status)
+    # Right column: Auto-tuned parameters (personality + output multipliers + auto-tune status)
+    col_padding = 20
+    col_gap = 20
+    col_width = (gui_width - col_padding * 2 - col_gap) // 2  # ~250px each
+    left_col_x = view_width + col_padding
+    right_col_x = view_width + col_padding + col_width + col_gap
+    slider_x = left_col_x  # Keep for backward compat
+    slider_w = col_width
     slider_h = 16
     
     # Y-offset definitions (from top of screen)
-    # These are stored so sliders can be repositioned on display size change
+    # Left column: Calibration (Manual) + Manual Controls
+    # Right column: Personality (Auto-tuned) + Output Multipliers (Auto-tuned)
+    # Note: section header ~70, sub-label ~90, first slider needs to clear label text
     slider_y_offsets = {
-        # Calibration sliders (top section - below title)
-        'offset_x': 100, 'offset_z': 140,
-        'scale_x': 190, 'scale_z': 230,
+        # ── LEFT COLUMN: Calibration (Manual) ──
+        'offset_x': 120, 'offset_z': 160,
+        'scale_x': 205, 'scale_z': 245,
         # Checkbox
-        'invert_x_cb': 265,
-        # Personality sliders (middle section)
-        'responsiveness': 330, 'energy': 370, 'attention_span': 410,
-        'sociability': 450, 'exploration': 490, 'memory': 530,
-        # Global multiplier sliders (lower section)
-        'brightness_global': 600, 'speed_global': 640, 'pulse_global': 680,
-        'follow_speed_global': 720, 'dwell_influence': 760, 'idle_trend_weight': 800,
-        'interaction_budget': 840,
+        'invert_x_cb': 280,
+        # ── LEFT COLUMN: Manual Controls ──
+        'interaction_budget': 420,
+        # ── RIGHT COLUMN: Personality (Auto-tuned) ──
+        'responsiveness': 120, 'energy': 160, 'attention_span': 200,
+        'sociability': 240, 'exploration': 280, 'memory': 320,
+        # ── RIGHT COLUMN: Output Multipliers (Auto-tuned) ──
+        'brightness_global': 385, 'speed_global': 425, 'pulse_global': 465,
+        'follow_speed_global': 505, 'dwell_influence': 545, 'idle_trend_weight': 585,
     }
+    
+    # Track which sliders go in which column
+    left_col_sliders = {'offset_x', 'offset_z', 'scale_x', 'scale_z', 'interaction_budget'}
+    right_col_sliders = {'responsiveness', 'energy', 'attention_span', 'sociability',
+                         'exploration', 'memory', 'brightness_global', 'speed_global',
+                         'pulse_global', 'follow_speed_global', 'dwell_influence', 'idle_trend_weight'}
     
     def reposition_sliders():
         """Reposition all sliders/checkboxes based on current display size"""
-        nonlocal slider_x, slider_w
-        slider_x = view_width + 20
-        slider_w = gui_width - 40
+        nonlocal left_col_x, right_col_x, col_width, slider_x, slider_w
+        left_col_x = view_width + col_padding
+        right_col_x = view_width + col_padding + col_width + col_gap
+        slider_x = left_col_x
+        slider_w = col_width
         for name, slider in all_sliders.items():
             y_off = slider_y_offsets[name]
-            slider.rect.x = slider_x
+            if name in right_col_sliders:
+                slider.rect.x = right_col_x
+            else:
+                slider.rect.x = left_col_x
             slider.rect.y = display[1] - y_off
-            slider.rect.width = slider_w
+            slider.rect.width = col_width
         for name, checkbox in checkboxes.items():
-            cb_off = slider_y_offsets.get(f'{name}_cb', 265)
-            checkbox.rect.x = slider_x
+            cb_off = slider_y_offsets.get(f'{name}_cb', 260)
+            checkbox.rect.x = left_col_x
             checkbox.rect.y = display[1] - cb_off
     
-    # Calibration sliders (top section - below title)
+    # Calibration sliders (LEFT column - manual, user adjustable)
     sliders = {
-        # Offset sliders
-        'offset_x': Slider(slider_x, display[1] - 100, slider_w, slider_h, -200, 200, 0, "Offset X"),
-        'offset_z': Slider(slider_x, display[1] - 140, slider_w, slider_h, 0, 500, 250, "Offset Z"),
-        # Scale sliders
-        'scale_x': Slider(slider_x, display[1] - 190, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale X", "{:.2f}"),
-        'scale_z': Slider(slider_x, display[1] - 230, slider_w, slider_h, 0.5, 2.0, 1.0, "Scale Z", "{:.2f}"),
+        'offset_x': Slider(left_col_x, display[1] - 120, col_width, slider_h, -200, 200, 0, "Offset X"),
+        'offset_z': Slider(left_col_x, display[1] - 160, col_width, slider_h, 0, 500, 250, "Offset Z"),
+        'scale_x': Slider(left_col_x, display[1] - 205, col_width, slider_h, 0.5, 2.0, 1.0, "Scale X", "{:.2f}"),
+        'scale_z': Slider(left_col_x, display[1] - 245, col_width, slider_h, 0.5, 2.0, 1.0, "Scale Z", "{:.2f}"),
     }
     
-    # Calibration checkboxes
+    # Calibration checkboxes (LEFT column)
     checkboxes = {
-        'invert_x': Checkbox(slider_x, display[1] - 265, 14, "Invert X Direction", checked=False),
+        'invert_x': Checkbox(left_col_x, display[1] - 280, 14, "Invert X Direction", checked=False),
     }
     
-    # Personality sliders (middle section - starts after checkbox)
+    # Personality sliders (RIGHT column - auto-tuned by behavior system)
     personality_sliders = {
-        'responsiveness': Slider(slider_x, display[1] - 330, slider_w, slider_h, 0, 1, 0.5, "Responsiveness", "{:.2f}"),
-        'energy': Slider(slider_x, display[1] - 370, slider_w, slider_h, 0, 1, 0.5, "Energy", "{:.2f}"),
-        'attention_span': Slider(slider_x, display[1] - 410, slider_w, slider_h, 0, 1, 0.5, "Attention", "{:.2f}"),
-        'sociability': Slider(slider_x, display[1] - 450, slider_w, slider_h, 0, 1, 0.5, "Sociability", "{:.2f}"),
-        'exploration': Slider(slider_x, display[1] - 490, slider_w, slider_h, 0, 1, 0.5, "Exploration", "{:.2f}"),
-        'memory': Slider(slider_x, display[1] - 530, slider_w, slider_h, 0, 1, 0.5, "Memory", "{:.2f}"),
+        'responsiveness': Slider(right_col_x, display[1] - 120, col_width, slider_h, 0, 1, 0.5, "Responsiveness", "{:.2f}", autotuned=True),
+        'energy': Slider(right_col_x, display[1] - 160, col_width, slider_h, 0, 1, 0.5, "Energy", "{:.2f}", autotuned=True),
+        'attention_span': Slider(right_col_x, display[1] - 200, col_width, slider_h, 0, 1, 0.5, "Attention", "{:.2f}", autotuned=True),
+        'sociability': Slider(right_col_x, display[1] - 240, col_width, slider_h, 0, 1, 0.5, "Sociability", "{:.2f}", autotuned=True),
+        'exploration': Slider(right_col_x, display[1] - 280, col_width, slider_h, 0, 1, 0.5, "Exploration", "{:.2f}", autotuned=True),
+        'memory': Slider(right_col_x, display[1] - 320, col_width, slider_h, 0, 1, 0.5, "Memory", "{:.2f}", autotuned=True),
     }
     
-    # Global multiplier sliders (lower section)
+    # Global multiplier sliders (RIGHT column - auto-tuned) + interaction_budget (LEFT column - manual)
     global_sliders = {
-        'brightness_global': Slider(slider_x, display[1] - 600, slider_w, slider_h, 0.2, 5.0, 1.0, "Brightness ×", "{:.2f}"),
-        'speed_global': Slider(slider_x, display[1] - 640, slider_w, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}"),
-        'pulse_global': Slider(slider_x, display[1] - 680, slider_w, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}"),
-        'follow_speed_global': Slider(slider_x, display[1] - 720, slider_w, slider_h, 0.5, 3.0, 1.0, "Follow Speed ×", "{:.2f}"),
-        'dwell_influence': Slider(slider_x, display[1] - 760, slider_w, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}"),
-        'idle_trend_weight': Slider(slider_x, display[1] - 800, slider_w, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}"),
-        'interaction_budget': Slider(slider_x, display[1] - 840, slider_w, slider_h, 0.0, 120.0, 60.0, "Interaction Budget", "{:.0f}"),
+        'brightness_global': Slider(right_col_x, display[1] - 385, col_width, slider_h, 0.2, 5.0, 1.0, "Brightness ×", "{:.2f}", autotuned=True),
+        'speed_global': Slider(right_col_x, display[1] - 425, col_width, slider_h, 0.2, 2.0, 1.0, "Speed ×", "{:.2f}", autotuned=True),
+        'pulse_global': Slider(right_col_x, display[1] - 465, col_width, slider_h, 0.3, 3.0, 1.0, "Pulse ×", "{:.2f}", autotuned=True),
+        'follow_speed_global': Slider(right_col_x, display[1] - 505, col_width, slider_h, 0.5, 3.0, 1.0, "Follow Spd ×", "{:.2f}", autotuned=True),
+        'dwell_influence': Slider(right_col_x, display[1] - 545, col_width, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}", autotuned=True),
+        'idle_trend_weight': Slider(right_col_x, display[1] - 585, col_width, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}", autotuned=True),
+        'interaction_budget': Slider(left_col_x, display[1] - 420, col_width, slider_h, 0.0, 120.0, 60.0, "Interaction Budget", "{:.0f}", autotuned=False),
     }
     
     # Combine all sliders
@@ -3373,6 +3681,10 @@ def main():
 
     # Auto-tuning manager (trend responsive adjustments)
     auto_tuner = AutoTuningManager(meta=meta_params, sliders=all_sliders, database=tracking_db)
+    
+    # Load and apply historical learnings from previous days' reports
+    auto_tuner.load_learnings_from_db()
+    auto_tuner.apply_learnings_to_values()
     
     # Track when to save sliders (debounce saves)
     last_slider_save = time.time()
@@ -3407,9 +3719,9 @@ def main():
     frame_count = 0
     total_osc_messages = 0
     
-    logger.info("Light controller V2 started - entering main loop")
+    logger.info("Light controller V3 started - entering main loop")
     print("\n" + "="*60)
-    print("V2 DEVELOPMENT VERSION - Visual Debugging Enabled")
+    print("V3 DEVELOPMENT VERSION - Visual Debugging Enabled")
     print("="*60)
     print("Controls:")
     print("  L = Toggle coordinate labels")
@@ -3420,6 +3732,7 @@ def main():
     print("  T = Toggle trends visualization")
     print("  F = Toggle fullscreen/windowed")
     print("  R = Generate daily report (manual)")
+    print("  F2 = Take screenshot")
     print("  Q/ESC = Quit")
     print("="*60)
     print("📅 Daily report auto-generates at 12:01 AM")
@@ -3522,7 +3835,7 @@ def main():
                     else:
                         display = windowed_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
-                    pygame.display.set_caption("3D Light Controller V2 - Production")
+                    pygame.display.set_caption("3D Light Controller V3 - Production")
                     # Reinitialize OpenGL state after display change
                     glEnable(GL_DEPTH_TEST)
                     glEnable(GL_BLEND)
@@ -3560,11 +3873,31 @@ def main():
                         osc_handler.database = tracking_db
                         report_generator.database = tracking_db
                         current_db_file = new_db_file
+                        # Restore daily count from new database
+                        try:
+                            switch_stats = tracking_db.get_current_stats()
+                            tracked_manager.daily_count = switch_stats.get('daily_unique_people', 0)
+                        except Exception:
+                            pass
                         # Clear cached report
                         current_daily_report = None
                         print(f"💾 Switched to database: {new_db_file}")
                     else:
                         print(f"💾 Only one database available: {current_db_file}")
+                elif event.key == K_F2:
+                    # Screenshot - save window capture to repo
+                    try:
+                        screenshot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'screenshots')
+                        os.makedirs(screenshot_dir, exist_ok=True)
+                        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        screenshot_path = os.path.join(screenshot_dir, f'screenshot_{timestamp_str}.png')
+                        screenshot_surface = pygame.Surface(display)
+                        pixel_data = glReadPixels(0, 0, display[0], display[1], GL_RGB, GL_UNSIGNED_BYTE)
+                        screenshot_surface = pygame.image.fromstring(pixel_data, display, 'RGB', True)
+                        pygame.image.save(screenshot_surface, screenshot_path)
+                        print(f"📸 Screenshot saved: {screenshot_path}")
+                    except Exception as e:
+                        print(f"⚠️ Screenshot failed: {e}")
             
             # Camera rotation (only in 3D view area)
             if event.type == MOUSEBUTTONDOWN and event.button == 1:
@@ -3803,6 +4136,14 @@ def main():
                         'enabled': auto_tuner.enabled,
                         'revision': auto_tuner.revision,
                         'last_adjustment': auto_tuner.last_adjustment,
+                        'params': {name: round(float(getattr(meta_params, name)), 3) for name in auto_tuner.param_order},
+                    },
+                    'population': {
+                        'current': len(tracked_manager.get_all()),
+                        'active': active_count,
+                        'passive': passive_count,
+                        'daily_total': tracked_manager.daily_count,
+                        'daily_unique_db': db_stats.get('daily_unique_people', 0),
                     },
                     'daily_report_available': current_daily_report is not None,
                     'daily_report_date': current_daily_report.date if current_daily_report else None,
@@ -3917,7 +4258,7 @@ def main():
         
         # Draw panels
         for (unit, panel_num), panel in panel_system.panels.items():
-            draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
+            draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['brightness'])
             draw_text_3d_billboard(
                 panel['center'],
                 str(panel['dmx_value']),
@@ -4005,14 +4346,26 @@ def main():
                     draw_camera_view_overlay(camera_fbos[cam_name], x_pos, y_pos, 
                                            cam_view_w, cam_view_h, cam_name, font_small, border_color)
         
-        # GUI title
-        draw_text_2d(view_width + 20, display[1] - 30, "LIGHT CONTROLLER V2 - DEV", font)
-        draw_text_2d(view_width + 20, display[1] - 50, "─" * 24, font)
+        # GUI title (centered across full panel)
+        title_center_x = view_width + gui_width // 2 - 100
+        draw_text_2d(title_center_x, display[1] - 30, "LIGHT CONTROLLER V3", font)
+        draw_text_2d(view_width + col_padding, display[1] - 50, "─" * 62, font)
         
-        # Section labels (adjusted for checkbox)
-        draw_text_2d(view_width + 20, display[1] - 70, "Calibration:", font_small, (150, 150, 200))
-        draw_text_2d(view_width + 20, display[1] - 300, "Personality:", font_small, (150, 200, 150))
-        draw_text_2d(view_width + 20, display[1] - 570, "Global Multipliers:", font_small, (200, 150, 150))
+        # Column headers
+        # Left column: Manual controls
+        draw_section_header(left_col_x, display[1] - 70, col_width, "MANUAL CONTROLS", font_small, (150, 180, 220), "🎛️")
+        # Right column: Auto-tuned
+        draw_section_header(right_col_x, display[1] - 70, col_width, "AUTO-TUNED", font_small, (120, 180, 170), "🤖")
+        
+        # Sub-section headers
+        # Left: Calibration label
+        draw_text_2d(left_col_x, display[1] - 100, "Calibration", font_small, (130, 140, 170))
+        # Left: Budget label  
+        draw_text_2d(left_col_x, display[1] - 350, "Tuning Budget", font_small, (130, 140, 170))
+        # Right: Personality label
+        draw_text_2d(right_col_x, display[1] - 100, "Personality", font_small, (100, 150, 140))
+        # Right: Output multipliers label
+        draw_text_2d(right_col_x, display[1] - 345, "Output Multipliers", font_small, (100, 150, 140))
         
         # Draw all sliders
         for slider in all_sliders.values():
@@ -4033,11 +4386,14 @@ def main():
             last_slider_save = time.time()
             sliders_dirty = False
         
-        # Behavior status section (at bottom of GUI)
+        # ─── BOTTOM SECTION: Mode Decision (left) + Auto-Tune (right) ───
+        bottom_section_top = display[1] - 640
+        draw_text_2d(view_width + col_padding, bottom_section_top + 14, "─" * 62, font_small, (80, 80, 100))
+        
+        # Behavior status section (LEFT side of bottom)
         behavior_status = behavior.get_status()
-        status_y = 200  # Start position from bottom
-        draw_text_2d(view_width + 20, status_y + 50, "─" * 20, font_small)
-        draw_text_2d(view_width + 20, status_y + 35, "MODE DECISION:", font_small, (255, 200, 100))
+        status_y = bottom_section_top - 10
+        draw_text_2d(left_col_x, status_y + 14, "MODE DECISION", font_small, (255, 200, 100))
         
         # Mode and preset
         mode_colors = {
@@ -4067,12 +4423,12 @@ def main():
             active_indicator = " → CROWD"
         elif active >= 1:
             active_indicator = " → ENGAGED"
-        draw_text_2d(view_width + 20, status_y + 17, f"  Active: {active}{active_indicator}", font_small, active_color)
+        draw_text_2d(left_col_x, status_y - 4, f"  Active: {active}{active_indicator}", font_small, active_color)
         
         # Passive count and rate - drives FLOW mode
         passive_color = (200, 200, 100) if passive_rate >= flow_thresh else (150, 150, 150)
         flow_indicator = " → FLOW" if (passive_rate >= flow_thresh and active == 0 and flow_enabled) else ""
-        draw_text_2d(view_width + 20, status_y + 1, f"  Passive: {passive} ({passive_rate:.1f}/min){flow_indicator}", font_small, passive_color)
+        draw_text_2d(left_col_x, status_y - 20, f"  Passive: {passive} ({passive_rate:.1f}/min){flow_indicator}", font_small, passive_color)
         
         # Mode with duration and stability
         mode_duration = factors.get('mode_duration', 0)
@@ -4082,37 +4438,39 @@ def main():
         
         # Current mode line
         stability_char = "●" if mode_stable else f"◐{stability_pct}%"
-        mode_text = f"  Current: {behavior_status['mode'].upper()} [{mode_duration:.1f}s] {stability_char}"
-        draw_text_2d(view_width + 20, status_y - 33, mode_text, font_small, mode_color)
+        mode_text = f"  {behavior_status['mode'].upper()} [{mode_duration:.1f}s] {stability_char}"
+        draw_text_2d(left_col_x, status_y - 50, mode_text, font_small, mode_color)
         
         # Pending mode if any
         pending = behavior_status.get('pending_mode')
         if pending:
             pending_color = mode_colors.get(pending['mode'], (200, 200, 200))
             pending_pct = int(pending['progress'] * 100)
-            pending_text = f"  Pending: {pending['mode'].upper()} ({pending_pct}% of {pending['time_required']:.0f}s)"
-            draw_text_2d(view_width + 20, status_y - 49, pending_text, font_small, pending_color)
-            y_next = status_y - 65
+            pending_text = f"  → {pending['mode'].upper()} ({pending_pct}%)"
+            draw_text_2d(left_col_x, status_y - 66, pending_text, font_small, pending_color)
+            y_next = status_y - 82
         else:
-            y_next = status_y - 49
+            y_next = status_y - 66
         
         # Current output parameters (condensed)
-        draw_text_2d(view_width + 20, y_next, f"  Output: B{params.get('brightness_min', 0):.0f}-{params.get('brightness_max', 0):.0f} P{params.get('pulse_speed', 0):.0f} R{params.get('falloff_radius', 0):.0f}", font_small, (150, 150, 150))
+        draw_text_2d(left_col_x, y_next, f"  B{params.get('brightness_min', 0):.0f}-{params.get('brightness_max', 0):.0f} P{params.get('pulse_speed', 0):.0f} R{params.get('falloff_radius', 0):.0f}", font_small, (150, 150, 150))
         y_next -= 14
         
         # Preset and status text
-        draw_text_2d(view_width + 20, y_next, f"  Preset: {current_preset}", font_small)
+        draw_text_2d(left_col_x, y_next, f"  Preset: {current_preset}", font_small)
         y_next -= 14
         
         # Status text (for public display)
         if behavior_status['status_text']:
-            draw_text_2d(view_width + 20, y_next, f"  \"{behavior_status['status_text']}\"", font_small, (200, 200, 255))
+            draw_text_2d(left_col_x, y_next, f"  \"{behavior_status['status_text']}\"", font_small, (200, 200, 255))
 
-        # Auto-tuning panel (compact)
-        auto_panel_width = gui_width - 40
-        auto_panel_height = 110
-        auto_panel_x = view_width + 20
-        auto_panel_y = 320
+        # Auto-tuning panel (RIGHT side of bottom section - expanded to fill space)
+        auto_panel_width = col_width
+        auto_panel_x = right_col_x
+        auto_panel_top = bottom_section_top - 10
+        auto_panel_bottom = 80  # Leave room for help text at bottom
+        auto_panel_height = auto_panel_top - auto_panel_bottom
+        auto_panel_y = auto_panel_bottom
         draw_auto_tuning_panel(
             auto_panel_x,
             auto_panel_y,
@@ -4127,11 +4485,11 @@ def main():
             auto_tuner._budget_max(),
         )
 
-        # Controls help at bottom (three lines now with database info)
-        draw_text_2d(view_width + 20, 50, "SPC=wander A=tune T=trends P=preset M=markers L=labels R=report D=db Q=quit", font_small, (120, 120, 120))
+        # Controls help at bottom
+        draw_text_2d(left_col_x, 50, "SPC=wander A=tune T=trends P=preset M=markers L=labels R=report D=db Q=quit", font_small, (120, 120, 120))
         # Current database indicator
         db_color = (100, 180, 255) if len(db_files) > 1 else (120, 120, 120)
-        draw_text_2d(view_width + 20, 20, f"DB: {current_db_file} ({current_db_index+1}/{len(db_files)})", font_small, db_color)
+        draw_text_2d(left_col_x, 20, f"DB: {current_db_file} ({current_db_index+1}/{len(db_files)})", font_small, db_color)
         
         # Legend in 3D view area (top left)
         if show_labels or show_markers or show_camera_views:
