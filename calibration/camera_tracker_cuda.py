@@ -769,7 +769,7 @@ class CalibrationMode:
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         
         # Physical marker size in CENTIMETERS (outer edge length)
-        self.marker_size_cm = 15.0  # 15cm markers
+        self.marker_size_cm = 20.0  # 20cm markers
         
         # Marker 3D world positions in CENTIMETERS (x, y, z)
         # Coordinates matching pointLightController3D system

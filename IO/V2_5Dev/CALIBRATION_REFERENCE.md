@@ -50,7 +50,7 @@ Both cameras aim inward to create an overlap zone around X = −100 to X = −20
 
 ## Calibration Markers
 
-7 ArUco markers (DICT_4X4_50), each 15 cm × 15 cm.
+7 ArUco markers (DICT_4X4_50), each 20 cm × 20 cm.
 
 ### Marker Map (bird's eye, looking down from above)
 

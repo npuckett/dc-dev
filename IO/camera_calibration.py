@@ -823,7 +823,7 @@ class CalibrationMode:
                     vertical_markers.add(marker_id)
             
             # Extract marker size
-            marker_size = float(data.get('calibration_markers', {}).get('marker_size', 15))
+            marker_size = float(data.get('calibration_markers', {}).get('marker_size', 20))
             
             # Extract camera positions (skip non-dict entries like 'model', 'sensor', etc.)
             camera_positions = {}
@@ -898,10 +898,10 @@ class CalibrationMode:
             corner_offsets_data = data.get('calibration_markers', {}).get('corner_offsets', {})
             corner_offsets = {
                 'horizontal': corner_offsets_data.get('horizontal', {}).get('corners', [
-                    [-7.5, 0, -7.5], [7.5, 0, -7.5], [7.5, 0, 7.5], [-7.5, 0, 7.5]
+                    [-10.0, 0, -10.0], [10.0, 0, -10.0], [10.0, 0, 10.0], [-10.0, 0, 10.0]
                 ]),
                 'vertical': corner_offsets_data.get('vertical', {}).get('corners', [
-                    [-7.5, 7.5, 0], [7.5, 7.5, 0], [7.5, -7.5, 0], [-7.5, -7.5, 0]
+                    [-10.0, 10.0, 0], [10.0, 10.0, 0], [10.0, -10.0, 0], [-10.0, -10.0, 0]
                 ]),
             }
             
@@ -980,12 +980,12 @@ class CalibrationMode:
             self._camera_intrinsics_json = world_coords.get('camera_intrinsics', {})
             self._camera_rotations = world_coords.get('camera_rotations', {})
             self._corner_offsets = world_coords.get('corner_offsets', {
-                'horizontal': [[-7.5, 0, -7.5], [7.5, 0, -7.5], [7.5, 0, 7.5], [-7.5, 0, 7.5]],
-                'vertical': [[-7.5, 7.5, 0], [7.5, 7.5, 0], [7.5, -7.5, 0], [-7.5, -7.5, 0]],
+                'horizontal': [[-10.0, 0, -10.0], [10.0, 0, -10.0], [10.0, 0, 10.0], [-10.0, 0, 10.0]],
+                'vertical': [[-10.0, 10.0, 0], [10.0, 10.0, 0], [10.0, -10.0, 0], [-10.0, -10.0, 0]],
             })
         else:
             # Fallback to hardcoded V2 coordinates
-            self.marker_size_cm = 15.0  # 15cm markers
+            self.marker_size_cm = 20.0  # 20cm markers
             
             self.marker_world_positions_3d = {
                 # FRONT ROW (Z = 168 cm, Y = street level)
@@ -1021,8 +1021,8 @@ class CalibrationMode:
             self._camera_intrinsics_json = {}
             self._camera_rotations = {}
             self._corner_offsets = {
-                'horizontal': [[-7.5, 0, -7.5], [7.5, 0, -7.5], [7.5, 0, 7.5], [-7.5, 0, 7.5]],
-                'vertical': [[-7.5, 7.5, 0], [7.5, 7.5, 0], [7.5, -7.5, 0], [-7.5, -7.5, 0]],
+                'horizontal': [[-10.0, 0, -10.0], [10.0, 0, -10.0], [10.0, 0, 10.0], [-10.0, 0, 10.0]],
+                'vertical': [[-10.0, 10.0, 0], [10.0, 10.0, 0], [10.0, -10.0, 0], [-10.0, -10.0, 0]],
             }
         
         # The shared marker IDs that must be visible from all cameras

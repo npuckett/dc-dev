@@ -18,6 +18,7 @@ import sqlite3
 import time
 import math
 import threading
+import json
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
@@ -222,6 +223,27 @@ class TrackingDatabase:
                 CREATE INDEX IF NOT EXISTS idx_light_mode 
                 ON light_behavior(mode)
             ''')
+
+            # Auto-adjustment history (behavior tuning events)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS behavior_adjustments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    datetime TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    reason TEXT,
+                    short_activity REAL,
+                    medium_activity REAL,
+                    long_activity REAL,
+                    energy_level REAL,
+                    aggression_level REAL,
+                    adjustments_json TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_adjustments_timestamp
+                ON behavior_adjustments(timestamp)
+            ''')
             
             # Person sessions (tracks individual visit durations)
             cursor.execute('''
@@ -391,6 +413,42 @@ class TrackingDatabase:
                   people_count, active_count, passive_count,
                   gesture_type, status_text))
             
+            # Batched commit: only commit when batch is full or interval elapsed
+            self._pending_writes += 1
+            now = time.time()
+            if self._pending_writes >= self._commit_batch_size or \
+               now - self._last_commit_time >= self._commit_interval:
+                self.conn.commit()
+                self._pending_writes = 0
+                self._last_commit_time = now
+
+    def record_behavior_adjustment(self, enabled: bool, reason: str,
+                                   short_activity: float, medium_activity: float,
+                                   long_activity: float, energy_level: float,
+                                   aggression_level: float, adjustments: Dict,
+                                   timestamp: float = None):
+        """
+        Record an auto-tuning adjustment event.
+
+        adjustments is a dict that should include old/new values and deltas.
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        dt_str = datetime.fromtimestamp(timestamp).isoformat()
+        adjustments_json = json.dumps(adjustments, separators=(',', ':'))
+
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO behavior_adjustments
+                (timestamp, datetime, enabled, reason, short_activity, medium_activity,
+                 long_activity, energy_level, aggression_level, adjustments_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (timestamp, dt_str, int(enabled), reason, short_activity,
+                  medium_activity, long_activity, energy_level, aggression_level,
+                  adjustments_json))
+
             # Batched commit: only commit when batch is full or interval elapsed
             self._pending_writes += 1
             now = time.time()

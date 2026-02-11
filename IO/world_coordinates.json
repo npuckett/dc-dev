@@ -94,27 +94,27 @@
   },
 
   "calibration_markers": {
-    "marker_size": 15,
+    "marker_size": 20,
     "marker_type": "ArUco",
     "corner_offsets": {
-      "description": "Local corner positions relative to marker center (half_size = 7.5cm)",
+      "description": "Local corner positions relative to marker center (half_size = 10.0cm)",
       "horizontal": {
         "note": "Marker lying flat, facing up (normal = +Y)",
         "corners": [
-          [-7.5, 0, -7.5],
-          [7.5, 0, -7.5],
-          [7.5, 0, 7.5],
-          [-7.5, 0, 7.5]
+          [-10.0, 0, -10.0],
+          [10.0, 0, -10.0],
+          [10.0, 0, 10.0],
+          [-10.0, 0, 10.0]
         ],
         "normal": [0, 1, 0]
       },
       "vertical": {
         "note": "Marker on wall, facing toward cameras (normal = -Z)",
         "corners": [
-          [-7.5, 7.5, 0],
-          [7.5, 7.5, 0],
-          [7.5, -7.5, 0],
-          [-7.5, -7.5, 0]
+          [-10.0, 10.0, 0],
+          [10.0, 10.0, 0],
+          [10.0, -10.0, 0],
+          [-10.0, -10.0, 0]
         ],
         "normal": [0, 0, -1]
       }
