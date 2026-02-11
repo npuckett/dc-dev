@@ -1657,8 +1657,10 @@ def draw_panel(center, angle, size, dmx_value):
     glTranslatef(*center)
     glRotatef(-angle, 1, 0, 0)
     
-    # Visual brightness proportional to actual DMX value
-    gray = 0.05 + (dmx_value / 255.0) * 0.95
+    # Visual brightness proportional to DMX range (DMX_MIN..DMX_MAX)
+    dmx_range = max(1, DMX_MAX - DMX_MIN)
+    normalized = max(0.0, min(1.0, (dmx_value - DMX_MIN) / dmx_range))
+    gray = 0.05 + normalized * 0.95
     glColor4f(gray, gray, gray, 1.0)
     
     glBegin(GL_QUADS)
@@ -3915,6 +3917,13 @@ def main():
         # Draw panels
         for (unit, panel_num), panel in panel_system.panels.items():
             draw_panel(panel['center'], panel['angle'], PANEL_SIZE, panel['dmx_value'])
+            draw_text_3d_billboard(
+                panel['center'],
+                str(panel['dmx_value']),
+                font_small,
+                (255, 0, 255),
+                offset_y=10
+            )
         
         # Draw panel center indicators (wireframe spheres with labels)
         draw_panel_centers(panel_system, font_label, show_labels)
