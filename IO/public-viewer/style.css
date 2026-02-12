@@ -56,6 +56,11 @@ html, body {
     opacity: 0.6;
     margin-top: 8px;
     min-height: 20px;
+    transition: opacity 0.3s ease;
+}
+
+#behavior-status.fading {
+    opacity: 0;
 }
 
 /* 3D Container */

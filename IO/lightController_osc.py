@@ -2357,6 +2357,95 @@ def draw_auto_tuning_panel(x: int, y: int, width: int, height: int, font, font_s
                 break
 
 
+def _build_behavior_description(behavior, active_count: int, passive_count: int) -> str:
+    """
+    Build a concise human-readable description of the light's current behavior
+    for the public viewer subheading.
+    
+    Returns a short phrase like:
+    - "Wandering · Scanning"
+    - "Engaged · Following"  
+    - "Engaged · Breathing Together"
+    - "Engaged · Nodding"
+    - "Idle · Acknowledging Passerby"
+    - "Crowd · Orbiting"
+    """
+    if not behavior:
+        return ""
+    
+    mode = behavior.state.mode
+    gesture = behavior.state.gesture
+    is_bored = behavior.state.is_bored
+    dwell_bonus = behavior.state.current_dwell_bonus
+    breathing = behavior.state.engaged_breathe_active
+    breathe_depth = behavior.state.engaged_breathe_depth
+    mode_duration = behavior.state.mode_duration
+    
+    # Gesture descriptions (takes priority when active)
+    gesture_descriptions = {
+        GestureType.WELCOME: "Welcoming",
+        GestureType.SURPRISED: "Surprised",
+        GestureType.CURIOUS: "Approaching",
+        GestureType.ACKNOWLEDGE: "Acknowledging Passerby",
+        GestureType.FAREWELL: "Saying Goodbye",
+        GestureType.NOD: "Nodding",
+        GestureType.LEAN: "Leaning In",
+        GestureType.SWAY: "Swaying",
+        GestureType.ORBIT: "Orbiting",
+        GestureType.SETTLE: "Settling In",
+        GestureType.BREATHE: "Breathing",
+        GestureType.BLOOM: "Blooming",
+        GestureType.BORED: "Restless",
+        GestureType.THINKING: "Thinking",
+        GestureType.HESITANT: "Hesitant",
+        GestureType.PLAYFUL: "Playing",
+    }
+    
+    # Mode labels
+    mode_labels = {
+        BehaviorMode.IDLE: "Idle",
+        BehaviorMode.ENGAGED: "Engaged",
+        BehaviorMode.CROWD: "Crowd",
+        BehaviorMode.FLOW: "Flow",
+    }
+    
+    mode_label = mode_labels.get(mode, "")
+    
+    # Active gesture takes priority for the action description
+    if gesture != GestureType.NONE and gesture in gesture_descriptions:
+        action = gesture_descriptions[gesture]
+        return f"{mode_label} · {action}"
+    
+    # No gesture — describe based on mode and state
+    if mode == BehaviorMode.IDLE:
+        if is_bored:
+            return "Idle · Waiting"
+        elif passive_count > 0:
+            return "Idle · Watching"
+        else:
+            return "Idle · Wandering"
+    
+    elif mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+        # Describe engagement depth
+        if breathing and breathe_depth > 0.5:
+            return f"{mode_label} · Breathing Together"
+        elif dwell_bonus > 10:
+            return f"{mode_label} · Deep Connection"
+        elif dwell_bonus > 5:
+            return f"{mode_label} · Bonding"
+        elif mode_duration > 10:
+            return f"{mode_label} · Following"
+        elif mode_duration > 3:
+            return f"{mode_label} · Greeting"
+        else:
+            return f"{mode_label} · Noticing"
+    
+    elif mode == BehaviorMode.FLOW:
+        return "Flow · Drifting with Traffic"
+    
+    return mode_label
+
+
 def draw_realtime_trends(idle_trends: dict, x: int, y: int, font, font_small, aggression: dict = None, flow: dict = None, almost_engaged: dict = None, feedback_learning: dict = None):
     """
     Draw real-time trends panel on the left side of the screen.
@@ -4205,6 +4294,9 @@ def main():
                     'mode': behavior.state.mode.name if behavior else 'UNKNOWN',
                     'gesture': behavior.state.gesture.name if behavior and behavior.state.gesture else None,
                     'status': status_text,
+                    'behavior_description': _build_behavior_description(behavior, active_count, passive_count) if behavior else '',
+                    'dwell_phase': behavior_status.get('driving_factors', {}).get('dwell_time', 0) if behavior_status else 0,
+                    'engaged_breathing': behavior_status.get('engaged_breathing', {}) if behavior_status else {},
                     'realtime_trends': realtime_trends,
                     'auto_tuning': {
                         'enabled': auto_tuner.enabled,

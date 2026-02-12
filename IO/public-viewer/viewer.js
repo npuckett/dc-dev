@@ -466,13 +466,12 @@ function handleStateUpdate(data) {
     
     // Update mode display
     if (data.mode) {
-        updateModeDisplay(data.mode, data.status);
+        updateModeDisplay(data.mode, data.gesture, data.engaged_breathing);
     }
     
-    // Update behavior status text
-    if (data.status !== undefined) {
-        document.getElementById('behavior-status').textContent = data.status || '';
-    }
+    // Update behavior description subheading (with crossfade)
+    const descriptionText = data.behavior_description || data.status || '';
+    updateBehaviorSubheading(descriptionText);
     
     // Update population stats
     if (data.population) {
@@ -604,10 +603,49 @@ function updateTextSprite(sprite, text) {
     sprite.userData.text = text;
 }
 
-function updateModeDisplay(mode, statusText) {
+function updateModeDisplay(mode, gesture, engagedBreathing) {
     const modeLabel = document.getElementById('mode-label');
-    modeLabel.textContent = mode.toUpperCase();
-    modeLabel.className = `visible ${mode}`;
+    
+    // Build mode text with optional gesture indicator
+    let modeText = mode.toUpperCase();
+    if (gesture && gesture !== 'NONE') {
+        // Show a subtle dot to indicate active gesture
+        modeText += ' ·';
+    }
+    if (engagedBreathing && engagedBreathing.active) {
+        // Add breathing indicator during engagement
+        modeText += ' ~';
+    }
+    
+    modeLabel.textContent = modeText;
+    modeLabel.className = `visible ${mode.toLowerCase()}`;
+}
+
+// Track current subheading text for crossfade
+let _currentSubheading = '';
+let _subheadingTimeout = null;
+
+function updateBehaviorSubheading(text) {
+    const el = document.getElementById('behavior-status');
+    if (!el) return;
+    
+    // Only animate if text actually changed
+    if (text === _currentSubheading) return;
+    _currentSubheading = text;
+    
+    // Clear any pending transition
+    if (_subheadingTimeout) {
+        clearTimeout(_subheadingTimeout);
+        _subheadingTimeout = null;
+    }
+    
+    // Crossfade: fade out, swap text, fade in
+    el.classList.add('fading');
+    _subheadingTimeout = setTimeout(() => {
+        el.textContent = text;
+        el.classList.remove('fading');
+        _subheadingTimeout = null;
+    }, 300); // Match CSS transition duration
 }
 
 function updateAutoTuneDisplay(autoTuning) {

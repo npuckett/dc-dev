@@ -410,6 +410,13 @@ class GestureType(Enum):
     HESITANT = "hesitant"        # Partial approach then retreat
     PLAYFUL = "playful"          # Quick zig-zag movement
     BLOOM = "bloom"              # Expand radius to illuminate all panels
+    # Engaged interaction gestures (subtle, ongoing presence)
+    NOD = "nod"                  # Small Y bob - gentle acknowledgment
+    LEAN = "lean"                # Brief Z shift toward person - leaning in
+    SWAY = "sway"                # Gentle lateral X oscillation - relaxed presence
+    ORBIT = "orbit"              # Small lazy circle around person's position
+    SETTLE = "settle"            # Gradually tighten and slow - getting comfortable
+    BREATHE = "breathe"          # Visible brightness wave - shared rhythm
 
 
 @dataclass
@@ -531,6 +538,13 @@ class BehaviorState:
     
     # Feedback learning (behavior-to-engagement correlation)
     feedback_learning: Optional['FeedbackLearning'] = None
+    
+    # Engaged interaction tracking (ongoing gestures during engagement)
+    engaged_breathe_phase: float = 0.0        # 0-2π cycling phase for breathing brightness
+    engaged_breathe_active: bool = False       # Whether breathing overlay is active
+    engaged_breathe_depth: float = 0.0         # 0-1 how deep the breathing is (ramps up)
+    last_engaged_gesture_time: float = 0.0     # When last engaged gesture was triggered
+    engaged_gesture_count: int = 0             # How many engaged gestures this session
 
 
 class BehaviorSystem:
@@ -673,6 +687,31 @@ class BehaviorSystem:
             "Moving closer to engaged visitor.",
             "Approaching interested person.",
             "Drawing nearer. Building connection.",
+        ],
+        ('engaged', 'breathing'): [
+            "Settling into shared rhythm.",
+            "Breathing together. Calm presence.",
+            "Finding a shared pace.",
+        ],
+        ('engaged', 'nod'): [
+            "Acknowledging continued presence.",
+            "Gentle nod. Still here.",
+            "Small gesture of recognition.",
+        ],
+        ('engaged', 'lean'): [
+            "Leaning in. Showing interest.",
+            "Drawing closer momentarily.",
+            "Brief reach toward visitor.",
+        ],
+        ('engaged', 'sway'): [
+            "Relaxed sway. Comfortable together.",
+            "Gentle movement. At ease.",
+            "Settling into presence.",
+        ],
+        ('engaged', 'orbit'): [
+            "Slowly circling. Attentive.",
+            "Gentle orbit around visitor.",
+            "Moving around, staying close.",
         ],
         ('crowd', 'default'): [
             "2+ people. Crowd mode. Following centroid.",
@@ -972,6 +1011,319 @@ class BehaviorSystem:
                 self.state.bloom_progress = 0.0
                 self.trigger_gesture(GestureType.BLOOM, duration=self.bloom_duration)
 
+    # =========================================================================
+    # ENGAGED INTERACTION GESTURES
+    # =========================================================================
+    # 
+    # While someone is in the active zone, the light doesn't just follow —
+    # it periodically performs subtle gestures that acknowledge presence.
+    # These get more intimate and settled as dwell time increases.
+    #
+    # The gestures are small and non-obnoxious: a gentle nod, a slight lean
+    # toward the person, a relaxed sway, a slow orbit. Combined with the
+    # breathing brightness overlay, they create a sense of shared presence
+    # rather than a light that's just tracking a coordinate.
+    #
+    # Dwell phase progression:
+    #   notice (0-3s)   → entry pulse already handles this
+    #   greet  (3-10s)  → occasional nod or lean, breathing starts
+    #   engage (10-30s) → sway, orbit, deeper breathing
+    #   bond   (30s+)   → very settled, infrequent but warm gestures
+    # =========================================================================
+    
+    # Engaged gesture configuration
+    ENGAGED_GESTURE_CONFIG = {
+        # phase: (min_interval, max_interval, gesture_options)
+        # Intervals are randomized between min and max for natural feel
+        'notice': {
+            'interval_range': (999, 999),  # Don't gesture during notice - entry pulse covers it
+            'gestures': [],
+        },
+        'greet': {
+            'interval_range': (8, 15),     # Every 8-15 seconds
+            'gestures': [
+                # (gesture_type, duration, weight)
+                (GestureType.NOD, 1.2, 3),        # Most common - gentle acknowledgment
+                (GestureType.LEAN, 1.5, 2),        # Lean in briefly
+                (GestureType.BREATHE, 4.0, 2),     # Start breathing cycle
+            ],
+        },
+        'engage': {
+            'interval_range': (10, 20),    # Slightly less frequent - more settled
+            'gestures': [
+                (GestureType.NOD, 1.0, 2),
+                (GestureType.LEAN, 1.8, 2),
+                (GestureType.SWAY, 3.0, 3),        # Relaxed lateral movement
+                (GestureType.ORBIT, 4.0, 2),        # Slow circle
+                (GestureType.BREATHE, 5.0, 3),      # Deeper breathing
+            ],
+        },
+        'bond': {
+            'interval_range': (15, 30),    # Infrequent - very settled
+            'gestures': [
+                (GestureType.SWAY, 4.0, 3),        # Gentle sway
+                (GestureType.ORBIT, 5.0, 2),        # Slow orbit
+                (GestureType.BREATHE, 6.0, 3),      # Deep breathing
+                (GestureType.SETTLE, 3.0, 2),       # Settle in closer
+                (GestureType.NOD, 1.0, 1),           # Occasional nod
+            ],
+        },
+    }
+    
+    # Amplitude settings for engaged gestures (in cm)
+    ENGAGED_GESTURE_AMPLITUDES = {
+        GestureType.NOD:    {'y': 12},                  # Small Y bob
+        GestureType.LEAN:   {'z': 15},                  # Forward Z shift
+        GestureType.SWAY:   {'x': 18},                  # Lateral X oscillation
+        GestureType.ORBIT:  {'x': 15, 'y': 8},          # XY circle
+        GestureType.SETTLE: {'z': -8, 'radius': -10},   # Tighten in
+    }
+    
+    # Breathing overlay settings
+    BREATHE_CONFIG = {
+        'ramp_up_time': 8.0,       # Seconds to reach full breathing depth
+        'base_period': 6.0,        # Seconds per breath cycle (slow, meditative)
+        'brightness_depth': 0.12,  # ±12% brightness modulation at full depth
+        'radius_depth': 0.06,      # ±6% falloff radius modulation
+        'phase_rate': 1.0472,      # ~2π/6 = one cycle per 6 seconds
+    }
+
+    def _update_engaged_gestures(self, dt: float, active_count: int):
+        """
+        Update the engaged interaction system.
+        
+        Manages two layers:
+        1. Breathing overlay: continuous subtle brightness/radius wave
+        2. Positional gestures: periodic small movements acknowledging presence
+        
+        Called every frame during ENGAGED or CROWD mode.
+        """
+        now = time.time()
+        
+        if active_count == 0 or self.state.mode not in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+            # Wind down breathing when nobody is here
+            if self.state.engaged_breathe_active:
+                self.state.engaged_breathe_depth = max(0.0, self.state.engaged_breathe_depth - dt * 0.3)
+                if self.state.engaged_breathe_depth <= 0.01:
+                    self.state.engaged_breathe_active = False
+                    self.state.engaged_breathe_depth = 0.0
+                    self.state.engaged_breathe_phase = 0.0
+            self.state.engaged_gesture_count = 0
+            return
+        
+        # --- 1. Breathing overlay (continuous) ---
+        stats = self.get_active_zone_stats()
+        phase = stats['primary_phase']
+        
+        # Start breathing once we're past notice phase
+        if phase in ('greet', 'engage', 'bond') and not self.state.engaged_breathe_active:
+            self.state.engaged_breathe_active = True
+            self.state.engaged_breathe_depth = 0.0
+        
+        if self.state.engaged_breathe_active:
+            # Advance breathing phase
+            self.state.engaged_breathe_phase += self.BREATHE_CONFIG['phase_rate'] * dt
+            if self.state.engaged_breathe_phase > math.pi * 2:
+                self.state.engaged_breathe_phase -= math.pi * 2
+            
+            # Ramp up depth gradually (natural onset)
+            target_depth = 1.0
+            if phase == 'greet':
+                target_depth = 0.4   # Subtle at first
+            elif phase == 'engage':
+                target_depth = 0.7   # Deeper
+            elif phase == 'bond':
+                target_depth = 1.0   # Full depth
+            
+            ramp_speed = 1.0 / self.BREATHE_CONFIG['ramp_up_time']
+            if self.state.engaged_breathe_depth < target_depth:
+                self.state.engaged_breathe_depth = min(target_depth,
+                    self.state.engaged_breathe_depth + ramp_speed * dt)
+            elif self.state.engaged_breathe_depth > target_depth:
+                self.state.engaged_breathe_depth = max(target_depth,
+                    self.state.engaged_breathe_depth - ramp_speed * 0.5 * dt)
+        
+        # --- 2. Positional gestures (periodic) ---
+        # Don't trigger if another gesture (entry, bloom, etc.) is already active
+        if self.state.gesture != GestureType.NONE:
+            return
+        
+        # Get config for current dwell phase
+        phase_config = self.ENGAGED_GESTURE_CONFIG.get(phase, self.ENGAGED_GESTURE_CONFIG['greet'])
+        if not phase_config['gestures']:
+            return
+        
+        # Check if it's time for a new gesture
+        min_interval, max_interval = phase_config['interval_range']
+        
+        # Scale intervals by personality: high sociability = more frequent
+        sociability_scale = 1.5 - self.meta.sociability  # 0.5x at sociability=1, 1.5x at sociability=0
+        scaled_min = min_interval * sociability_scale
+        scaled_max = max_interval * sociability_scale
+        
+        time_since_last = now - self.state.last_engaged_gesture_time
+        
+        # Use a randomized check so gestures don't happen on a metronome
+        # Probability increases as time passes beyond min_interval
+        if time_since_last < scaled_min:
+            return
+        
+        # Probability ramps from 0 at min_interval to ~0.8 at max_interval
+        progress = (time_since_last - scaled_min) / max(1.0, scaled_max - scaled_min)
+        trigger_chance = min(0.8, progress * 0.5)  # Gradual ramp
+        
+        if random.random() > trigger_chance * dt * 2:
+            return
+        
+        # Pick a gesture weighted by config
+        gestures = phase_config['gestures']
+        
+        # Filter by personality
+        filtered = []
+        for g_type, g_dur, g_weight in gestures:
+            weight = g_weight
+            # Personality-based weight adjustments
+            if g_type == GestureType.ORBIT and self.meta.exploration > 0.5:
+                weight *= 1.5  # Explorers orbit more
+            if g_type == GestureType.SETTLE and self.meta.attention_span > 0.6:
+                weight *= 1.5  # Focused personalities settle more
+            if g_type in (GestureType.NOD, GestureType.LEAN) and self.meta.sociability > 0.6:
+                weight *= 1.3  # Social personalities acknowledge more
+            if g_type == GestureType.SWAY and self.meta.energy > 0.5:
+                weight *= 1.3  # Energetic personalities sway more
+            if g_type == GestureType.BREATHE and self.meta.energy < 0.5:
+                weight *= 1.5  # Calm personalities prefer breathing
+            filtered.append((g_type, g_dur, weight))
+        
+        # Weighted random selection
+        total_weight = sum(w for _, _, w in filtered)
+        roll = random.random() * total_weight
+        cumulative = 0
+        chosen_type, chosen_dur = filtered[0][0], filtered[0][1]
+        for g_type, g_dur, g_weight in filtered:
+            cumulative += g_weight
+            if roll <= cumulative:
+                chosen_type = g_type
+                chosen_dur = g_dur
+                break
+        
+        # For BREATHE gesture, we just intensify the breathing overlay
+        # rather than triggering a positional gesture
+        if chosen_type == GestureType.BREATHE:
+            self.state.engaged_breathe_active = True
+            # Bump up depth temporarily
+            self.state.engaged_breathe_depth = min(1.0, self.state.engaged_breathe_depth + 0.3)
+            self.state.last_engaged_gesture_time = now
+            self.state.engaged_gesture_count += 1
+            return
+        
+        # For SETTLE, we don't move — we tighten the wander box temporarily
+        # This is handled in calculate_parameters when SETTLE gesture is active
+        if chosen_type == GestureType.SETTLE:
+            self.trigger_gesture(GestureType.SETTLE, duration=chosen_dur)
+            self.state.last_engaged_gesture_time = now
+            self.state.engaged_gesture_count += 1
+            return
+        
+        # For position-based gestures, get the primary person's position as anchor
+        primary = self.get_primary_person()
+        if not primary:
+            return
+        
+        person_pos = primary[1]  # np.ndarray position
+        
+        # Trigger the gesture with the person's current position as target
+        # The actual animation is computed frame-by-frame in _compute_engaged_gesture_position
+        self.trigger_gesture(chosen_type, target=person_pos.copy(), duration=chosen_dur)
+        self.state.last_engaged_gesture_time = now
+        self.state.engaged_gesture_count += 1
+
+    def _compute_engaged_gesture_position(self) -> Optional[np.ndarray]:
+        """
+        Compute the animated target position for an active engaged gesture.
+        
+        Called every frame from get_gesture_target() when an engaged gesture
+        is active. Uses the gesture's base target (person position at trigger time)
+        and applies the appropriate animation curve.
+        
+        Returns:
+            Animated target position, or None if gesture shouldn't override position.
+        """
+        if self.state.gesture_target is None:
+            return None
+        
+        elapsed = time.time() - self.state.gesture_start_time
+        duration = self.state.gesture_duration
+        if duration <= 0:
+            return None
+        
+        # Normalized progress 0-1
+        t = min(1.0, elapsed / duration)
+        
+        # Ease in/out for smooth movement (sine-based)
+        # Goes 0→1→0 over the gesture duration (out and back)
+        wave = math.sin(t * math.pi)  # Smooth bell: 0 at start, 1 at middle, 0 at end
+        
+        base = self.state.gesture_target.copy()
+        gesture = self.state.gesture
+        amps = self.ENGAGED_GESTURE_AMPLITUDES.get(gesture, {})
+        
+        if gesture == GestureType.NOD:
+            # Small Y bob — up then back down
+            base[1] += amps.get('y', 12) * wave
+            
+        elif gesture == GestureType.LEAN:
+            # Brief Z shift toward person (forward) then back
+            # Use a faster attack, slower decay for a "lean in" feel
+            lean_wave = math.sin(t * math.pi) * (1.0 - t * 0.3)  # Slightly asymmetric
+            base[2] += amps.get('z', 15) * lean_wave
+            
+        elif gesture == GestureType.SWAY:
+            # Gentle lateral X oscillation — one full sway cycle
+            # Use a slower sine for a relaxed feel
+            sway_wave = math.sin(t * math.pi * 2)  # Full cycle: left, right, center
+            fade = 1.0 - abs(2 * t - 1)  # Fade in at start, fade out at end
+            base[0] += amps.get('x', 18) * sway_wave * fade
+            
+        elif gesture == GestureType.ORBIT:
+            # Small lazy circle around the person's position
+            angle = t * math.pi * 2  # Full circle over duration
+            fade = math.sin(t * math.pi)  # Fade in/out
+            base[0] += amps.get('x', 15) * math.cos(angle) * fade
+            base[1] += amps.get('y', 8) * math.sin(angle) * fade
+        
+        return base
+    
+    def _apply_engaged_breathing(self, params: Dict) -> Dict:
+        """
+        Apply the breathing brightness/radius overlay to calculated parameters.
+        
+        This creates a slow, meditative brightness wave during engagement,
+        like the light is "breathing" in sync with the visitor. The effect
+        ramps up gradually and varies by dwell phase.
+        
+        Called from calculate_parameters().
+        """
+        if not self.state.engaged_breathe_active or self.state.engaged_breathe_depth <= 0:
+            return params
+        
+        result = dict(params)
+        
+        # Sine wave oscillation (centered at 0, range -1 to +1)
+        wave = math.sin(self.state.engaged_breathe_phase)
+        depth = self.state.engaged_breathe_depth
+        
+        # Brightness modulation: ± configured percentage
+        brightness_mod = 1.0 + wave * self.BREATHE_CONFIG['brightness_depth'] * depth
+        result['brightness_max'] = result.get('brightness_max', 30) * brightness_mod
+        result['brightness_min'] = result.get('brightness_min', 8) * brightness_mod
+        
+        # Falloff radius modulation: gentle "in and out"
+        radius_mod = 1.0 + wave * self.BREATHE_CONFIG['radius_depth'] * depth
+        result['falloff_radius'] = result.get('falloff_radius', 50) * radius_mod
+        
+        return result
+
     def trigger_entry_pulse(self):
         """
         Trigger the entry acknowledgment pulse.
@@ -1042,15 +1394,35 @@ class BehaviorSystem:
             self.state.dwell_start_time = time.time()
     
     def on_person_left(self, person_id: int):
-        """Called when a person leaves tracking"""
+        """Called when a person leaves tracking.
+        
+        If the person was in the active zone with meaningful dwell time,
+        trigger a subtle farewell gesture.
+        """
+        was_active = person_id in self.active_zone_people
+        dwell_time = 0.0
+        
+        if was_active and person_id in self.active_zone_dwell:
+            dwell_time = time.time() - self.active_zone_dwell[person_id]
+        
         if person_id in self.known_people:
             del self.known_people[person_id]
         if person_id in self.people_positions:
             del self.people_positions[person_id]
+        
+        last_pos = None
         if person_id in self.active_zone_people:
+            last_pos = self.active_zone_people[person_id]
             del self.active_zone_people[person_id]
         if person_id in self.active_zone_dwell:
             del self.active_zone_dwell[person_id]
+        
+        # Farewell gesture if they had meaningful engagement (>5s dwell)
+        # and no other active people remain
+        if (was_active and dwell_time > 5.0 and 
+            len(self.active_zone_people) == 0 and 
+            self.meta.gestures_enabled and last_pos is not None):
+            self.trigger_gesture(GestureType.FAREWELL, target=last_pos, duration=2.0)
     
     def update_person_position(self, person_id: int, position: np.ndarray):
         """Update tracked person position"""
@@ -2650,6 +3022,23 @@ class BehaviorSystem:
             # Also tighten falloff for more focused effect
             params['falloff_radius'] = params.get('falloff_radius', 50) * (1.0 - 0.3 * entry_pulse_intensity)
         
+        # Apply engaged breathing overlay (subtle brightness/radius wave)
+        params = self._apply_engaged_breathing(params)
+        
+        # Apply SETTLE gesture effect (temporarily tighten and slow)
+        if self.state.gesture == GestureType.SETTLE:
+            elapsed = now - self.state.gesture_start_time
+            duration = self.state.gesture_duration
+            if duration > 0:
+                settle_t = min(1.0, elapsed / duration)
+                settle_wave = math.sin(settle_t * math.pi)  # Bell curve
+                # Tighten falloff radius (more focused)
+                params['falloff_radius'] = params.get('falloff_radius', 50) * (1.0 - 0.15 * settle_wave)
+                # Slow down slightly (more contemplative)
+                params['move_speed'] = params.get('move_speed', 25) * (1.0 - 0.2 * settle_wave)
+                # Slight brightness increase (warmth)
+                params['brightness_max'] = params.get('brightness_max', 30) * (1.0 + 0.08 * settle_wave)
+        
         # Apply bloom effect (smooth transition to full-panel radius)
         if self.state.bloom_active or self.state.bloom_progress > 0:
             base_radius = params.get('falloff_radius', 50)
@@ -2677,7 +3066,19 @@ class BehaviorSystem:
         if self.state.bloom_active:
             key = ('bloom', 'default')
         elif self.state.gesture != GestureType.NONE:
-            key = ('idle', 'gesture')
+            # Use specific status for engaged gestures
+            if self.state.gesture == GestureType.NOD:
+                key = ('engaged', 'nod')
+            elif self.state.gesture == GestureType.LEAN:
+                key = ('engaged', 'lean')
+            elif self.state.gesture == GestureType.SWAY:
+                key = ('engaged', 'sway')
+            elif self.state.gesture == GestureType.ORBIT:
+                key = ('engaged', 'orbit')
+            elif self.state.gesture in (GestureType.BREATHE, GestureType.SETTLE):
+                key = ('engaged', 'breathing')
+            else:
+                key = ('idle', 'gesture')
         elif self.state.mode == BehaviorMode.IDLE:
             if self.state.is_bored:
                 key = ('idle', 'bored')
@@ -2824,6 +3225,13 @@ class BehaviorSystem:
         # Update bloom state
         self._update_bloom(dt, now, active_count)
         
+        # Update engaged interaction gestures (subtle ongoing presence during engagement)
+        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+            self._update_engaged_gestures(dt, active_count)
+        else:
+            # Wind down breathing when not engaged
+            self._update_engaged_gestures(dt, 0)
+        
         # Calculate parameters
         params = self.calculate_parameters(
             active_count, passive_count, current_pos, flow_balance
@@ -2933,9 +3341,24 @@ class BehaviorSystem:
             self.animated_wander_box[key] = current + (target - current) * lerp_factor
     
     def get_gesture_target(self) -> Optional[np.ndarray]:
-        """Get target position for current gesture, if any"""
+        """Get target position for current gesture, if any.
+        
+        For engaged gestures (NOD, LEAN, SWAY, ORBIT), computes an animated
+        position each frame rather than returning a static target.
+        """
         if self.state.gesture == GestureType.NONE:
             return None
+        
+        # Dynamic engaged gestures compute position frame-by-frame
+        if self.state.gesture in (GestureType.NOD, GestureType.LEAN, 
+                                   GestureType.SWAY, GestureType.ORBIT):
+            return self._compute_engaged_gesture_position()
+        
+        # SETTLE and BREATHE don't override position (they modify parameters)
+        if self.state.gesture in (GestureType.SETTLE, GestureType.BREATHE):
+            return None
+        
+        # All other gestures use their static target
         return self.state.gesture_target
     
     def should_wander(self) -> bool:
@@ -3137,6 +3560,12 @@ class BehaviorSystem:
             'driving_factors': driving_factors,
             'proximity_factor': self.state.proximity_factor,
             'entry_pulse_active': self.state.entry_pulse_active,
+            'engaged_breathing': {
+                'active': self.state.engaged_breathe_active,
+                'depth': self.state.engaged_breathe_depth,
+                'phase': self.state.engaged_breathe_phase,
+                'gesture_count': self.state.engaged_gesture_count,
+            },
             'idle_trends': idle_trends_info,
             'aggression': aggression_info,
             'flow': flow_info,
