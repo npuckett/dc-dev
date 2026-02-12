@@ -86,6 +86,10 @@ import json
 # CONFIGURATION (all units in centimeters)
 # =============================================================================
 
+# Resolve all relative paths to this script's directory (IO/)
+# This ensures the DB is always in the same place regardless of cwd
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # OSC settings
 OSC_IP = "0.0.0.0"  # Listen on all interfaces
 OSC_PORT = 7000
@@ -3506,19 +3510,24 @@ def main():
     # Tracked person manager
     tracked_manager = TrackedPersonManager()
     
-    # Find available database files
+    # Find available database files (always in script's directory)
     import glob
-    db_files = sorted(glob.glob("*.db") + glob.glob("tracking_*.db"))
+    db_pattern_dir = SCRIPT_DIR
+    db_files = sorted(
+        os.path.basename(f) for f in 
+        glob.glob(os.path.join(db_pattern_dir, "*.db")) + glob.glob(os.path.join(db_pattern_dir, "tracking_*.db"))
+    )
+    db_files = list(dict.fromkeys(db_files))  # deduplicate preserving order
     if "tracking_history.db" not in db_files:
         db_files.insert(0, "tracking_history.db")
     else:
         # Move tracking_history.db to front
         db_files.remove("tracking_history.db")
         db_files.insert(0, "tracking_history.db")
-    current_db_file = "tracking_history.db"
+    current_db_file = os.path.join(SCRIPT_DIR, "tracking_history.db")
     current_db_index = 0
     
-    # Tracking database
+    # Tracking database (absolute path so it works from any cwd)
     tracking_db = TrackingDatabase(current_db_file)
     print(f"💾 Tracking database: {current_db_file}")
     
@@ -3929,7 +3938,7 @@ def main():
                     # Cycle through available database files
                     if len(db_files) > 1:
                         current_db_index = (current_db_index + 1) % len(db_files)
-                        new_db_file = db_files[current_db_index]
+                        new_db_file = os.path.join(SCRIPT_DIR, db_files[current_db_index])
                         # Close old database and open new one
                         tracking_db.close()
                         tracking_db = TrackingDatabase(new_db_file)
