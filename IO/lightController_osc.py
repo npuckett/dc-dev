@@ -1193,17 +1193,42 @@ class AutoTuningManager:
         }
         
         # Safe minimums — auto-tuner cannot push below these
-        # Prevents the "crash to floor" problem when activity is persistently high
+        # Raised significantly to prevent the "zombie light" problem
+        # (bright but unresponsive when activity is high)
         self.safe_floors = {
-            'responsiveness': 0.15,
-            'energy': 0.10,
+            'responsiveness': 0.30,
+            'energy': 0.25,
             'brightness_global': 0.6,
-            'speed_global': 0.3,
-            'pulse_global': 0.3,
-            'follow_speed_global': 0.5,
-            'exploration': 0.05,
-            'sociability': 0.05,
+            'speed_global': 0.35,
+            'pulse_global': 0.35,
+            'follow_speed_global': 0.6,
+            'exploration': 0.15,
+            'sociability': 0.20,
+            'attention_span': 0.10,
+            'idle_trend_weight': 0.10,
         }
+        
+        # Mean-reversion targets — params drift back toward these when
+        # not being actively pushed. Prevents extremes from being sticky.
+        self.home_values = {
+            'responsiveness': 0.50,
+            'energy': 0.45,
+            'attention_span': 0.50,
+            'sociability': 0.45,
+            'exploration': 0.40,
+            'memory': 0.30,
+            'brightness_global': 1.2,
+            'speed_global': 0.70,
+            'pulse_global': 0.80,
+            'follow_speed_global': 1.0,
+            'dwell_influence': 0.50,
+            'idle_trend_weight': 0.40,
+        }
+        
+        # Curiosity: periodic random perturbation to explore parameter space
+        self._curiosity_interval = 60.0  # Every 60 seconds
+        self._last_curiosity_time = time.time()
+        self._curiosity_strength = 0.015  # Small random nudge
         
         # Learned biases from previous days' reports (loaded from DB)
         self.learned_starting_values: Dict[str, float] = {}
@@ -1379,9 +1404,10 @@ class AutoTuningManager:
         budget_max = self._budget_max()
         dt_budget = max(0.0, now - self.budget_last_time)
         if dt_budget > 0:
-            restore_rate = budget_max / 120.0 if budget_max > 0 else 0.0
+            # Slower budget restore: budget_max/180 instead of /120
+            restore_rate = budget_max / 180.0 if budget_max > 0 else 0.0
             aggression = behavior_status.get('aggression', {})
-            engagement_bonus = budget_max / 45.0 if aggression.get('current_engagement') else 0.0
+            engagement_bonus = budget_max / 60.0 if aggression.get('current_engagement') else 0.0
             self.budget_current = min(budget_max, self.budget_current + dt_budget * (restore_rate + engagement_bonus))
             self.budget_last_time = now
 
@@ -1410,32 +1436,71 @@ class AutoTuningManager:
         elif aggression_level > 0.6:
             damping = self.config.damping_moderate
 
+        # --- REDESIGNED DELTA LOGIC ---
+        # Instead of pushing everything DOWN when activity is high (which creates
+        # a zombie light), use a nuanced response:
+        # - High activity: increase responsiveness/sociability (match the energy!)
+        #   but moderate brightness/pulse (don't be obnoxious)
+        # - Low activity: increase brightness/exploration (attract attention)
+        #   but keep personality moderate (nothing to react to)
+        # - Always apply mean-reversion toward home_values to prevent sticking at extremes
+
         target = self.config.target_activity
-        need_short = max(-0.4, min(0.4, target - short_activity))
-        need_medium = max(-0.4, min(0.4, target - medium_activity))
-        need_long = max(-0.4, min(0.4, target - long_activity))
-        combined_need = 0.5 * need_short + 0.3 * need_medium + 0.2 * need_long
+        activity_excess = max(-0.5, min(0.5, short_activity - target))  # positive when busy
+        medium_excess = max(-0.5, min(0.5, medium_activity - target))
+        long_deficit = max(-0.3, min(0.3, target - long_activity))  # positive when quiet
 
-        deltas = {
-            'responsiveness': combined_need * 0.08 * damping,
-            'sociability': combined_need * 0.07 * damping,
-            'follow_speed_global': combined_need * 0.12 * damping,
-            'energy': combined_need * 0.06 * damping,
-            'brightness_global': need_long * 0.10 * damping,
-            'speed_global': need_short * 0.07 * damping,
-            'pulse_global': need_short * 0.06 * damping,
-        }
+        deltas = {}
 
-        if medium_activity < 0.4:
-            deltas['exploration'] = (0.4 - medium_activity) * 0.10 * damping
-            deltas['attention_span'] = (0.4 - medium_activity) * 0.08 * damping
-        elif medium_activity > 0.75:
-            deltas['exploration'] = -(medium_activity - 0.75) * 0.08 * damping
-            deltas['attention_span'] = (medium_activity - 0.75) * 0.04 * damping
+        # PERSONALITY PARAMS: should INCREASE with activity (match the energy)
+        # When busy: be more responsive, social, energetic
+        # When quiet: relax toward home values (mean reversion handles this)
+        deltas['responsiveness'] = activity_excess * 0.04 * damping
+        deltas['sociability'] = activity_excess * 0.04 * damping
+        deltas['energy'] = activity_excess * 0.03 * damping
+        deltas['follow_speed_global'] = activity_excess * 0.05 * damping
 
-        deltas['memory'] = (long_activity - 0.5) * 0.04 * damping
-        deltas['dwell_influence'] = (energy_level - 0.5) * 0.04 * damping
-        deltas['idle_trend_weight'] = (0.5 - short_activity) * 0.04 * damping
+        # DISPLAY PARAMS: inversely adjust to activity
+        # When quiet: brighter, more pulsing, more speed (attract attention)
+        # When busy: moderate down (don't be overwhelming)
+        deltas['brightness_global'] = -activity_excess * 0.04 * damping + long_deficit * 0.06 * damping
+        deltas['speed_global'] = -activity_excess * 0.03 * damping + long_deficit * 0.04 * damping
+        deltas['pulse_global'] = -activity_excess * 0.03 * damping + long_deficit * 0.04 * damping
+
+        # EXPLORATION: increase when things are quiet (search for people)
+        # decrease when busy (focus on the crowd)
+        if medium_activity < 0.3:
+            deltas['exploration'] = (0.3 - medium_activity) * 0.06 * damping
+        elif medium_activity > 0.6:
+            deltas['exploration'] = -(medium_activity - 0.6) * 0.04 * damping
+
+        # ATTENTION SPAN: longer when quiet (contemplate), shorter when busy (reactive)
+        deltas['attention_span'] = -activity_excess * 0.03 * damping
+
+        deltas['memory'] = (long_activity - 0.5) * 0.03 * damping
+        deltas['dwell_influence'] = (energy_level - 0.5) * 0.03 * damping
+        deltas['idle_trend_weight'] = (0.5 - short_activity) * 0.03 * damping
+
+        # --- MEAN REVERSION ---
+        # Always gently pull params toward their home values
+        # This prevents getting stuck at extremes and creates natural oscillation
+        current_values = self._get_values()
+        reversion_strength = 0.008  # Gentle pull
+        for name, home_val in self.home_values.items():
+            current_val = current_values.get(name)
+            if current_val is not None:
+                distance_from_home = home_val - current_val
+                # Stronger pull when further from home
+                pull = distance_from_home * reversion_strength
+                deltas[name] = deltas.get(name, 0.0) + pull
+
+        # --- CURIOSITY: periodic random perturbation ---
+        # Prevents the system from settling into a static equilibrium
+        if now - self._last_curiosity_time > self._curiosity_interval:
+            self._last_curiosity_time = now
+            for name in self.param_order:
+                nudge = (random.random() - 0.5) * 2.0 * self._curiosity_strength
+                deltas[name] = deltas.get(name, 0.0) + nudge
 
         old_values = self._get_values()
         new_values = dict(old_values)
@@ -4135,8 +4200,25 @@ def main():
                     'auto_tuning': {
                         'enabled': auto_tuner.enabled,
                         'revision': auto_tuner.revision,
-                        'last_adjustment': auto_tuner.last_adjustment,
                         'params': {name: round(float(getattr(meta_params, name)), 3) for name in auto_tuner.param_order},
+                        # Compact summary instead of full last_adjustment blob
+                        'activity': {
+                            'short': round(auto_tuner.last_adjustment.get('short_activity', 0), 3) if auto_tuner.last_adjustment else 0,
+                            'medium': round(auto_tuner.last_adjustment.get('medium_activity', 0), 3) if auto_tuner.last_adjustment else 0,
+                            'long': round(auto_tuner.last_adjustment.get('long_activity', 0), 3) if auto_tuner.last_adjustment else 0,
+                            'energy': round(auto_tuner.last_adjustment.get('energy_level', 0), 3) if auto_tuner.last_adjustment else 0,
+                        } if auto_tuner.last_adjustment else None,
+                        'budget': {
+                            'current': round(auto_tuner.budget_current, 1),
+                            'max': round(auto_tuner._budget_max(), 1),
+                        },
+                        'top_deltas': [
+                            {'name': n, 'delta': round(d, 4)}
+                            for n, d in sorted(
+                                (auto_tuner.last_adjustment.get('applied_deltas', {}) if auto_tuner.last_adjustment else {}).items(),
+                                key=lambda kv: abs(kv[1]), reverse=True
+                            )[:4]
+                        ] if auto_tuner.last_adjustment else [],
                     },
                     'population': {
                         'current': len(tracked_manager.get_all()),

@@ -623,6 +623,9 @@ function updateAutoTuneDisplay(autoTuning) {
     
     const params = autoTuning.params || {};
     const enabled = autoTuning.enabled;
+    const activity = autoTuning.activity;
+    const budget = autoTuning.budget;
+    const topDeltas = autoTuning.top_deltas || [];
     
     // Friendly short names
     const labels = {
@@ -640,7 +643,36 @@ function updateAutoTuneDisplay(autoTuning) {
         'idle_trend_weight': 'Idl×',
     };
     
-    let html = `<div class="autotune-header">${enabled ? '🤖 Auto-Tune' : '⏸ Auto-Tune Off'}</div>`;
+    let html = `<div class="autotune-header">${enabled ? '🤖 Auto-Tune #' + (autoTuning.revision || 0) : '⏸ Auto-Tune Off'}</div>`;
+    
+    // Activity levels bar
+    if (activity) {
+        html += '<div class="at-activity">';
+        html += `<div class="at-act-row"><span class="at-label">5m</span><div class="at-bar-track"><div class="at-bar-fill at-bar-short" style="width:${(activity.short * 100).toFixed(0)}%"></div></div><span class="at-act-val">${(activity.short * 100).toFixed(0)}%</span></div>`;
+        html += `<div class="at-act-row"><span class="at-label">30m</span><div class="at-bar-track"><div class="at-bar-fill at-bar-med" style="width:${(activity.medium * 100).toFixed(0)}%"></div></div><span class="at-act-val">${(activity.medium * 100).toFixed(0)}%</span></div>`;
+        html += `<div class="at-act-row"><span class="at-label">Nrg</span><div class="at-bar-track"><div class="at-bar-fill at-bar-energy" style="width:${(activity.energy * 100).toFixed(0)}%"></div></div><span class="at-act-val">${(activity.energy * 100).toFixed(0)}%</span></div>`;
+        html += '</div>';
+    }
+    
+    // Budget bar
+    if (budget && budget.max > 0) {
+        const budgetPct = Math.min(100, (budget.current / budget.max * 100)).toFixed(0);
+        html += `<div class="at-budget"><span class="at-label">Budget</span><div class="at-bar-track"><div class="at-bar-fill at-bar-budget" style="width:${budgetPct}%"></div></div><span class="at-act-val">${budgetPct}%</span></div>`;
+    }
+    
+    // Top deltas (what's changing right now)
+    if (topDeltas.length > 0) {
+        html += '<div class="at-deltas">';
+        for (const d of topDeltas) {
+            const label = labels[d.name] || d.name;
+            const arrow = d.delta > 0 ? '↑' : '↓';
+            const cls = d.delta > 0 ? 'at-delta-up' : 'at-delta-down';
+            html += `<span class="${cls}">${arrow}${label}</span>`;
+        }
+        html += '</div>';
+    }
+    
+    // Param grid
     html += '<div class="autotune-grid">';
     for (const [key, val] of Object.entries(params)) {
         const label = labels[key] || key;

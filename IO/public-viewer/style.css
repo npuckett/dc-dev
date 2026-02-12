@@ -626,3 +626,71 @@ html, body {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
+
+/* Auto-tune activity bars */
+.at-activity, .at-budget {
+    margin: 4px 0;
+}
+
+.at-act-row, .at-budget {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0;
+    font-size: 10px;
+}
+
+.at-act-row .at-label, .at-budget .at-label {
+    min-width: 24px;
+}
+
+.at-bar-track {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.at-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+
+.at-bar-short { background: rgba(100, 180, 255, 0.7); }
+.at-bar-med { background: rgba(180, 140, 255, 0.7); }
+.at-bar-energy { background: rgba(255, 180, 80, 0.7); }
+.at-bar-budget { background: rgba(80, 220, 140, 0.6); }
+
+.at-act-val {
+    min-width: 28px;
+    text-align: right;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Delta direction indicators */
+.at-deltas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0;
+}
+
+.at-delta-up {
+    font-size: 9px;
+    color: rgba(100, 220, 160, 0.8);
+    background: rgba(100, 220, 160, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.at-delta-down {
+    font-size: 9px;
+    color: rgba(255, 140, 100, 0.8);
+    background: rgba(255, 140, 100, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+}

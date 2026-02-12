@@ -1470,7 +1470,14 @@ class BehaviorSystem:
                 if ltr + rtl > 0:
                     trends.short_flow_direction = (ltr - rtl) / (ltr + rtl)
                 total_short = trends.short_passive_count + trends.short_active_count
-                trends.short_activity_level = min(1.0, total_short / 8000.0)
+                # Use log scaling so activity levels don't saturate during normal traffic
+                # Old: total/8000 → saturated at 1.0 for 80%+ of the time
+                # New: log curve that reaches 0.5 around 3000 events, 0.8 at 15000
+                import math as _math
+                if total_short > 0:
+                    trends.short_activity_level = min(1.0, _math.log1p(total_short / 1500.0) / _math.log1p(30.0))
+                else:
+                    trends.short_activity_level = 0.0
                 trends.has_short_data = (total_short > 0)
             
             # Medium term (30 minutes) - simplified query
@@ -1490,7 +1497,14 @@ class BehaviorSystem:
                 if ltr + rtl > 0:
                     trends.medium_flow_direction = (ltr - rtl) / (ltr + rtl)
                 total_medium = trends.medium_passive_count + trends.medium_active_count
-                trends.medium_activity_level = min(1.0, total_medium / 50000.0)
+                # Use log scaling so medium activity doesn't saturate during sustained traffic
+                # Old: total/50000 → saturated to 1.0 during any busy period
+                # New: log curve that reaches 0.5 around 15000, 0.8 at 80000
+                import math as _math
+                if total_medium > 0:
+                    trends.medium_activity_level = min(1.0, _math.log1p(total_medium / 8000.0) / _math.log1p(40.0))
+                else:
+                    trends.medium_activity_level = 0.0
                 trends.has_medium_data = (total_medium > 0)
             
             # Skip expensive historical queries for performance
