@@ -90,9 +90,18 @@ class TrackingDatabase:
     
     def __init__(self, db_path: str = "tracking_history.db"):
         self.db_path = Path(db_path)
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
         self.lock = threading.Lock()
+        
+        # Check for corruption and recover if needed
+        self.conn = self._safe_connect()
+        self.conn.row_factory = sqlite3.Row
+        
+        # Enable WAL mode for better crash resilience
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
         
         # Track previous positions for velocity calculation
         self.prev_positions: Dict[int, Tuple[float, float, float, float]] = {}  # id -> (x, z, timestamp)
@@ -122,6 +131,83 @@ class TrackingDatabase:
         }
         
         self._create_tables()
+    
+    def _safe_connect(self) -> sqlite3.Connection:
+        """Connect to database with integrity check. Auto-recovers if corrupted."""
+        if not self.db_path.exists():
+            print(f"\U0001f4be Creating new tracking database: {self.db_path}")
+            return sqlite3.connect(str(self.db_path), check_same_thread=False)
+        
+        try:
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            result = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if result == "ok":
+                return conn
+            else:
+                print(f"\u26a0\ufe0f Database integrity check failed: {result}")
+                conn.close()
+                return self._recover_database()
+        except sqlite3.DatabaseError as e:
+            print(f"\u26a0\ufe0f Database error on open: {e}")
+            return self._recover_database()
+    
+    def _recover_database(self) -> sqlite3.Connection:
+        """Attempt to recover a corrupted database. Falls back to fresh DB."""
+        import subprocess
+        backup_path = self.db_path.with_suffix(
+            f".db.bak.corrupted_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        print(f"\U0001f4e6 Backing up corrupted DB to: {backup_path}")
+        
+        try:
+            import shutil
+            shutil.copy2(str(self.db_path), str(backup_path))
+        except Exception as e:
+            print(f"  Backup failed: {e}")
+        
+        # Try to recover using sqlite3 .recover command
+        recovered_path = self.db_path.with_suffix(".db.recovered")
+        try:
+            result = subprocess.run(
+                ['sqlite3', str(self.db_path), '.recover'],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.stdout.strip():
+                subprocess.run(
+                    ['sqlite3', str(recovered_path)],
+                    input=result.stdout, capture_output=True, text=True, timeout=60
+                )
+                # Check if recovery has any data
+                test_conn = sqlite3.connect(str(recovered_path))
+                tables = test_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+                test_conn.close()
+                
+                if tables:
+                    print(f"\u2705 Recovered database with {len(tables)} tables")
+                    self.db_path.unlink()
+                    recovered_path.rename(self.db_path)
+                    # Remove leftover journal
+                    journal = self.db_path.with_suffix(".db-journal")
+                    if journal.exists():
+                        journal.unlink()
+                    return sqlite3.connect(str(self.db_path), check_same_thread=False)
+                else:
+                    print("\u26a0\ufe0f Recovery produced empty database")
+                    recovered_path.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"\u26a0\ufe0f Recovery failed: {e}")
+            recovered_path.unlink(missing_ok=True)
+        
+        # Last resort: start fresh
+        print("\U0001f195 Creating fresh database (old data preserved in backup)")
+        self.db_path.unlink(missing_ok=True)
+        # Remove leftover journal
+        journal = self.db_path.with_suffix(".db-journal")
+        if journal.exists():
+            journal.unlink()
+        return sqlite3.connect(str(self.db_path), check_same_thread=False)
     
     def _create_tables(self):
         """Create database tables if they don't exist"""
@@ -374,22 +460,25 @@ class TrackingDatabase:
         # Store in database
         dt_str = datetime.fromtimestamp(timestamp).isoformat()
         
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT INTO tracking_events 
-                (timestamp, datetime, person_id, x, z, vx, vz, speed, zone, flow_direction)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (timestamp, dt_str, person_id, x, z, vx, vz, speed, zone.value, flow_dir))
-            
-            # Batched commit: only commit when batch is full or interval elapsed
-            self._pending_writes += 1
-            now = time.time()
-            if self._pending_writes >= self._commit_batch_size or \
-               now - self._last_commit_time >= self._commit_interval:
-                self.conn.commit()
-                self._pending_writes = 0
-                self._last_commit_time = now
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO tracking_events 
+                    (timestamp, datetime, person_id, x, z, vx, vz, speed, zone, flow_direction)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (timestamp, dt_str, person_id, x, z, vx, vz, speed, zone.value, flow_dir))
+                
+                # Batched commit: only commit when batch is full or interval elapsed
+                self._pending_writes += 1
+                now = time.time()
+                if self._pending_writes >= self._commit_batch_size or \
+                   now - self._last_commit_time >= self._commit_interval:
+                    self.conn.commit()
+                    self._pending_writes = 0
+                    self._last_commit_time = now
+        except sqlite3.DatabaseError as e:
+            print(f"\u26a0\ufe0f DB write error in record_position: {e}")
     
     def remove_person(self, person_id: int):
         """Called when a person leaves tracking - cleans up velocity state"""
@@ -416,29 +505,32 @@ class TrackingDatabase:
         
         dt_str = datetime.fromtimestamp(timestamp).isoformat()
         
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT INTO light_behavior 
-                (timestamp, datetime, mode, position_x, position_y, position_z,
-                 target_x, target_y, target_z, brightness, pulse_speed, move_speed,
-                 people_count, active_count, passive_count, gesture_type, status_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (timestamp, dt_str, mode, 
-                  position[0], position[1], position[2],
-                  target[0], target[1], target[2],
-                  brightness, pulse_speed, move_speed,
-                  people_count, active_count, passive_count,
-                  gesture_type, status_text))
-            
-            # Batched commit: only commit when batch is full or interval elapsed
-            self._pending_writes += 1
-            now = time.time()
-            if self._pending_writes >= self._commit_batch_size or \
-               now - self._last_commit_time >= self._commit_interval:
-                self.conn.commit()
-                self._pending_writes = 0
-                self._last_commit_time = now
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO light_behavior 
+                    (timestamp, datetime, mode, position_x, position_y, position_z,
+                     target_x, target_y, target_z, brightness, pulse_speed, move_speed,
+                     people_count, active_count, passive_count, gesture_type, status_text)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (timestamp, dt_str, mode, 
+                      position[0], position[1], position[2],
+                      target[0], target[1], target[2],
+                      brightness, pulse_speed, move_speed,
+                      people_count, active_count, passive_count,
+                      gesture_type, status_text))
+                
+                # Batched commit: only commit when batch is full or interval elapsed
+                self._pending_writes += 1
+                now = time.time()
+                if self._pending_writes >= self._commit_batch_size or \
+                   now - self._last_commit_time >= self._commit_interval:
+                    self.conn.commit()
+                    self._pending_writes = 0
+                    self._last_commit_time = now
+        except sqlite3.DatabaseError as e:
+            print(f"\u26a0\ufe0f DB write error in record_light_state: {e}")
 
     def record_behavior_adjustment(self, enabled: bool, reason: str,
                                    short_activity: float, medium_activity: float,
@@ -456,25 +548,28 @@ class TrackingDatabase:
         dt_str = datetime.fromtimestamp(timestamp).isoformat()
         adjustments_json = json.dumps(adjustments, separators=(',', ':'))
 
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT INTO behavior_adjustments
-                (timestamp, datetime, enabled, reason, short_activity, medium_activity,
-                 long_activity, energy_level, aggression_level, adjustments_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (timestamp, dt_str, int(enabled), reason, short_activity,
-                  medium_activity, long_activity, energy_level, aggression_level,
-                  adjustments_json))
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO behavior_adjustments
+                    (timestamp, datetime, enabled, reason, short_activity, medium_activity,
+                     long_activity, energy_level, aggression_level, adjustments_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (timestamp, dt_str, int(enabled), reason, short_activity,
+                      medium_activity, long_activity, energy_level, aggression_level,
+                      adjustments_json))
 
-            # Batched commit: only commit when batch is full or interval elapsed
-            self._pending_writes += 1
-            now = time.time()
-            if self._pending_writes >= self._commit_batch_size or \
-               now - self._last_commit_time >= self._commit_interval:
-                self.conn.commit()
-                self._pending_writes = 0
-                self._last_commit_time = now
+                # Batched commit: only commit when batch is full or interval elapsed
+                self._pending_writes += 1
+                now = time.time()
+                if self._pending_writes >= self._commit_batch_size or \
+                   now - self._last_commit_time >= self._commit_interval:
+                    self.conn.commit()
+                    self._pending_writes = 0
+                    self._last_commit_time = now
+        except sqlite3.DatabaseError as e:
+            print(f"\u26a0\ufe0f DB write error in record_behavior_adjustment: {e}")
 
     def get_daily_adjustments(self, date_str: str) -> Dict:
         """
