@@ -46,11 +46,30 @@
             </div>
             <div class="trend-panel behavior-panel">
                 <div class="behavior-header">
-                    <span class="behavior-title">Auto-Tune Weights</span>
+                    <span class="behavior-title">Auto-Tune</span>
                     <span class="behavior-status" id="behavior-status-label">Off</span>
                 </div>
+                <!-- Activity / Budget summary -->
+                <div class="tune-summary">
+                    <div class="tune-stat">
+                        <span class="tune-stat-label">Activity</span>
+                        <span class="tune-stat-value" id="tune-activity">--</span>
+                    </div>
+                    <div class="tune-stat">
+                        <span class="tune-stat-label">Target</span>
+                        <span class="tune-stat-value" id="tune-target">--</span>
+                    </div>
+                    <div class="tune-stat">
+                        <span class="tune-stat-label">Energy</span>
+                        <span class="tune-stat-value" id="tune-energy">--</span>
+                    </div>
+                    <div class="tune-stat">
+                        <span class="tune-stat-label">Budget</span>
+                        <span class="tune-stat-value" id="tune-budget">--</span>
+                    </div>
+                </div>
+                <!-- Activity window bars -->
                 <div class="behavior-trends">
-                    <div class="behavior-note">Weights are derived from recent activity.</div>
                     <div class="trend-row" data-range="short">
                         <span class="trend-tag">5m <span class="trend-tag-value" id="trend-short-weight">--</span></span>
                         <div class="trend-bar">
@@ -76,32 +95,76 @@
                         <span class="trend-count" id="trend-long-total">-</span>
                     </div>
                 </div>
+                <!-- Personality parameters -->
+                <div class="params-section-label">Personality</div>
                 <div class="behavior-params">
                     <div class="param-item" data-param="responsiveness">
                         <span class="param-label">Resp</span>
                         <span class="param-bar"><span class="param-fill" id="param-responsiveness"></span></span>
+                        <span class="param-val" id="val-responsiveness"></span>
                     </div>
                     <div class="param-item" data-param="energy">
                         <span class="param-label">Enrg</span>
                         <span class="param-bar"><span class="param-fill" id="param-energy"></span></span>
+                        <span class="param-val" id="val-energy"></span>
                     </div>
                     <div class="param-item" data-param="attention_span">
                         <span class="param-label">Attn</span>
                         <span class="param-bar"><span class="param-fill" id="param-attention_span"></span></span>
+                        <span class="param-val" id="val-attention_span"></span>
                     </div>
                     <div class="param-item" data-param="sociability">
                         <span class="param-label">Socl</span>
                         <span class="param-bar"><span class="param-fill" id="param-sociability"></span></span>
+                        <span class="param-val" id="val-sociability"></span>
                     </div>
                     <div class="param-item" data-param="exploration">
                         <span class="param-label">Expl</span>
                         <span class="param-bar"><span class="param-fill" id="param-exploration"></span></span>
+                        <span class="param-val" id="val-exploration"></span>
                     </div>
                     <div class="param-item" data-param="memory">
                         <span class="param-label">Mem</span>
                         <span class="param-bar"><span class="param-fill" id="param-memory"></span></span>
+                        <span class="param-val" id="val-memory"></span>
                     </div>
                 </div>
+                <!-- Global parameters -->
+                <div class="params-section-label">Globals</div>
+                <div class="behavior-params">
+                    <div class="param-item" data-param="brightness_global">
+                        <span class="param-label">Brt</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-brightness_global"></span></span>
+                        <span class="param-val" id="val-brightness_global"></span>
+                    </div>
+                    <div class="param-item" data-param="speed_global">
+                        <span class="param-label">Spd</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-speed_global"></span></span>
+                        <span class="param-val" id="val-speed_global"></span>
+                    </div>
+                    <div class="param-item" data-param="pulse_global">
+                        <span class="param-label">Puls</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-pulse_global"></span></span>
+                        <span class="param-val" id="val-pulse_global"></span>
+                    </div>
+                    <div class="param-item" data-param="follow_speed_global">
+                        <span class="param-label">Flw</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-follow_speed_global"></span></span>
+                        <span class="param-val" id="val-follow_speed_global"></span>
+                    </div>
+                    <div class="param-item" data-param="dwell_influence">
+                        <span class="param-label">Dwl</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-dwell_influence"></span></span>
+                        <span class="param-val" id="val-dwell_influence"></span>
+                    </div>
+                    <div class="param-item" data-param="idle_trend_weight">
+                        <span class="param-label">Idle</span>
+                        <span class="param-bar"><span class="param-fill param-fill-global" id="param-idle_trend_weight"></span></span>
+                        <span class="param-val" id="val-idle_trend_weight"></span>
+                    </div>
+                </div>
+                <!-- Recent param changes -->
+                <div class="tune-deltas" id="tune-deltas"></div>
                 <div class="behavior-footer">
                     <span class="behavior-foot-label">Tuning activity</span>
                     <span class="behavior-pulse" id="tuning-pulse"></span>

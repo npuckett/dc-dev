@@ -652,17 +652,19 @@ function updateTrendStats() {
 }
 
 function updateTuningBars() {
-    const lastAdjustment = lastAutoTuning?.last_adjustment || {};
+    // Controller sends auto_tuning.activity = { short, medium, long, energy }
+    const activity = lastAutoTuning?.activity || {};
     const tuningRanges = [
-        { key: 'short', weight: lastAdjustment.short_activity, available: latestRealtimeTrends?.short?.available },
-        { key: 'med', weight: lastAdjustment.medium_activity, available: latestRealtimeTrends?.medium?.available },
-        { key: 'long', weight: lastAdjustment.long_activity, available: latestRealtimeTrends?.long?.available },
+        { key: 'short', weight: activity.short, available: latestRealtimeTrends?.short?.available },
+        { key: 'med', weight: activity.medium, available: latestRealtimeTrends?.medium?.available },
+        { key: 'long', weight: activity.long, available: latestRealtimeTrends?.long?.available },
     ];
 
     tuningRanges.forEach((range) => {
         const weight = typeof range.weight === 'number' ? Math.max(0, Math.min(range.weight, 1)) : null;
-        const isAvailable = range.available && weight !== null;
-        const activeWidth = isAvailable ? weight * 100 : 0;
+        const isAvailable = weight !== null;
+        // Scale up for visibility: activity values are typically 0-0.3, show as % of 0.5 max
+        const scaledWidth = isAvailable ? Math.min(weight / 0.5, 1) * 100 : 0;
 
         if (range.key === 'long') {
             const longRow = document.getElementById('trend-long-row');
@@ -676,14 +678,26 @@ function updateTuningBars() {
         const totalEl = document.getElementById(`trend-${range.key}-total`);
         const weightEl = document.getElementById(`trend-${range.key}-weight`);
 
-        if (activeEl) activeEl.style.width = `${activeWidth}%`;
+        if (activeEl) activeEl.style.width = `${scaledWidth}%`;
         if (passiveEl) passiveEl.style.width = '0%';
-        if (weightEl) weightEl.textContent = isAvailable ? `${Math.round(weight * 100)}%` : '--';
+        if (weightEl) weightEl.textContent = isAvailable ? (weight * 100).toFixed(1) + '%' : '--';
         if (totalEl) totalEl.textContent = isAvailable ? '' : '-';
     });
 }
 
+// Max display values for normalizing param bars (matches controller caps/maxes)
+const PARAM_DISPLAY_MAX = {
+    responsiveness: 1, energy: 1, attention_span: 1, sociability: 1,
+    exploration: 1, memory: 1,
+    brightness_global: 3, speed_global: 1.6, pulse_global: 2,
+    follow_speed_global: 2, dwell_influence: 1.5, idle_trend_weight: 1.5,
+};
+
+let _lastAutoTuneRevision = -1;
+let _lastRevisionTime = 0;
+
 function updateAutoTuneDisplay(autoTuning) {
+    // On/Off status
     const statusEl = document.getElementById('behavior-status-label');
     if (statusEl) {
         const enabled = autoTuning?.enabled;
@@ -691,32 +705,87 @@ function updateAutoTuneDisplay(autoTuning) {
         statusEl.classList.toggle('on', Boolean(enabled));
     }
 
+    // All 12 parameter bars with proper scaling
     const params = autoTuning?.params || {};
-    const paramKeys = [
-        'responsiveness',
-        'energy',
-        'attention_span',
-        'sociability',
-        'exploration',
-        'memory',
+    const allParamKeys = [
+        'responsiveness', 'energy', 'attention_span', 'sociability',
+        'exploration', 'memory', 'brightness_global', 'speed_global',
+        'pulse_global', 'follow_speed_global', 'dwell_influence', 'idle_trend_weight',
     ];
 
-    paramKeys.forEach((key) => {
+    allParamKeys.forEach((key) => {
         const value = typeof params[key] === 'number' ? params[key] : 0;
-        const clamped = Math.min(Math.max(value, 0), 1);
+        const maxVal = PARAM_DISPLAY_MAX[key] || 1;
+        const pct = Math.min(Math.max(value / maxVal, 0), 1) * 100;
         const bar = document.getElementById(`param-${key}`);
         if (bar) {
-            bar.style.width = `${clamped * 100}%`;
+            bar.style.width = `${pct}%`;
+        }
+        const valEl = document.getElementById(`val-${key}`);
+        if (valEl) {
+            valEl.textContent = value.toFixed(2);
         }
     });
 
-    const pulse = document.getElementById('tuning-pulse');
-    if (pulse) {
-        const lastAdjustment = autoTuning?.last_adjustment?.timestamp ?? 0;
-        const age = Date.now() / 1000 - lastAdjustment;
-        pulse.classList.toggle('active', age >= 0 && age < 6);
+    // Activity / Target / Energy / Budget summary
+    const activity = autoTuning?.activity || {};
+    const budget = autoTuning?.budget || {};
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+    setText('tune-activity', typeof activity.short === 'number' ? (activity.short * 100).toFixed(1) + '%' : '--');
+    setText('tune-energy', typeof activity.energy === 'number' ? (activity.energy * 100).toFixed(0) + '%' : '--');
+
+    // Target: show adaptive target if available from activity context
+    const targetEl = document.getElementById('tune-target');
+    if (targetEl) {
+        // Use medium activity as proxy for target display, or show budget ratio
+        if (typeof activity.medium === 'number') {
+            targetEl.textContent = (activity.medium * 100).toFixed(1) + '%';
+        } else {
+            targetEl.textContent = '--';
+        }
     }
 
+    // Budget bar
+    const budgetEl = document.getElementById('tune-budget');
+    if (budgetEl) {
+        if (typeof budget.current === 'number' && typeof budget.max === 'number' && budget.max > 0) {
+            const pct = Math.round((budget.current / budget.max) * 100);
+            budgetEl.textContent = `${pct}%`;
+            budgetEl.classList.toggle('low', pct < 30);
+        } else {
+            budgetEl.textContent = '--';
+        }
+    }
+
+    // Top deltas (recent param changes)
+    const deltasEl = document.getElementById('tune-deltas');
+    if (deltasEl) {
+        const topDeltas = autoTuning?.top_deltas || [];
+        if (topDeltas.length > 0) {
+            const deltaHtml = topDeltas.map(d => {
+                const arrow = d.delta > 0 ? '↑' : '↓';
+                const cls = d.delta > 0 ? 'delta-up' : 'delta-down';
+                const shortName = d.name.replace('_global', '').replace('_', ' ');
+                return `<span class="delta-item ${cls}">${shortName} ${arrow}${Math.abs(d.delta).toFixed(3)}</span>`;
+            }).join('');
+            deltasEl.innerHTML = deltaHtml;
+        } else {
+            deltasEl.innerHTML = '';
+        }
+    }
+
+    // Tuning pulse — use revision counter to detect changes
+    const pulse = document.getElementById('tuning-pulse');
+    if (pulse) {
+        const rev = autoTuning?.revision ?? 0;
+        if (rev !== _lastAutoTuneRevision) {
+            _lastAutoTuneRevision = rev;
+            _lastRevisionTime = Date.now();
+        }
+        const age = (Date.now() - _lastRevisionTime) / 1000;
+        pulse.classList.toggle('active', age >= 0 && age < 6);
+    }
 }
 
 // =============================================================================

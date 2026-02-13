@@ -737,8 +737,9 @@ html, body {
 }
 
 .param-item {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 28px 1fr 28px;
+    align-items: center;
     gap: 4px;
 }
 
@@ -761,5 +762,88 @@ html, body {
     height: 100%;
     width: 0%;
     background: linear-gradient(90deg, rgba(100, 200, 255, 0.6), rgba(100, 255, 200, 0.7));
+    transition: width 0.3s ease;
+}
+
+.param-fill-global {
+    background: linear-gradient(90deg, rgba(255, 180, 100, 0.6), rgba(255, 220, 130, 0.7));
+}
+
+.param-val {
+    font-size: 8px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.5);
+    min-width: 28px;
+    text-align: right;
+}
+
+/* Param section labels */
+.params-section-label {
+    font-size: 8px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 4px;
+}
+
+/* Tune summary (Activity / Target / Energy / Budget) */
+.tune-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tune-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.tune-stat-label {
+    font-size: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.tune-stat-value {
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.tune-stat-value.low {
+    color: #ff6b6b;
+}
+
+/* Top deltas (recent param changes) */
+.tune-deltas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    min-height: 0;
+}
+
+.delta-item {
+    font-size: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.delta-item.delta-up {
+    color: rgba(100, 255, 180, 0.85);
+    background: rgba(100, 255, 180, 0.1);
+}
+
+.delta-item.delta-down {
+    color: rgba(255, 140, 100, 0.85);
+    background: rgba(255, 140, 100, 0.1);
 }
 
