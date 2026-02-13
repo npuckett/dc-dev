@@ -1,0 +1,31 @@
+# Drop Ceiling - Auto-Tune Meta Review Service
+# Runs the meta-tuner analysis program once, then exits
+# Triggered by autotune-meta-review.timer (3x/day)
+#
+# Install: sudo cp autotune-meta-review.service /etc/systemd/system/
+# (Timer is installed separately)
+
+[Unit]
+Description=Drop Ceiling Auto-Tune Meta Review
+After=network.target
+
+[Service]
+Type=oneshot
+User=nick
+Group=nick
+WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
+
+# Environment setup
+Environment="PATH=/home/nick/Documents/Github/dc-dev/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Run the meta-review with 8-hour analysis window and verbose logging
+ExecStart=/home/nick/Documents/Github/dc-dev/.venv/bin/python /home/nick/Documents/Github/dc-dev/IO/autotune_meta_review.py --window 8 --verbose
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=autotune-meta-review
+
+# Timeout after 2 minutes (analysis should be fast)
+TimeoutStartSec=120

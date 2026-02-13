@@ -157,6 +157,7 @@ def release_single_instance_lock():
 # =============================================================================
 
 SLIDER_SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'slider_settings.json')
+AUTOTUNE_OVERRIDES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'autotune_overrides.json')
 
 def load_slider_settings() -> dict:
     """Load slider settings from JSON file"""
@@ -1133,7 +1134,7 @@ class AutoTuningConfig:
     target_activity: float = 0.5
     damping_strong: float = 0.4
     damping_moderate: float = 0.7
-    budget_cost_scale: float = 40.0
+    budget_cost_scale: float = 60.0
 
 
 class AutoTuningManager:
@@ -1147,7 +1148,7 @@ class AutoTuningManager:
         self.last_adjustment: Optional[dict] = None
         self.revision = 0
         self.history: List[dict] = []
-        self.budget_current = 60.0
+        self.budget_current = 30.0
         self.budget_last_time = time.time()
 
         self.param_order = [
@@ -1230,15 +1231,122 @@ class AutoTuningManager:
         }
         
         # Curiosity: periodic random perturbation to explore parameter space
-        self._curiosity_interval = 60.0  # Every 60 seconds
+        # Increased strength (0.015→0.04) and frequency (60s→30s) so curiosity
+        # can meaningfully counteract steady delta pressure toward floors
+        self._curiosity_interval = 30.0  # Every 30 seconds (was 60)
         self._last_curiosity_time = time.time()
-        self._curiosity_strength = 0.015  # Small random nudge
+        self._curiosity_strength = 0.04  # Stronger nudge (was 0.015)
+        
+        # Fix 3: Adaptive target — tracks rolling median of short_activity
+        # so the target matches actual traffic instead of a static 0.5
+        self._activity_history: List[float] = []  # Rolling window of short_activity values
+        self._activity_history_max = 500  # ~42 minutes at 5s intervals
+        self._adaptive_target: Optional[float] = None  # None = use config default until enough data
+        self._adaptive_target_min = 0.03  # Don't let target go below this
+        self._adaptive_target_max = 0.40  # Don't let target go above this
+        
+        # Fix 6: Periodic resets toward home values at time-of-day transitions
+        self._last_reset_hour: Optional[int] = None  # Track which reset window we last applied
+        self._reset_hours = {0, 6, 12, 18}  # Reset at midnight, 6am, noon, 6pm
+        self._reset_blend = 0.40  # Blend 40% toward home values on reset
+        
+        # Mean reversion parameters (overridable by meta-tuner)
+        self._reversion_base = 0.02
+        self._reversion_progressive = 0.06
+        
+        # Budget restore time (overridable by meta-tuner)
+        self._budget_restore_seconds = 300.0
+        
+        # Hot-reload: check autotune_overrides.json for meta-tuner config changes
+        self._override_file = AUTOTUNE_OVERRIDES_FILE
+        self._override_mtime: float = 0.0  # Last known mtime of override file
+        self._override_check_interval: float = 30.0  # Check every 30 seconds
+        self._last_override_check: float = 0.0
+        self._load_overrides()  # Load on startup if file exists
         
         # Learned biases from previous days' reports (loaded from DB)
         self.learned_starting_values: Dict[str, float] = {}
         self.learned_caps_adjustments: Dict[str, float] = {}
         self.days_of_learning: int = 0
 
+    def _load_overrides(self):
+        """
+        Load config overrides from autotune_overrides.json (written by meta-tuner).
+        Updates home_values, safe_floors, caps, curiosity, reversion, and budget settings.
+        """
+        try:
+            if not os.path.exists(self._override_file):
+                return False
+            
+            mtime = os.path.getmtime(self._override_file)
+            if mtime == self._override_mtime:
+                return False  # File hasn't changed
+            
+            with open(self._override_file, 'r') as f:
+                overrides = json.load(f)
+            
+            self._override_mtime = mtime
+            changes = []
+            
+            # Apply home_values overrides
+            if 'home_values' in overrides:
+                for name, val in overrides['home_values'].items():
+                    if name in self.home_values:
+                        old = self.home_values[name]
+                        if abs(old - val) > 0.001:
+                            self.home_values[name] = float(val)
+                            changes.append(f"home[{name}]:{old:.3f}→{val:.3f}")
+            
+            # Apply safe_floors overrides
+            if 'safe_floors' in overrides:
+                for name, val in overrides['safe_floors'].items():
+                    if name in self.safe_floors:
+                        old = self.safe_floors[name]
+                        if abs(old - val) > 0.001:
+                            self.safe_floors[name] = float(val)
+                            changes.append(f"floor[{name}]:{old:.3f}→{val:.3f}")
+            
+            # Apply caps overrides
+            if 'caps' in overrides:
+                for name, val in overrides['caps'].items():
+                    if name in self.caps:
+                        old = self.caps[name]
+                        if abs(old - val) > 0.001:
+                            self.caps[name] = float(val)
+                            changes.append(f"cap[{name}]:{old:.3f}→{val:.3f}")
+            
+            # Apply curiosity overrides
+            if 'curiosity' in overrides:
+                c = overrides['curiosity']
+                if 'interval' in c:
+                    self._curiosity_interval = float(c['interval'])
+                if 'strength' in c:
+                    self._curiosity_strength = float(c['strength'])
+            
+            # Apply reversion overrides (stored as instance vars for use in update())
+            if 'reversion' in overrides:
+                r = overrides['reversion']
+                if 'base' in r:
+                    self._reversion_base = float(r['base'])
+                if 'progressive' in r:
+                    self._reversion_progressive = float(r['progressive'])
+            
+            # Apply budget overrides
+            if 'budget' in overrides:
+                b = overrides['budget']
+                if 'cost_scale' in b:
+                    self.config.budget_cost_scale = float(b['cost_scale'])
+                if 'restore_seconds' in b:
+                    self._budget_restore_seconds = float(b['restore_seconds'])
+            
+            if changes:
+                logger.info(f"🔄 Loaded {len(changes)} meta-tuner overrides: {', '.join(changes[:5])}{'...' if len(changes) > 5 else ''}")
+            return True
+            
+        except (json.JSONDecodeError, IOError, ValueError) as e:
+            logger.warning(f"Failed to load autotune overrides: {e}")
+            return False
+    
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
     
@@ -1390,7 +1498,7 @@ class AutoTuningManager:
     def _budget_max(self) -> float:
         slider = self.sliders.get('interaction_budget')
         if slider is None:
-            return 60.0
+            return 30.0
         return max(0.0, float(slider.value))
 
     def _apply_values(self, new_values: dict):
@@ -1405,11 +1513,16 @@ class AutoTuningManager:
         return max(min_val, min(max_val, value))
 
     def update(self, behavior_status: dict, now: float) -> Optional[dict]:
+        # --- Periodic hot-reload of meta-tuner overrides ---
+        if now - self._last_override_check > self._override_check_interval:
+            self._last_override_check = now
+            self._load_overrides()
+        
         budget_max = self._budget_max()
         dt_budget = max(0.0, now - self.budget_last_time)
         if dt_budget > 0:
-            # Slower budget restore: budget_max/180 instead of /120
-            restore_rate = budget_max / 180.0 if budget_max > 0 else 0.0
+            # Budget restore rate from instance var (overridable by meta-tuner)
+            restore_rate = budget_max / self._budget_restore_seconds if budget_max > 0 else 0.0
             aggression = behavior_status.get('aggression', {})
             engagement_bonus = budget_max / 60.0 if aggression.get('current_engagement') else 0.0
             self.budget_current = min(budget_max, self.budget_current + dt_budget * (restore_rate + engagement_bonus))
@@ -1440,29 +1553,70 @@ class AutoTuningManager:
         elif aggression_level > 0.6:
             damping = self.config.damping_moderate
 
-        # --- REDESIGNED DELTA LOGIC ---
-        # Instead of pushing everything DOWN when activity is high (which creates
-        # a zombie light), use a nuanced response:
-        # - High activity: increase responsiveness/sociability (match the energy!)
-        #   but moderate brightness/pulse (don't be obnoxious)
-        # - Low activity: increase brightness/exploration (attract attention)
-        #   but keep personality moderate (nothing to react to)
-        # - Always apply mean-reversion toward home_values to prevent sticking at extremes
+        # --- FIX 6: PERIODIC TIME-OF-DAY RESETS ---
+        # Every 6 hours (midnight, 6am, noon, 6pm), blend params 40% toward
+        # home values. This breaks floor-clamping cycles even if deltas have issues.
+        current_hour = datetime.now().hour
+        if current_hour in self._reset_hours:
+            if self._last_reset_hour != current_hour:
+                self._last_reset_hour = current_hour
+                current_values = self._get_values()
+                reset_values = {}
+                for name, home_val in self.home_values.items():
+                    cur = current_values.get(name)
+                    if cur is not None:
+                        blended = cur * (1.0 - self._reset_blend) + home_val * self._reset_blend
+                        reset_values[name] = self._clamp(name, blended)
+                self._apply_values(reset_values)
+                logger.info(f"🔄 Time-of-day reset (hour={current_hour}): blended {len(reset_values)} params {self._reset_blend:.0%} toward home")
+        elif self._last_reset_hour is not None and current_hour not in self._reset_hours:
+            # Clear the flag so the next reset hour triggers again
+            if self._last_reset_hour in self._reset_hours and current_hour != self._last_reset_hour:
+                self._last_reset_hour = None
 
-        target = self.config.target_activity
+        # --- FIX 3: ADAPTIVE TARGET ---
+        # Track rolling history of short_activity and use its median as the target,
+        # so deltas are relative to actual traffic rather than a static 0.5
+        self._activity_history.append(short_activity)
+        if len(self._activity_history) > self._activity_history_max:
+            self._activity_history = self._activity_history[-self._activity_history_max:]
+        
+        if len(self._activity_history) >= 20:  # Need ~100s of data before adapting
+            sorted_history = sorted(self._activity_history)
+            median_activity = sorted_history[len(sorted_history) // 2]
+            self._adaptive_target = max(self._adaptive_target_min, 
+                                        min(self._adaptive_target_max, median_activity))
+            target = self._adaptive_target
+        else:
+            target = self.config.target_activity  # Fallback to static 0.5 until enough data
+
         activity_excess = max(-0.5, min(0.5, short_activity - target))  # positive when busy
         medium_excess = max(-0.5, min(0.5, medium_activity - target))
-        long_deficit = max(-0.3, min(0.3, target - long_activity))  # positive when quiet
+
+        # --- FIX 4: DECOUPLE BRIGHTNESS FROM EMPTY LONG-TERM DATA ---
+        # Only use long_activity deficit if we have meaningful long-term data.
+        # When long_activity is 0 (fresh DB / no history), fall back to medium_activity
+        # to avoid a constant upward push on brightness.
+        effective_long = long_activity
+        if long_activity <= 0.001 and medium_activity > 0.001:
+            effective_long = medium_activity  # Use medium as proxy until long-term fills in
+        long_deficit = max(-0.3, min(0.3, target - effective_long))  # positive when quiet
 
         deltas = {}
 
-        # PERSONALITY PARAMS: should INCREASE with activity (match the energy)
-        # When busy: be more responsive, social, energetic
-        # When quiet: relax toward home values (mean reversion handles this)
-        deltas['responsiveness'] = activity_excess * 0.04 * damping
-        deltas['sociability'] = activity_excess * 0.04 * damping
-        deltas['energy'] = activity_excess * 0.03 * damping
-        deltas['follow_speed_global'] = activity_excess * 0.05 * damping
+        # --- FIX 1: ASYMMETRIC PERSONALITY DELTAS ---
+        # Only push personality UP when activity is above target (busy).
+        # When quiet (activity_excess < 0), do NOT actively suppress personality —
+        # let mean reversion handle the gentle drift back toward home.
+        # This prevents personality from being perpetually driven to the floor
+        # on a normally-quiet sidewalk.
+        if activity_excess > 0:
+            # Busy: increase responsiveness, sociability, energy to match the crowd
+            deltas['responsiveness'] = activity_excess * 0.04 * damping
+            deltas['sociability'] = activity_excess * 0.04 * damping
+            deltas['energy'] = activity_excess * 0.03 * damping
+            deltas['follow_speed_global'] = activity_excess * 0.05 * damping
+        # else: personality deltas are 0; mean reversion handles quiet-period drift
 
         # DISPLAY PARAMS: inversely adjust to activity
         # When quiet: brighter, more pulsing, more speed (attract attention)
@@ -1481,30 +1635,42 @@ class AutoTuningManager:
         # ATTENTION SPAN: longer when quiet (contemplate), shorter when busy (reactive)
         deltas['attention_span'] = -activity_excess * 0.03 * damping
 
-        deltas['memory'] = (long_activity - 0.5) * 0.03 * damping
+        deltas['memory'] = (effective_long - 0.5) * 0.03 * damping
         deltas['dwell_influence'] = (energy_level - 0.5) * 0.03 * damping
         deltas['idle_trend_weight'] = (0.5 - short_activity) * 0.03 * damping
 
-        # --- MEAN REVERSION ---
-        # Always gently pull params toward their home values
-        # This prevents getting stuck at extremes and creates natural oscillation
+        # --- FIX 2: STRONGER PROGRESSIVE MEAN REVERSION ---
+        # Base strength and progressive component are overridable by meta-tuner
         current_values = self._get_values()
-        reversion_strength = 0.008  # Gentle pull
+        reversion_base = self._reversion_base
+        reversion_progressive = self._reversion_progressive
         for name, home_val in self.home_values.items():
             current_val = current_values.get(name)
             if current_val is not None:
                 distance_from_home = home_val - current_val
-                # Stronger pull when further from home
-                pull = distance_from_home * reversion_strength
+                # Progressive: stronger pull when further from home
+                strength = reversion_base + reversion_progressive * abs(distance_from_home)
+                pull = distance_from_home * strength
                 deltas[name] = deltas.get(name, 0.0) + pull
 
-        # --- CURIOSITY: periodic random perturbation ---
-        # Prevents the system from settling into a static equilibrium
+        # --- FIX 5: STRONGER CURIOSITY BIASED TOWARD HOME ---
+        # Increased strength (0.015→0.04) and frequency (60s→30s).
+        # Also biased: 60% of the nudge is toward home, 40% is random.
+        # This helps exploration while gently countering floor-clamping.
         if now - self._last_curiosity_time > self._curiosity_interval:
             self._last_curiosity_time = now
             for name in self.param_order:
-                nudge = (random.random() - 0.5) * 2.0 * self._curiosity_strength
-                deltas[name] = deltas.get(name, 0.0) + nudge
+                # Random component
+                random_nudge = (random.random() - 0.5) * 2.0 * self._curiosity_strength
+                # Bias toward home: if below home, bias nudge positive (and vice versa)
+                home_val = self.home_values.get(name)
+                current_val = current_values.get(name)
+                if home_val is not None and current_val is not None:
+                    home_direction = 1.0 if home_val > current_val else -1.0
+                    biased_nudge = 0.4 * random_nudge + 0.6 * abs(random_nudge) * home_direction
+                else:
+                    biased_nudge = random_nudge
+                deltas[name] = deltas.get(name, 0.0) + biased_nudge
 
         old_values = self._get_values()
         new_values = dict(old_values)

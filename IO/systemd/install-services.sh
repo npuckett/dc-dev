@@ -23,10 +23,14 @@ echo "📦 Installing service files..."
 cp "$SCRIPT_DIR/camera-tracker.service" "$SERVICE_DIR/"
 cp "$SCRIPT_DIR/light-controller.service" "$SERVICE_DIR/"
 cp "$SCRIPT_DIR/tailscale-funnel.service" "$SERVICE_DIR/"
+cp "$SCRIPT_DIR/autotune-meta-review.service" "$SERVICE_DIR/"
+cp "$SCRIPT_DIR/autotune-meta-review.timer" "$SERVICE_DIR/"
 
 echo "   ✓ camera-tracker.service"
 echo "   ✓ light-controller.service"
 echo "   ✓ tailscale-funnel.service"
+echo "   ✓ autotune-meta-review.service"
+echo "   ✓ autotune-meta-review.timer"
 
 # Reload systemd
 echo ""
@@ -39,6 +43,10 @@ echo "🔧 Enabling services for auto-start..."
 systemctl enable camera-tracker.service
 systemctl enable light-controller.service
 systemctl enable tailscale-funnel.service
+systemctl enable autotune-meta-review.timer
+
+# Start the timer immediately
+systemctl start autotune-meta-review.timer
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
@@ -57,4 +65,9 @@ echo ""
 echo "   4. View logs:"
 echo "      journalctl -u camera-tracker -f"
 echo "      journalctl -u light-controller -f"
+echo "      journalctl -u autotune-meta-review --no-pager -n 50"
+echo ""
+echo "   5. Check meta-review timer:"
+echo "      systemctl list-timers autotune-meta-review*"
+echo "      # Runs at 6am, 2pm, 10pm daily"
 echo "════════════════════════════════════════════════════════════"

@@ -405,6 +405,50 @@ class TrackingDatabase:
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_learnings_date ON autotune_daily_learnings(date)')
             
+            # Meta-tuning reviews (periodic automated analysis of auto-tuner performance)
+            # Written by the meta-tuner program (autotune_meta_review.py) 3x/day
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS meta_tuning_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    datetime TEXT NOT NULL,
+                    review_window_hours REAL NOT NULL,
+                    
+                    -- Analysis results
+                    total_adjustments INTEGER DEFAULT 0,
+                    total_tracking_events INTEGER DEFAULT 0,
+                    unique_people INTEGER DEFAULT 0,
+                    
+                    -- Activity level stats
+                    avg_short_activity REAL,
+                    median_short_activity REAL,
+                    avg_medium_activity REAL,
+                    avg_energy_level REAL,
+                    
+                    -- Floor/ceiling clamping analysis
+                    pct_at_floor_json TEXT,
+                    pct_at_ceiling_json TEXT,
+                    
+                    -- Light mode distribution
+                    mode_distribution_json TEXT,
+                    
+                    -- Parameter stats (avg/min/max for each param)
+                    param_stats_json TEXT,
+                    
+                    -- Changes applied
+                    old_config_json TEXT,
+                    new_config_json TEXT,
+                    changes_summary TEXT,
+                    
+                    -- Diagnostics
+                    diagnosis TEXT,
+                    recommendations_json TEXT,
+                    
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_meta_timestamp ON meta_tuning_reviews(timestamp)')
+            
             self.conn.commit()
     
     def _get_zone(self, x: float, z: float) -> Zone:
@@ -1357,6 +1401,88 @@ class TrackingDatabase:
             self.conn.commit()
             return deleted
     
+    def save_meta_tuning_review(self, review: Dict):
+        """
+        Save a meta-tuning review (periodic automated analysis of auto-tuner performance).
+        Written by autotune_meta_review.py 3x/day.
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            now = time.time()
+            cursor.execute('''
+                INSERT INTO meta_tuning_reviews (
+                    timestamp, datetime, review_window_hours,
+                    total_adjustments, total_tracking_events, unique_people,
+                    avg_short_activity, median_short_activity, avg_medium_activity, avg_energy_level,
+                    pct_at_floor_json, pct_at_ceiling_json,
+                    mode_distribution_json, param_stats_json,
+                    old_config_json, new_config_json, changes_summary,
+                    diagnosis, recommendations_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                now,
+                datetime.now().isoformat(),
+                review.get('review_window_hours', 8),
+                review.get('total_adjustments', 0),
+                review.get('total_tracking_events', 0),
+                review.get('unique_people', 0),
+                review.get('avg_short_activity'),
+                review.get('median_short_activity'),
+                review.get('avg_medium_activity'),
+                review.get('avg_energy_level'),
+                json.dumps(review.get('pct_at_floor', {})),
+                json.dumps(review.get('pct_at_ceiling', {})),
+                json.dumps(review.get('mode_distribution', {})),
+                json.dumps(review.get('param_stats', {})),
+                json.dumps(review.get('old_config', {})),
+                json.dumps(review.get('new_config', {})),
+                review.get('changes_summary', ''),
+                review.get('diagnosis', ''),
+                json.dumps(review.get('recommendations', [])),
+            ))
+            self.conn.commit()
+    
+    def get_recent_meta_reviews(self, limit: int = 10) -> List[Dict]:
+        """
+        Get the most recent meta-tuning reviews.
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT * FROM meta_tuning_reviews
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (limit,))
+            rows = cursor.fetchall()
+        
+        results = []
+        for row in rows:
+            try:
+                results.append({
+                    'id': row['id'],
+                    'datetime': row['datetime'],
+                    'review_window_hours': row['review_window_hours'],
+                    'total_adjustments': row['total_adjustments'],
+                    'total_tracking_events': row['total_tracking_events'],
+                    'unique_people': row['unique_people'],
+                    'avg_short_activity': row['avg_short_activity'],
+                    'median_short_activity': row['median_short_activity'],
+                    'avg_medium_activity': row['avg_medium_activity'],
+                    'avg_energy_level': row['avg_energy_level'],
+                    'pct_at_floor': json.loads(row['pct_at_floor_json'] or '{}'),
+                    'pct_at_ceiling': json.loads(row['pct_at_ceiling_json'] or '{}'),
+                    'mode_distribution': json.loads(row['mode_distribution_json'] or '{}'),
+                    'param_stats': json.loads(row['param_stats_json'] or '{}'),
+                    'old_config': json.loads(row['old_config_json'] or '{}'),
+                    'new_config': json.loads(row['new_config_json'] or '{}'),
+                    'changes_summary': row['changes_summary'],
+                    'diagnosis': row['diagnosis'],
+                    'recommendations': json.loads(row['recommendations_json'] or '[]'),
+                })
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return results
+
     def flush(self):
         """Commit any pending writes immediately"""
         with self.lock:

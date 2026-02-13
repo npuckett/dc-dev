@@ -1,0 +1,68 @@
+{
+  "home_values": {
+    "responsiveness": 0.53,
+    "energy": 0.48,
+    "attention_span": 0.5,
+    "sociability": 0.4875,
+    "exploration": 0.4,
+    "memory": 0.345,
+    "brightness_global": 0.93,
+    "speed_global": 0.565,
+    "pulse_global": 0.62,
+    "follow_speed_global": 0.7,
+    "dwell_influence": 0.4005,
+    "idle_trend_weight": 0.712
+  },
+  "safe_floors": {
+    "responsiveness": 0.35,
+    "energy": 0.3,
+    "brightness_global": 0.6,
+    "speed_global": 0.35,
+    "pulse_global": 0.35,
+    "follow_speed_global": 0.6,
+    "exploration": 0.2,
+    "sociability": 0.25,
+    "attention_span": 0.15,
+    "idle_trend_weight": 0.1
+  },
+  "caps": {
+    "brightness_global": 3.0,
+    "speed_global": 1.6,
+    "pulse_global": 2.0,
+    "energy": 0.85,
+    "responsiveness": 0.9
+  },
+  "curiosity": {
+    "interval": 30.0,
+    "strength": 0.04
+  },
+  "reversion": {
+    "base": 0.025,
+    "progressive": 0.07
+  },
+  "budget": {
+    "max": 25.5,
+    "restore_seconds": 345.0,
+    "cost_scale": 60.0
+  },
+  "last_updated": "2026-02-13T10:23:22.938127",
+  "last_review_changes": [
+    "home[responsiveness]: 0.500 \u2192 0.530 (floor-clamped 96.6%)",
+    "home[energy]: 0.450 \u2192 0.480 (floor-clamped 96.6%)",
+    "home[sociability]: 0.450 \u2192 0.487 (floor-clamped 96.6%)",
+    "home[memory]: 0.300 \u2192 0.345 (floor-clamped 100.0%)",
+    "home[brightness_global]: 1.200 \u2192 0.930 (ceiling-clamped 96.6%)",
+    "home[speed_global]: 0.700 \u2192 0.565 (ceiling-clamped 96.6%)",
+    "home[pulse_global]: 0.800 \u2192 0.620 (ceiling-clamped 96.6%)",
+    "home[follow_speed_global]: 1.000 \u2192 0.700 (floor-clamped 96.6%)",
+    "home[dwell_influence]: 0.500 \u2192 0.400 (tracking median 0.002)",
+    "home[idle_trend_weight]: 0.400 \u2192 0.712 (tracking median 1.960)",
+    "floor[responsiveness]: 0.300 \u2192 0.350 (low engagement)",
+    "floor[energy]: 0.250 \u2192 0.300 (low engagement)",
+    "floor[sociability]: 0.200 \u2192 0.250 (low engagement)",
+    "floor[exploration]: 0.150 \u2192 0.200 (low engagement)",
+    "floor[attention_span]: 0.100 \u2192 0.150 (low engagement)",
+    "reversion: base 0.020\u21920.025, prog 0.060\u21920.070 (8 clamped)",
+    "budget: max 30\u219226, restore 300s\u2192345s"
+  ]
+}

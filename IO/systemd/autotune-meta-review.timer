@@ -1,0 +1,30 @@
+# Drop Ceiling - Auto-Tune Meta Review Timer
+# Triggers the meta-review analysis 3x/day: 6am, 2pm, 10pm
+# These times are chosen to capture:
+#   - 6am: overnight quiet period → morning commute transition
+#   - 2pm: midday activity patterns
+#   - 10pm: evening activity → nighttime quiet transition
+#
+# Install: sudo cp autotune-meta-review.timer /etc/systemd/system/
+# Enable:  sudo systemctl enable autotune-meta-review.timer
+# Start:   sudo systemctl start autotune-meta-review.timer
+# Status:  systemctl list-timers autotune-meta-review*
+# Logs:    journalctl -u autotune-meta-review -f
+
+[Unit]
+Description=Run Auto-Tune Meta Review 3x/day
+
+[Timer]
+# Run at 6:00 AM, 2:00 PM, and 10:00 PM daily
+OnCalendar=*-*-* 06:00:00
+OnCalendar=*-*-* 14:00:00
+OnCalendar=*-*-* 22:00:00
+
+# Add random delay up to 5 minutes to avoid exact-second spikes
+RandomizedDelaySec=300
+
+# Run immediately if a scheduled time was missed (e.g. system was off)
+Persistent=true
+
+[Install]
+WantedBy=timers.target
