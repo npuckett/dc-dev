@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Drop Ceiling</title>
+    <link rel="icon" type="image/png" href="dcFavicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="header">
+        <h1>Drop Ceiling</h1>
+        <p id="behavior-status"></p>
+    </div>
+    
+    <div id="container">
+        <canvas id="viewer"></canvas>
+    </div>
+    
+    <!-- Trends overlay at bottom of screen -->
+    <div id="trends-overlay">
+        <div id="trends-header">
+            <div class="trends-title">
+                <button id="about-btn" class="title about-title">About</button>
+                <span class="title">Realtime Inputs / Outputs</span>
+                <span class="subtitle" id="connection-status">Connecting</span>
+            </div>
+            <div class="trends-now">
+                <span class="now-label">Now</span>
+                <span class="now-value" id="trend-current">0</span>
+                <span class="now-meta"><span id="trend-current-active">0</span> engaged | <span id="trend-current-passive">0</span> passing</span>
+            </div>
+        </div>
+        <div id="trends-panels">
+            <div class="trend-panel">
+                <div class="panel-label">Input Activity</div>
+                <canvas id="trends-input-canvas"></canvas>
+                <div class="panel-legend">
+                    <span class="legend-item"><span class="legend-dot engaged"></span>Engaged</span>
+                    <span class="legend-item"><span class="legend-dot passing"></span>Passing</span>
+                    <span class="legend-label">Zone events per min</span>
+                </div>
+            </div>
+            <div class="trend-panel behavior-panel">
+                <div class="behavior-header">
+                    <span class="behavior-title">Auto-Tune Weights</span>
+                    <span class="behavior-status" id="behavior-status-label">Off</span>
+                </div>
+                <div class="behavior-trends">
+                    <div class="behavior-note">Weights are derived from recent activity.</div>
+                    <div class="trend-row" data-range="short">
+                        <span class="trend-tag">5m <span class="trend-tag-value" id="trend-short-weight">--</span></span>
+                        <div class="trend-bar">
+                            <span class="trend-seg engaged" id="trend-short-bar-active"></span>
+                            <span class="trend-seg passing" id="trend-short-bar-passive"></span>
+                        </div>
+                        <span class="trend-count" id="trend-short-total">-</span>
+                    </div>
+                    <div class="trend-row" data-range="med">
+                        <span class="trend-tag">15m <span class="trend-tag-value" id="trend-med-weight">--</span></span>
+                        <div class="trend-bar">
+                            <span class="trend-seg engaged" id="trend-med-bar-active"></span>
+                            <span class="trend-seg passing" id="trend-med-bar-passive"></span>
+                        </div>
+                        <span class="trend-count" id="trend-med-total">-</span>
+                    </div>
+                    <div class="trend-row" data-range="long" id="trend-long-row">
+                        <span class="trend-tag">60m <span class="trend-tag-value" id="trend-long-weight">--</span></span>
+                        <div class="trend-bar">
+                            <span class="trend-seg engaged" id="trend-long-bar-active"></span>
+                            <span class="trend-seg passing" id="trend-long-bar-passive"></span>
+                        </div>
+                        <span class="trend-count" id="trend-long-total">-</span>
+                    </div>
+                </div>
+                <div class="behavior-params">
+                    <div class="param-item" data-param="responsiveness">
+                        <span class="param-label">Resp</span>
+                        <span class="param-bar"><span class="param-fill" id="param-responsiveness"></span></span>
+                    </div>
+                    <div class="param-item" data-param="energy">
+                        <span class="param-label">Enrg</span>
+                        <span class="param-bar"><span class="param-fill" id="param-energy"></span></span>
+                    </div>
+                    <div class="param-item" data-param="attention_span">
+                        <span class="param-label">Attn</span>
+                        <span class="param-bar"><span class="param-fill" id="param-attention_span"></span></span>
+                    </div>
+                    <div class="param-item" data-param="sociability">
+                        <span class="param-label">Socl</span>
+                        <span class="param-bar"><span class="param-fill" id="param-sociability"></span></span>
+                    </div>
+                    <div class="param-item" data-param="exploration">
+                        <span class="param-label">Expl</span>
+                        <span class="param-bar"><span class="param-fill" id="param-exploration"></span></span>
+                    </div>
+                    <div class="param-item" data-param="memory">
+                        <span class="param-label">Mem</span>
+                        <span class="param-bar"><span class="param-fill" id="param-memory"></span></span>
+                    </div>
+                </div>
+                <div class="behavior-footer">
+                    <span class="behavior-foot-label">Tuning activity</span>
+                    <span class="behavior-pulse" id="tuning-pulse"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Trends button hidden until realtime data is deployed
+    <button id="trends-btn">Trends</button>
+    -->
+
+    <!-- Trends Panel (expandable) - hidden until realtime data is deployed
+    <div id="trends-panel" class="collapsed">
+        <div id="trends-header">
+            <h3>Activity</h3>
+            <button id="trends-toggle">▼</button>
+        </div>
+        <div id="trends-content">
+            <div id="realtime-section">
+                <div class="section-label">REALTIME</div>
+                <div id="realtime-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">Period</span>
+                        <span class="stat-value" id="stat-period">- -</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">1 min</span>
+                        <span class="stat-value"><span id="stat-1m-active">-</span>/<span id="stat-1m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">5 min</span>
+                        <span class="stat-value"><span id="stat-5m-active">-</span>/<span id="stat-5m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">15 min</span>
+                        <span class="stat-value"><span id="stat-15m-active">-</span>/<span id="stat-15m-passive">-</span></span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">60 min</span>
+                        <span class="stat-value"><span id="stat-60m-active">-</span>/<span id="stat-60m-passive">-</span></span>
+                    </div>
+                </div>
+            </div>
+            <div id="daily-section">
+                <div class="section-label">TODAY</div>
+                <div id="trends-summary">
+                    <div class="stat-item">
+                        <span class="stat-label">Total</span>
+                        <span class="stat-value" id="stat-total">- -</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Current</span>
+                        <span class="stat-value" id="stat-current">- -</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak</span>
+                        <span class="stat-value" id="stat-peak">- -</span>
+                    </div>
+                </div>
+                <div id="trends-chart">
+                    <canvas id="hourly-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    -->
+
+    <div id="about-overlay" class="hidden">
+        <div id="about-modal">
+            <button id="about-close">&times;</button>
+            <h2>Drop Ceiling</h2>
+            <div class="about-content">
+                <p>'Drop Ceiling' implements an open-source hardware and software system to transform ubiquitous office lighting into an interactive installation. It responds to the movement and position of people on the sidewalk using a Computer Vision system created from an array of standard security cameras. The installation showcases new methods of playful re-use via open data protocols.</p>
+                
+                <p>Each lighting unit is constructed from three 2 ft × 2ft LED ceiling lights that are connected via 3D printed connectors. A custom hardware controller dynamically adjusts the brightness of each panel by interfacing with its standard 0 – 10V dimming protocol. All four of the units are networked together to allow them to uniformly respond to the position information from the Computer Vision system. The vision system utilizes the standard Real Time Streaming Protocol (RTSP) available in security cameras to create a custom tracking model that is focused on data privacy. Over time, the panels will develop an animated language to communicate with passers-by throughout the day and night.</p>
+                
+                <p>This work is the latest in a research series from <a href="https://puckettrand.com/" target="_blank">Puckett Research & Design</a> that investigates how contemporary forms of Machine Vision can be re-purposed for playful interactions. All control software and design files are available via the <a href="https://github.com/npuckett/Drop-Ceiling" target="_blank">Drop Ceiling Github</a>.</p>
+                
+                <div class="design-team">
+                    <h3>Design Team</h3>
+                    <p>Nick Puckett<br>Joshua Pothen</p>
+                </div>
+                <div class="about-links">
+                    <a id="github-btn" href="https://github.com/npuckett/Drop-Ceiling" target="_blank" rel="noopener">GitHub</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="viewer.js"></script>
+</body>
+</html>
