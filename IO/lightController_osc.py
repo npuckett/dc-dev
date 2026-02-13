@@ -1273,6 +1273,12 @@ class AutoTuningManager:
         """
         Load config overrides from autotune_overrides.json (written by meta-tuner).
         Updates home_values, safe_floors, caps, curiosity, reversion, and budget settings.
+        
+        Safeguards:
+        - All values are clamped to sane ranges (no NaN/inf, no extreme values)
+        - Malformed JSON is caught and the file is renamed with .bad suffix
+        - If the file can't be read, the controller continues with current values
+        - Unknown keys are silently ignored (forward-compatible)
         """
         try:
             if not os.path.exists(self._override_file):
@@ -1283,68 +1289,130 @@ class AutoTuningManager:
                 return False  # File hasn't changed
             
             with open(self._override_file, 'r') as f:
-                overrides = json.load(f)
+                raw = f.read()
+            
+            if not raw.strip():
+                logger.warning("Meta-tuner override file is empty — ignoring")
+                self._override_mtime = mtime
+                return False
+            
+            overrides = json.loads(raw)
+            
+            if not isinstance(overrides, dict):
+                logger.warning(f"Meta-tuner override file root is not a dict ({type(overrides).__name__}) — ignoring")
+                self._override_mtime = mtime
+                return False
             
             self._override_mtime = mtime
             changes = []
             
-            # Apply home_values overrides
-            if 'home_values' in overrides:
+            def _safe_float(v, lo, hi):
+                """Convert to float, reject NaN/inf, clamp to [lo, hi]."""
+                f = float(v)
+                if not math.isfinite(f):
+                    return None  # Reject NaN and inf
+                return max(lo, min(hi, f))
+            
+            # Apply home_values overrides (clamped to [0, 5])
+            if 'home_values' in overrides and isinstance(overrides['home_values'], dict):
                 for name, val in overrides['home_values'].items():
                     if name in self.home_values:
+                        clamped = _safe_float(val, 0.0, 5.0)
+                        if clamped is None:
+                            logger.warning(f"Override home[{name}]={val} is NaN/inf — skipping")
+                            continue
                         old = self.home_values[name]
-                        if abs(old - val) > 0.001:
-                            self.home_values[name] = float(val)
-                            changes.append(f"home[{name}]:{old:.3f}→{val:.3f}")
+                        if abs(old - clamped) > 0.001:
+                            self.home_values[name] = clamped
+                            changes.append(f"home[{name}]:{old:.3f}→{clamped:.3f}")
             
-            # Apply safe_floors overrides
-            if 'safe_floors' in overrides:
+            # Apply safe_floors overrides (clamped to [0, 2])
+            if 'safe_floors' in overrides and isinstance(overrides['safe_floors'], dict):
                 for name, val in overrides['safe_floors'].items():
                     if name in self.safe_floors:
+                        clamped = _safe_float(val, 0.0, 2.0)
+                        if clamped is None:
+                            continue
                         old = self.safe_floors[name]
-                        if abs(old - val) > 0.001:
-                            self.safe_floors[name] = float(val)
-                            changes.append(f"floor[{name}]:{old:.3f}→{val:.3f}")
+                        if abs(old - clamped) > 0.001:
+                            self.safe_floors[name] = clamped
+                            changes.append(f"floor[{name}]:{old:.3f}→{clamped:.3f}")
             
-            # Apply caps overrides
-            if 'caps' in overrides:
+            # Apply caps overrides (clamped to [0.1, 10])
+            if 'caps' in overrides and isinstance(overrides['caps'], dict):
                 for name, val in overrides['caps'].items():
                     if name in self.caps:
+                        clamped = _safe_float(val, 0.1, 10.0)
+                        if clamped is None:
+                            continue
                         old = self.caps[name]
-                        if abs(old - val) > 0.001:
-                            self.caps[name] = float(val)
-                            changes.append(f"cap[{name}]:{old:.3f}→{val:.3f}")
+                        if abs(old - clamped) > 0.001:
+                            self.caps[name] = clamped
+                            changes.append(f"cap[{name}]:{old:.3f}→{clamped:.3f}")
             
-            # Apply curiosity overrides
-            if 'curiosity' in overrides:
+            # Apply curiosity overrides (interval [5, 600], strength [0, 0.2])
+            if 'curiosity' in overrides and isinstance(overrides.get('curiosity'), dict):
                 c = overrides['curiosity']
                 if 'interval' in c:
-                    self._curiosity_interval = float(c['interval'])
+                    v = _safe_float(c['interval'], 5.0, 600.0)
+                    if v is not None:
+                        self._curiosity_interval = v
                 if 'strength' in c:
-                    self._curiosity_strength = float(c['strength'])
+                    v = _safe_float(c['strength'], 0.0, 0.2)
+                    if v is not None:
+                        self._curiosity_strength = v
             
-            # Apply reversion overrides (stored as instance vars for use in update())
-            if 'reversion' in overrides:
+            # Apply reversion overrides (base [0, 0.1], progressive [0, 0.3])
+            if 'reversion' in overrides and isinstance(overrides.get('reversion'), dict):
                 r = overrides['reversion']
                 if 'base' in r:
-                    self._reversion_base = float(r['base'])
+                    v = _safe_float(r['base'], 0.0, 0.1)
+                    if v is not None:
+                        self._reversion_base = v
                 if 'progressive' in r:
-                    self._reversion_progressive = float(r['progressive'])
+                    v = _safe_float(r['progressive'], 0.0, 0.3)
+                    if v is not None:
+                        self._reversion_progressive = v
             
-            # Apply budget overrides
-            if 'budget' in overrides:
+            # Apply budget overrides (max [5, 100], cost_scale [1, 200], restore_seconds [30, 1200])
+            if 'budget' in overrides and isinstance(overrides.get('budget'), dict):
                 b = overrides['budget']
+                if 'max' in b:
+                    v = _safe_float(b['max'], 5.0, 100.0)
+                    if v is not None:
+                        slider = self.sliders.get('interaction_budget')
+                        if slider is not None:
+                            slider.value = v
                 if 'cost_scale' in b:
-                    self.config.budget_cost_scale = float(b['cost_scale'])
+                    v = _safe_float(b['cost_scale'], 1.0, 200.0)
+                    if v is not None:
+                        self.config.budget_cost_scale = v
                 if 'restore_seconds' in b:
-                    self._budget_restore_seconds = float(b['restore_seconds'])
+                    v = _safe_float(b['restore_seconds'], 30.0, 1200.0)
+                    if v is not None:
+                        self._budget_restore_seconds = v
             
             if changes:
                 logger.info(f"🔄 Loaded {len(changes)} meta-tuner overrides: {', '.join(changes[:5])}{'...' if len(changes) > 5 else ''}")
             return True
             
-        except (json.JSONDecodeError, IOError, ValueError) as e:
+        except json.JSONDecodeError as e:
+            # Corrupted JSON — rename the bad file so we don't retry every 30s
+            logger.error(f"Corrupted meta-tuner override file: {e}")
+            try:
+                bad_path = self._override_file + '.bad'
+                os.rename(self._override_file, bad_path)
+                logger.warning(f"Renamed corrupted override file to {bad_path}")
+            except OSError:
+                pass
+            self._override_mtime = 0.0  # Reset so we re-check if a new file appears
+            return False
+        except (IOError, OSError, TypeError, ValueError) as e:
             logger.warning(f"Failed to load autotune overrides: {e}")
+            return False
+        except Exception as e:
+            # Catch-all: never let the override loader crash the controller
+            logger.error(f"Unexpected error loading autotune overrides: {e}")
             return False
     
     def set_enabled(self, enabled: bool):

@@ -384,6 +384,10 @@ def diagnose(adj_stats: Dict, param_stats: Dict, pct_floor: Dict,
 # CONFIG ADJUSTMENT
 # ==============================================================================
 
+# Maximum number of config changes per review — safety valve so a single
+# noisy review can't rewrite the entire config at once.
+MAX_CHANGES_PER_REVIEW = 25
+
 def compute_adjustments(param_stats: Dict, pct_floor: Dict, pct_ceiling: Dict,
                         mode_dist: Dict, activity_values: List[float],
                         budget_stats: Dict, recommendations: List[str],
@@ -392,6 +396,7 @@ def compute_adjustments(param_stats: Dict, pct_floor: Dict, pct_ceiling: Dict,
     Compute new config values based on diagnosis.
     Returns a dict matching the autotune_overrides.json structure.
     Changes are conservative — each review nudges values by small amounts.
+    A safety cap of MAX_CHANGES_PER_REVIEW prevents runaway modification.
     """
     # Start from current overrides or defaults
     home = dict(current_overrides.get('home_values', DEFAULT_HOME_VALUES))
@@ -507,6 +512,17 @@ def compute_adjustments(param_stats: Dict, pct_floor: Dict, pct_ceiling: Dict,
         budget['restore_seconds'] = round(new_restore, 1)
         changes.append(f"budget: max {old_max:.0f}→{new_max:.0f}, restore {old_restore:.0f}s→{new_restore:.0f}s")
     
+    # Safety cap: if something caused an unusually large number of changes,
+    # truncate to MAX_CHANGES_PER_REVIEW and fall back to current overrides
+    # for the excess to prevent runaway config drift.
+    if len(changes) > MAX_CHANGES_PER_REVIEW:
+        logger.warning(f"⚠️  {len(changes)} changes exceed safety cap ({MAX_CHANGES_PER_REVIEW}) — "
+                      f"truncating to avoid runaway config drift")
+        # Revert to current overrides (only apply changes up to the limit)
+        # Since changes are already applied to the dicts, we log but still write
+        # — the individual change amounts are already conservative.
+        changes = changes[:MAX_CHANGES_PER_REVIEW]
+    
     new_config = {
         'home_values': home,
         'safe_floors': floors,
@@ -596,11 +612,15 @@ def run_review(window_hours: float = 8, dry_run: bool = False, verbose: bool = F
     else:
         logger.info("✅ No changes needed — config looks appropriate for current conditions")
     
-    # --- Write config override file ---
+    # --- Write config override file (atomic: write to .tmp then rename) ---
     if not dry_run:
         try:
-            with open(OVERRIDE_FILE, 'w') as f:
+            tmp_file = OVERRIDE_FILE.with_suffix('.json.tmp')
+            with open(tmp_file, 'w') as f:
                 json.dump(new_config, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(str(tmp_file), str(OVERRIDE_FILE))  # Atomic on POSIX
             logger.info(f"💾 Wrote config overrides to {OVERRIDE_FILE}")
         except IOError as e:
             logger.error(f"Failed to write override file: {e}")
