@@ -923,7 +923,9 @@ flowchart TB
 
     PANELSYS -->|"12 DMX channels"| ARTNET["<b>Art-Net Output</b><br/>───────────────<br/>Target: 10.42.0.200<br/>Universe: 0 / Rate: 30 FPS"]
 
-    POINTLIGHT -->|"state snapshot"| WEBSOCKET["<b>WebSocket Broadcast</b><br/>───────────────<br/>Clients: Public 3D Viewer<br/>Rate: ~15 FPS"]
+    POINTLIGHT -->|"state snapshot"| WEBSOCKET["<b>WebSocket Broadcast</b><br/>───────────────<br/>Server: port 8765<br/>Protocol: WSS via Tailscale Funnel<br/>Payload: JSON (light pos,<br/>brightness, panels, people, mode)<br/>Rate: ~15 FPS"]
+
+    WEBSOCKET -->|"JSON state updates<br/>auto-reconnect 3s"| VIEWER["<b>Public 3D Viewer</b><br/>───────────────<br/>Engine: Three.js + OrbitControls<br/>Renders: light sphere, 12 panels,<br/>tracked people, wander box,<br/>trackzone boundaries<br/>Hosting: GitHub Pages<br/>Access: mobile-first web app<br/>Source: public-viewer/"]
 
     BEHAVIOR -->|"engagement context<br/>snapshots"| FEEDBACK["<b>Feedback Learning</b><br/>───────────────<br/>Buffer: 50 contexts<br/>Dims: position x time x flow<br/>Rate: +/-0.02 per event"]
 
@@ -946,6 +948,7 @@ flowchart TB
     style CAM fill:#e94560,stroke:#fff,color:#fff
     style ARTNET fill:#e94560,stroke:#fff,color:#fff
     style WEBSOCKET fill:#533483,stroke:#e94560,color:#fff
+    style VIEWER fill:#16213e,stroke:#0f3460,color:#e0e1dd
     style META fill:#e94560,stroke:#fff,color:#fff
     style DB fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
     style AUTOTUNE fill:#533483,stroke:#e94560,color:#fff
