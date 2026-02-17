@@ -16,38 +16,38 @@ At the highest level, data flows through five stages: the camera sees people, th
 
 ```mermaid
 flowchart LR
-    subgraph INPUT["🎥 Input"]
-        CAM["Overhead Camera<br/><i>YOLO person detection</i>"]
+    subgraph INPUT["Input"]
+        CAM["<b>Overhead Camera</b><br/>───────────────<br/>Detection: YOLO v11<br/>Output: person bounding boxes<br/>Transport: UDP stream"]
     end
 
-    subgraph TRANSPORT["📡 Transport"]
-        OSC["OSC Messages<br/><i>/tracker/person/&lt;id&gt; x, z</i>"]
+    subgraph TRANSPORT["Transport"]
+        OSC["<b>OSC Messages</b><br/>───────────────<br/>Address: /tracker/person/id<br/>Payload: x, z coordinates<br/>Protocol: UDP"]
     end
 
-    subgraph BRAIN["🧠 Behavior Engine"]
+    subgraph BRAIN["Behavior Engine"]
         direction TB
-        TRACK["Person Manager<br/><i>zone classification,<br/>velocity, dwell time</i>"]
-        BEH["Behavior System<br/><i>mode, gestures,<br/>personality, learning</i>"]
+        TRACK["<b>Person Manager</b><br/>───────────────<br/>Zone: active / passive classify<br/>Velocity: per-person tracking<br/>Dwell: time in zone<br/>Callbacks: enter / exit / move"]
+        BEH["<b>Behavior System</b><br/>───────────────<br/>Mode: IDLE / ENGAGED / CROWD / FLOW<br/>Gestures: 16 types, phase-gated<br/>Personality: 6 meta sliders<br/>Learning: feedback + daily"]
         TRACK --> BEH
     end
 
-    subgraph CONTROLLER["⚡ Light Controller"]
+    subgraph CONTROLLER["Light Controller"]
         direction TB
-        LIGHT["Point Light<br/><i>position, brightness,<br/>falloff, pulse</i>"]
-        PANELS["Panel System<br/><i>12 panels: distance → DMX</i>"]
+        LIGHT["<b>Point Light</b><br/>───────────────<br/>Position: x, y, z (cm)<br/>Brightness: min / max range<br/>Falloff: radius (cm)<br/>Pulse: sine wave phase"]
+        PANELS["<b>Panel System</b><br/>───────────────<br/>Layout: 4 units x 3 panels<br/>Calc: distance-based falloff<br/>Output: 12 DMX values (1-255)"]
         LIGHT --> PANELS
     end
 
-    subgraph OUTPUT["💡 Physical Output"]
-        ARTNET["Art-Net UDP<br/><i>12 DMX channels</i>"]
-        LEDS["LED Panels<br/><i>4 units × 3 panels</i>"]
+    subgraph OUTPUT["Physical Output"]
+        ARTNET["<b>Art-Net</b><br/>───────────────<br/>Protocol: Art-Net UDP<br/>Channels: 12 (Universe 0)<br/>Target: 10.42.0.200<br/>Rate: 30 FPS"]
+        LEDS["<b>LED Panels</b><br/>───────────────<br/>Units: 4 ceiling-mounted<br/>Panels per unit: 3<br/>Control: single DMX ch each"]
         ARTNET --> LEDS
     end
 
     CAM -->|"UDP"| OSC
-    OSC -->|"x, z coordinates<br/>per person"| TRACK
+    OSC -->|"x, z per person"| TRACK
     BEH -->|"behavior_params dict<br/>brightness, speed, falloff,<br/>pulse, smoothing, wander"| LIGHT
-    PANELS -->|"DMX values<br/>1–255 per panel"| ARTNET
+    PANELS -->|"12 DMX values<br/>(1-255 per panel)"| ARTNET
 
     style INPUT fill:#1a1a2e,stroke:#e94560,color:#fff
     style TRANSPORT fill:#1a1a2e,stroke:#0f3460,color:#fff
@@ -77,21 +77,21 @@ Transitions are **not instantaneous**. Conditions must persist for a minimum dur
 stateDiagram-v2
     direction LR
 
-    IDLE: 🌙 IDLE\n─────────────\nNo one in active zone\nGentle wandering\nSpeed 20cm/s · Bright 3–15
-    ENGAGED: 👤 ENGAGED\n─────────────\n1–2 people in active zone\nFollows nearest person\nSpeed 25cm/s · Bright 8–30
-    CROWD: 👥 CROWD\n─────────────\n3+ people in active zone\nFollows centroid\nSpeed 60cm/s · Bright 12–45
-    FLOW: 🌊 FLOW\n─────────────\nHeavy passive traffic\nDrifts with crowd flow\nSpeed 25cm/s · Bright 5–20
+    IDLE: IDLE\n─────────────\nTrigger: no one in active zone\nBehavior: gentle wandering\n─────────────\nSpeed: 20 cm/s\nBrightness: 3-15\nPulse: 4000 ms\nFalloff: 80 cm\nSmoothing: 0
+    ENGAGED: ENGAGED\n─────────────\nTrigger: 1-2 in active zone\nBehavior: follows nearest person\n─────────────\nSpeed: 25 cm/s\nBrightness: 8-30\nPulse: 2500 ms\nFalloff: 50 cm\nSmoothing: 0.03
+    CROWD: CROWD\n─────────────\nTrigger: 3+ in active zone\nBehavior: follows centroid\n─────────────\nSpeed: 60 cm/s\nBrightness: 12-45\nPulse: 1500 ms\nFalloff: 40 cm\nSmoothing: 0.03
+    FLOW: FLOW\n─────────────\nTrigger: heavy passive traffic\nBehavior: drifts with crowd flow\n─────────────\nSpeed: 25 cm/s\nBrightness: 5-20\nPulse: 3000 ms\nFalloff: 70 cm\nSmoothing: 0
 
     [*] --> IDLE
 
-    IDLE --> ENGAGED: Person enters active zone\n⏱ Immediate · ⏳ 0.8s transition
-    IDLE --> FLOW: 15s sustained passive traffic\n⏳ 2.0s transition
-    ENGAGED --> IDLE: 5s after last person leaves\n⏳ 3.0s transition (slow goodbye)
-    ENGAGED --> CROWD: 3s with 3+ people\n⏳ 0.5s transition (quick)
-    CROWD --> ENGAGED: 5s after crowd thins\n⏳ 2.0s transition
-    CROWD --> IDLE: 5s after everyone leaves\n⏳ 4.0s transition
-    FLOW --> IDLE: 10s of low traffic\n⏳ 3.0s transition
-    FLOW --> ENGAGED: Person enters active zone\n⏱ Immediate · ⏳ 0.8s transition
+    IDLE --> ENGAGED: Person enters active zone\nStickiness: 0s (immediate)\nTransition: 0.8s
+    IDLE --> FLOW: 15s sustained passive traffic\nTransition: 2.0s
+    ENGAGED --> IDLE: 5s after last person leaves\nTransition: 3.0s (slow goodbye)
+    ENGAGED --> CROWD: 3s with 3+ people\nTransition: 0.5s (quick)
+    CROWD --> ENGAGED: 5s after crowd thins\nTransition: 2.0s
+    CROWD --> IDLE: 5s after everyone leaves\nTransition: 4.0s
+    FLOW --> IDLE: 10s of low traffic\nTransition: 3.0s
+    FLOW --> ENGAGED: Person enters active zone\nStickiness: 0s (immediate)\nTransition: 0.8s
 
     note right of IDLE
         Minimum mode duration: 8 seconds
@@ -111,40 +111,40 @@ The layers are grouped into four stages: **Foundation** sets the starting point,
 
 ```mermaid
 flowchart TB
-    subgraph FOUNDATION["① Foundation"]
+    subgraph FOUNDATION["1 - Foundation"]
         direction TB
-        L1["<b>Mode Base Values</b><br/>IDLE / ENGAGED / CROWD / FLOW<br/>sets all 7 params to starting values"]
-        L2["<b>Transition Interpolation</b><br/>if switching modes: lerp old → new<br/>over 0.5–4.0s"]
-        L3["<b>People-Count Scaling</b><br/>+20% brightness per additional person"]
+        L1["<b>Mode Base Values</b><br/>───────────────<br/>Input: current BehaviorMode<br/>Lookup: MODE_PARAMS table<br/>Sets: all 7 output params"]
+        L2["<b>Transition Interpolation</b><br/>───────────────<br/>Condition: mode is switching<br/>Method: lerp old params to new<br/>Duration: 0.5 - 4.0s per type"]
+        L3["<b>People-Count Scaling</b><br/>───────────────<br/>Input: active person count<br/>Effect: +20% brightness per person<br/>Affects: brightness_min, brightness_max"]
         L1 --> L2 --> L3
     end
 
-    subgraph PERSONALITY["② Personality & Context"]
+    subgraph PERSONALITY["2 - Personality and Context"]
         direction TB
-        L4["<b>MetaParameter Modifiers</b><br/>6 personality sliders × 6 global multipliers<br/>scale speed, brightness, pulse, smoothing, wander"]
-        L5["<b>Time-of-Day</b><br/>hour → brightness ×0.4–1.1<br/>pulse ×0.7–1.5 · wander Y range"]
-        L6["<b>Dwell Rewards</b><br/>longer dwell → brighter, tighter tracking<br/>4 phases: Notice → Greet → Engage → Bond"]
-        L7["<b>Anti-Repetition</b><br/>memory param reduces repeated<br/>gesture patterns and positions"]
+        L4["<b>MetaParameter Modifiers</b><br/>───────────────<br/>Input: 6 personality sliders (0-1)<br/>Input: 6 global multipliers (default 1.0)<br/>Method: lerp + multiply<br/>Affects: speed, brightness, pulse, smoothing, wander"]
+        L5["<b>Time-of-Day</b><br/>───────────────<br/>Input: current hour<br/>Brightness: x0.4 (night) to x1.1 (rush)<br/>Pulse: x0.7 to x1.5<br/>Wander Y: constrained by period"]
+        L6["<b>Dwell Rewards</b><br/>───────────────<br/>Input: person dwell time<br/>Phases: Notice / Greet / Engage / Bond<br/>Effect: longer dwell = brighter, tighter<br/>Scale: dwell_influence multiplier"]
+        L7["<b>Anti-Repetition</b><br/>───────────────<br/>Input: recent gesture + position history<br/>Scale: memory meta parameter<br/>Effect: suppresses repeated patterns"]
         L4 --> L5 --> L6 --> L7
     end
 
-    subgraph ENVIRONMENT["③ Environmental Response"]
+    subgraph ENVIRONMENT["3 - Environmental Response"]
         direction TB
-        L8["<b>Idle Trends</b><br/>1m/5m/30m/1h activity windows<br/>→ anticipation, energy, flow momentum"]
-        L9["<b>Aggression</b><br/>0–1 attention-seeking level<br/>wider wander · brighter pulses · more gestures"]
-        L10["<b>Flow Positioning</b><br/>wander box shifts toward<br/>incoming pedestrian traffic"]
-        L11["<b>Almost-Engaged Attraction</b><br/>brightness pulse / drift / pause<br/>toward people slowing near active zone"]
-        L12["<b>Feedback Learning</b><br/>learned weights: position × aggression ×<br/>time × flow alignment → engagement success"]
-        L13["<b>Proximity Response</b><br/>closer person → slower, brighter, tighter<br/>farther → faster, dimmer, looser"]
+        L8["<b>Idle Trends</b><br/>───────────────<br/>Windows: 1m / 5m / 30m / 1h<br/>Derived: anticipation (0-1)<br/>Derived: energy_level (0-1)<br/>Derived: flow_momentum (-1 to +1)"]
+        L9["<b>Aggression</b><br/>───────────────<br/>Input: time without engagement<br/>Range: 0-1 (EMA smoothed)<br/>Cap: time-of-day dependent<br/>Effect: wander width, pulse, gesture rate"]
+        L10["<b>Flow Positioning</b><br/>───────────────<br/>Input: flow direction + strength<br/>Effect: wander box X shifts toward<br/>incoming pedestrian traffic"]
+        L11["<b>Almost-Engaged Attraction</b><br/>───────────────<br/>Input: people slowing near active zone<br/>Strategies: brightness / drift / pause<br/>A/B tested: conversion per strategy"]
+        L12["<b>Feedback Learning</b><br/>───────────────<br/>Input: 50-context ring buffer<br/>Dims: position x aggression x time x flow<br/>Output: engagement correlation weights"]
+        L13["<b>Proximity Response</b><br/>───────────────<br/>Input: person Z distance (78-283 cm)<br/>Near: speed x0.6, bright x1.4, smooth x0.7<br/>Far: speed x1.4, bright x0.8, smooth x1.3<br/>Method: linear interpolation"]
         L8 --> L9 --> L10 --> L11 --> L12 --> L13
     end
 
-    subgraph OVERLAYS["④ Momentary Overlays"]
+    subgraph OVERLAYS["4 - Momentary Overlays"]
         direction TB
-        L14["<b>Flow Bias</b><br/>flow_balance shifts wander box X"]
-        L15["<b>Entry Pulse</b><br/>+25 brightness flash<br/>when person enters active zone"]
-        L16["<b>Breathing Overlay</b><br/>±12% brightness · ±6% radius<br/>sinusoidal 'shared rhythm'"]
-        L17["<b>Settle / Bloom</b><br/>Settle: −15% radius, +8% brightness<br/>Bloom: radius→300cm, +50% brightness"]
+        L14["<b>Flow Bias</b><br/>───────────────<br/>Input: flow_balance value<br/>Effect: shifts wander box X"]
+        L15["<b>Entry Pulse</b><br/>───────────────<br/>Trigger: person enters active zone<br/>Effect: +25 brightness (one-shot)"]
+        L16["<b>Breathing Overlay</b><br/>───────────────<br/>Type: multiplicative sine wave<br/>Brightness: +/-12% at full depth<br/>Radius: +/-6% at full depth<br/>Ramp: 0 to full over 8 seconds"]
+        L17["<b>Settle / Bloom</b><br/>───────────────<br/>Settle: radius -15%, speed -20%, bright +8%<br/>Bloom: radius to 300cm, bright +50%<br/>Bloom chance: 15%/min, 45s cooldown"]
         L14 --> L15 --> L16 --> L17
     end
 
@@ -152,7 +152,7 @@ flowchart TB
     L7 --> L8
     L13 --> L14
 
-    L17 --> OUT["<b>Final behavior_params dict</b><br/>brightness_min · brightness_max<br/>pulse_speed · falloff_radius<br/>move_speed · follow_smoothing<br/>wander_interval"]
+    L17 --> OUT["<b>Final behavior_params dict</b><br/>───────────────<br/>brightness_min / brightness_max<br/>pulse_speed / falloff_radius<br/>move_speed / follow_smoothing<br/>wander_interval"]
 
     style FOUNDATION fill:#0d1b2a,stroke:#1b263b,color:#e0e1dd
     style PERSONALITY fill:#1b263b,stroke:#415a77,color:#e0e1dd
@@ -182,23 +182,23 @@ The personality system consists of **6 sliders** (0.0–1.0) that define the lig
 
 ```mermaid
 flowchart LR
-    subgraph SLIDERS["Personality Sliders (0.0 – 1.0)"]
-        RESP["<b>responsiveness</b><br/>0 = contemplative<br/>1 = reactive"]
-        ENER["<b>energy</b><br/>0 = calm<br/>1 = dynamic"]
-        ATTN["<b>attention_span</b><br/>0 = easily distracted<br/>1 = focused"]
-        SOCI["<b>sociability</b><br/>0 = reserved<br/>1 = eager"]
-        EXPL["<b>exploration</b><br/>0 = stays put<br/>1 = wanders widely"]
-        MEMO["<b>memory</b><br/>0 = forgets quickly<br/>1 = avoids repetition"]
+    subgraph SLIDERS["Personality Sliders (0.0 - 1.0)"]
+        RESP["<b>responsiveness</b><br/>───────────<br/>Low: contemplative, slow<br/>High: reactive, quick"]
+        ENER["<b>energy</b><br/>───────────<br/>Low: calm, gentle<br/>High: lively, dynamic"]
+        ATTN["<b>attention_span</b><br/>───────────<br/>Low: easily distracted<br/>High: focused, loyal"]
+        SOCI["<b>sociability</b><br/>───────────<br/>Low: reserved, withdrawn<br/>High: eager to engage"]
+        EXPL["<b>exploration</b><br/>───────────<br/>Low: stays in place<br/>High: wanders widely"]
+        MEMO["<b>memory</b><br/>───────────<br/>Low: forgets quickly<br/>High: avoids repetition"]
     end
 
     subgraph OUTPUTS["Output Parameters"]
-        SPEED["move_speed<br/>×0.6 – ×1.4"]
-        FOLLOW["follow_smoothing<br/>0.03 – 0.20"]
-        PULSE["pulse_speed<br/>×1.3 – ×0.7"]
-        BRIGHT["brightness<br/>×0.7 – ×1.3"]
-        WANDER["wander_interval<br/>×1.5 – ×0.5"]
-        GESTURE["gesture frequency<br/>×1.5 – ×0.5"]
-        ANTIREP["anti-repetition<br/>strength"]
+        SPEED["<b>move_speed</b><br/>───────────<br/>Range: x0.6 - x1.4<br/>Unit: cm/s"]
+        FOLLOW["<b>follow_smoothing</b><br/>───────────<br/>Range: 0.03 - 0.20<br/>0 = no follow"]
+        PULSE["<b>pulse_speed</b><br/>───────────<br/>Range: x1.3 - x0.7<br/>Unit: ms period"]
+        BRIGHT["<b>brightness</b><br/>───────────<br/>Range: x0.7 - x1.3<br/>Unit: DMX (1-255)"]
+        WANDER["<b>wander_interval</b><br/>───────────<br/>Range: x1.5 - x0.5<br/>Unit: seconds"]
+        GESTURE["<b>gesture frequency</b><br/>───────────<br/>Range: x1.5 - x0.5<br/>Unit: interval (s)"]
+        ANTIREP["<b>anti-repetition</b><br/>───────────<br/>Strength: 0.0 - 1.0<br/>Suppresses repeats"]
     end
 
     RESP -->|"lerp"| SPEED
@@ -211,18 +211,18 @@ flowchart LR
     MEMO -->|"scale"| ANTIREP
 
     subgraph MULTIPLIERS["Global Multipliers (default 1.0)"]
-        BG["brightness_global"]
-        SG["speed_global"]
-        PG["pulse_global"]
-        FG["follow_speed_global"]
-        DI["dwell_influence"]
-        TW["trend_weight"]
+        BG["<b>brightness_global</b><br/>range: 0.3 - 5.0"]
+        SG["<b>speed_global</b><br/>range: 0.3 - 3.0"]
+        PG["<b>pulse_global</b><br/>range: 0.3 - 3.0"]
+        FG["<b>follow_speed_global</b><br/>range: 0.3 - 3.0"]
+        DI["<b>dwell_influence</b><br/>range: 0.0 - 3.0"]
+        TW["<b>trend_weight</b><br/>range: 0.0 - 3.0"]
     end
 
-    BG -->|"×"| BRIGHT
-    SG -->|"×"| SPEED
-    PG -->|"×"| PULSE
-    FG -->|"×"| FOLLOW
+    BG -->|"x"| BRIGHT
+    SG -->|"x"| SPEED
+    PG -->|"x"| PULSE
+    FG -->|"x"| FOLLOW
     DI -.->|"scales dwell<br/>bonus layer"| BRIGHT
     TW -.->|"scales trend<br/>response layer"| SPEED
 
@@ -249,48 +249,48 @@ The key insight is **asymmetric adjustment**: personality sliders (responsivenes
 ```mermaid
 flowchart TB
     subgraph SENSE["Sense (every 5s)"]
-        ACT["Read activity levels<br/>short (5m) · medium (30m) · long (1h)"]
-        AGG["Read aggression state<br/>level · time since engagement"]
+        ACT["<b>Read Activity Levels</b><br/>───────────────<br/>short_activity: 5 min window<br/>medium_activity: 30 min window<br/>long_activity: 1 hour window"]
+        AGG["<b>Read Aggression State</b><br/>───────────────<br/>level: 0-1 (EMA smoothed)<br/>seconds_since_engagement: int"]
     end
 
     subgraph COMPUTE["Compute"]
-        TARGET["Adaptive Target<br/>rolling median of ~500 samples<br/>(~42 min window)<br/>clamped 0.03 – 0.40"]
-        EXCESS["activity_excess =<br/>short_activity − adaptive_target"]
+        TARGET["<b>Adaptive Target</b><br/>───────────────<br/>Method: rolling median<br/>Samples: ~500 (~42 min)<br/>Clamp: 0.03 - 0.40<br/>Purpose: relative busy/quiet"]
+        EXCESS["<b>Activity Excess</b><br/>───────────────<br/>Formula: short_activity<br/>minus adaptive_target<br/>Positive = busier than normal<br/>Negative = quieter than normal"]
         ACT --> TARGET --> EXCESS
         AGG --> EXCESS
     end
 
     subgraph DELTAS["Calculate Deltas"]
-        PERS_UP["<b>Personality ↑ only</b><br/>responsiveness · energy · sociability<br/>pushed UP when busy<br/>NOT pushed down when quiet"]
-        DISP_INV["<b>Display (inverse)</b><br/>brightness · speed · pulse<br/>↓ when busy (personality handles it)<br/>↑ when quiet (compensates)"]
-        EXPL_Q["<b>Exploration</b><br/>↑ when quiet (search more)<br/>↓ when busy (stay focused)"]
+        PERS_UP["<b>Personality (up only)</b><br/>───────────────<br/>Params: responsiveness, energy, sociability<br/>When busy: pushed UP<br/>When quiet: NOT pushed down<br/>Max step: 0.03 per cycle"]
+        DISP_INV["<b>Display (inverse)</b><br/>───────────────<br/>Params: brightness, speed, pulse globals<br/>When busy: decrease (personality handles it)<br/>When quiet: increase (compensates)<br/>Max step: 0.08 per cycle"]
+        EXPL_Q["<b>Exploration</b><br/>───────────────<br/>When quiet: increase (search more)<br/>When busy: decrease (stay focused)<br/>Max step: 0.03 per cycle"]
         EXCESS --> PERS_UP
         EXCESS --> DISP_INV
         EXCESS --> EXPL_Q
     end
 
-    subgraph ADJUST["Adjust & Constrain"]
-        REVERT["<b>Mean Reversion</b><br/>gentle pull toward home values<br/>strength: 0.02 + 0.06 × distance<br/>(progressive — stronger when far)"]
-        CURIOSITY["<b>Curiosity Perturbation</b><br/>every 30s: random nudge<br/>60% biased toward home values"]
-        BUDGET["<b>Budget Gate</b><br/>total change cost limited<br/>regenerates over ~300s<br/>prevents runaway drift"]
-        CLAMP["<b>Clamp</b><br/>safe floors prevent 'zombie light'<br/>soft caps prevent obnoxious behavior"]
+    subgraph ADJUST["Adjust and Constrain"]
+        REVERT["<b>Mean Reversion</b><br/>───────────────<br/>Target: home values (defaults)<br/>Strength: 0.02 + 0.06 x distance<br/>Type: progressive (stronger when far)<br/>Always active"]
+        CURIOSITY["<b>Curiosity Perturbation</b><br/>───────────────<br/>Interval: every 30 seconds<br/>Strength: 0.015<br/>Bias: 60% toward home values<br/>Purpose: explore parameter space"]
+        BUDGET["<b>Budget Gate</b><br/>───────────────<br/>Cost: sum(abs(deltas)) x 60<br/>Restore: over ~300 seconds<br/>Effect: scales down changes when depleted<br/>Purpose: prevents runaway drift"]
+        CLAMP["<b>Clamp</b><br/>───────────────<br/>Safe floors: prevent zombie light<br/>Soft caps: prevent obnoxious behavior<br/>Hard range: per-parameter min/max<br/>Min step: 0.002 (below = zeroed)"]
         PERS_UP --> REVERT
         DISP_INV --> REVERT
         EXPL_Q --> REVERT
         REVERT --> CURIOSITY --> BUDGET --> CLAMP
     end
 
-    CLAMP --> APPLY["Apply to MetaParameters<br/>+ sync slider positions"]
+    CLAMP --> APPLY["<b>Apply</b><br/>───────────────<br/>Target: MetaParameters<br/>Also: sync slider UI positions"]
 
-    APPLY --> META["MetaParameters<br/>updated for next frame"]
+    APPLY --> META["<b>MetaParameters</b><br/>───────────────<br/>6 personality sliders<br/>6 global multipliers<br/>Updated for next frame"]
 
     META -.->|"personality shapes<br/>behavior output"| SENSE
 
     subgraph DAILY["Daily Learning (midnight)"]
         direction LR
-        SNAP["End-of-day snapshot<br/>60% final + 40% midpoint"]
-        DB["Persist to database<br/>per time-of-day period"]
-        LOAD["Next startup<br/>load + 30% blend"]
+        SNAP["<b>End-of-Day Snapshot</b><br/>───────────────<br/>60% final value<br/>40% midpoint of range"]
+        DB["<b>Persist</b><br/>───────────────<br/>Stored per time-of-day<br/>period in database"]
+        LOAD["<b>Next Startup</b><br/>───────────────<br/>Load learned values<br/>Blend: 30% toward learned"]
         SNAP --> DB --> LOAD
     end
 
@@ -298,10 +298,10 @@ flowchart TB
     LOAD -.->|"learned home values"| TARGET
 
     subgraph OVERRIDES["External Meta-Tuner"]
-        JSON["autotune_overrides.json<br/>hot-reloaded every 30s"]
+        JSON["<b>autotune_overrides.json</b><br/>───────────────<br/>Hot-reloaded: every 30 seconds<br/>Can override: home values, safe floors,<br/>caps, curiosity, budget"]
     end
 
-    JSON -.->|"override home values,<br/>safe floors, caps,<br/>curiosity, budget"| TARGET
+    JSON -.->|"override tuning<br/>hyperparameters"| TARGET
 
     style SENSE fill:#0d1b2a,stroke:#1b263b,color:#e0e1dd
     style COMPUTE fill:#1b263b,stroke:#415a77,color:#e0e1dd
@@ -339,40 +339,40 @@ The system processes information across five timescales simultaneously. Fast loo
 
 ```mermaid
 flowchart TB
-    subgraph FRAME["⚡ Per-Frame (~33ms)"]
-        F1["Mode switching<br/>(is someone in the active zone?)"]
-        F2["Gesture triggering<br/>(cooldown checks, phase gates)"]
-        F3["Proximity response<br/>(Z-distance scaling)"]
-        F4["Light position interpolation<br/>(move toward target)"]
-        F5["Breathing overlay<br/>(sine wave phase advance)"]
-        F6["Panel brightness calculation<br/>(distance falloff per panel)"]
+    subgraph FRAME["Per-Frame (~33ms)"]
+        F1["<b>Mode Switching</b><br/>───────────<br/>Check: active zone occupancy<br/>Apply: stickiness timers"]
+        F2["<b>Gesture Triggering</b><br/>───────────<br/>Check: cooldowns, phase gates<br/>Fire: weighted random selection"]
+        F3["<b>Proximity Response</b><br/>───────────<br/>Input: person Z distance<br/>Scale: speed, brightness, smoothing"]
+        F4["<b>Position Interpolation</b><br/>───────────<br/>Method: exponential decay toward target<br/>Rate: move_speed cm/s"]
+        F5["<b>Breathing Overlay</b><br/>───────────<br/>Advance: sine wave phase<br/>Apply: brightness +/-12%, radius +/-6%"]
+        F6["<b>Panel Brightness</b><br/>───────────<br/>Calc: 12x distance falloff<br/>Output: DMX values to Art-Net"]
     end
 
-    subgraph SECONDS["🔄 Every 1.5 – 5 seconds"]
-        S1["Flow tracking update (1.5s)<br/>30s sliding window<br/>left-vs-right traffic direction"]
-        S2["Auto-tuning cycle (5s)<br/>read trends → compute deltas<br/>→ adjust MetaParameters"]
-        S3["Attraction strategy rotation<br/>A/B test for almost-engaged"]
+    subgraph SECONDS["Every 1.5 - 5 seconds"]
+        S1["<b>Flow Tracking</b><br/>───────────<br/>Interval: 1.5 seconds<br/>Window: 30 seconds sliding<br/>Output: direction (-1 to +1), strength (0-1)"]
+        S2["<b>Auto-Tuning Cycle</b><br/>───────────<br/>Interval: 5 seconds<br/>Read: trends, aggression<br/>Write: MetaParameters (12 params)"]
+        S3["<b>Attraction Strategy</b><br/>───────────<br/>Rotate: brightness / drift / pause<br/>Track: conversion per strategy<br/>Cooldown: 5 seconds"]
     end
 
-    subgraph MINUTES["📊 Rolling Windows (1m – 60m)"]
-        M1["<b>Recent</b> (1 min)<br/>immediate reactivity"]
-        M2["<b>Short</b> (5 min)<br/>→ short_activity weight"]
-        M3["<b>Medium</b> (30 min)<br/>→ medium_activity weight"]
-        M4["<b>Long</b> (1 hour)<br/>→ long_activity weight"]
-        M5["Aggression EMA<br/>rises without engagement<br/>capped by time-of-day"]
+    subgraph MINUTES["Rolling Windows (1m - 60m)"]
+        M1["<b>Recent</b> (1 min)<br/>───────────<br/>Use: immediate reactivity<br/>Drives: ready-for-action posture"]
+        M2["<b>Short</b> (5 min)<br/>───────────<br/>Output: short_activity weight<br/>Feeds: auto-tuning primary signal"]
+        M3["<b>Medium</b> (30 min)<br/>───────────<br/>Output: medium_activity weight<br/>Use: general activity level"]
+        M4["<b>Long</b> (1 hour)<br/>───────────<br/>Output: long_activity weight<br/>Use: big-picture energy level"]
+        M5["<b>Aggression EMA</b><br/>───────────<br/>Rises: without engagement<br/>Capped: by time-of-day table<br/>Range: 0 - 0.8 depending on hour"]
     end
 
-    subgraph DAILY["📅 Daily"]
-        D1["Time-of-day modifiers<br/>brightness, pulse, wander Y<br/>by period (5 periods)"]
-        D2["6-hour parameter resets<br/>(midnight/6am/noon/6pm)<br/>40% blend toward home"]
-        D3["Daily report at 12:01 AM<br/>engagement stats, population,<br/>parameter journey summary"]
-        D4["Daily learning<br/>compute optimal starts<br/>per time-of-day period"]
+    subgraph DAILY["Daily"]
+        D1["<b>Time-of-Day Modifiers</b><br/>───────────<br/>Periods: late_night / waking /<br/>active / rush / evening<br/>Scales: brightness, pulse, wander Y"]
+        D2["<b>Parameter Resets</b><br/>───────────<br/>Times: midnight / 6am / noon / 6pm<br/>Method: 40% blend toward home values"]
+        D3["<b>Daily Report</b><br/>───────────<br/>Time: 12:01 AM<br/>Content: engagement stats, population,<br/>parameter journey summary"]
+        D4["<b>Daily Learning</b><br/>───────────<br/>Compute: optimal starting values<br/>Granularity: per time-of-day period"]
     end
 
-    subgraph WEEKLY["📆 Weekly"]
-        W1["7-day weighted average<br/>of engagement metrics<br/>by time period"]
-        W2["Learned cap loosening<br/>if parameter consistently<br/>hits ceiling → nudge up 10%"]
-        W3["Feedback learning weights<br/>50-context ring buffer<br/>position × aggression × time<br/>→ engagement correlation"]
+    subgraph WEEKLY["Weekly"]
+        W1["<b>Engagement History</b><br/>───────────<br/>Method: 7-day weighted average<br/>Granularity: by time period"]
+        W2["<b>Cap Loosening</b><br/>───────────<br/>Trigger: param consistently hits ceiling<br/>Effect: nudge cap up 10% for next day"]
+        W3["<b>Feedback Learning</b><br/>───────────<br/>Buffer: 50 recent engagement contexts<br/>Dims: position x aggression x time x flow<br/>Rate: +/-0.02 per engagement"]
     end
 
     FRAME --> SECONDS --> MINUTES --> DAILY --> WEEKLY
@@ -576,52 +576,52 @@ This final diagram shows the complete system with all feedback loops visible at 
 
 ```mermaid
 flowchart TB
-    CAM["📷 Camera + YOLO<br/>Person Detection"] -->|"OSC x,z"| TRACKER["Person Manager<br/>zone classify · velocity · dwell"]
+    CAM["<b>Camera + YOLO</b><br/>───────────────<br/>Detection: person bounding boxes<br/>Output: OSC x, z per person"] -->|"OSC x,z"| TRACKER["<b>Person Manager</b><br/>───────────────<br/>Zone: active / passive classify<br/>Tracking: velocity, dwell time"]
 
-    TRACKER -->|"active/passive counts<br/>person positions"| BEHAVIOR["Behavior System<br/>mode · dwell · gestures"]
+    TRACKER -->|"active/passive counts<br/>person positions"| BEHAVIOR["<b>Behavior System</b><br/>───────────────<br/>Mode: state machine<br/>Dwell: phase tracking<br/>Gestures: event + interaction"]
 
-    TRACKER -->|"zone crossings<br/>per timescale"| TRENDS["Trend Analysis<br/>1m · 5m · 30m · 1h"]
+    TRACKER -->|"zone crossings<br/>per timescale"| TRENDS["<b>Trend Analysis</b><br/>───────────────<br/>Windows: 1m / 5m / 30m / 1h<br/>Output: activity weights"]
 
-    TRACKER -->|"velocity vectors"| FLOWTRACK["Flow Tracking<br/>direction · strength<br/>30s window · 1.5s update"]
+    TRACKER -->|"velocity vectors"| FLOWTRACK["<b>Flow Tracking</b><br/>───────────────<br/>Direction: -1 to +1<br/>Strength: 0 to 1<br/>Window: 30s, update 1.5s"]
 
-    TRENDS -->|"activity weights<br/>anticipation · energy"| BEHAVIOR
-    FLOWTRACK -->|"flow direction<br/>−1 to +1"| BEHAVIOR
+    TRENDS -->|"activity weights<br/>anticipation, energy"| BEHAVIOR
+    FLOWTRACK -->|"flow direction"| BEHAVIOR
 
-    TRENDS -->|"short_activity<br/>medium · long"| AUTOTUNE["AutoTuning Manager<br/>5s cycle"]
+    TRENDS -->|"short_activity<br/>medium, long"| AUTOTUNE["<b>AutoTuning Manager</b><br/>───────────────<br/>Cycle: every 5 seconds<br/>Params: 12 (6 sliders + 6 globals)<br/>Method: adaptive target + deltas"]
 
     BEHAVIOR -->|"aggression state"| AUTOTUNE
 
-    AUTOTUNE -->|"adjusted values"| META["MetaParameters<br/>6 sliders + 6 multipliers"]
+    AUTOTUNE -->|"adjusted values"| META["<b>MetaParameters</b><br/>───────────────<br/>Personality: 6 sliders (0-1)<br/>Globals: 6 multipliers"]
 
     META -->|"personality +<br/>global multipliers"| BEHAVIOR
 
-    BEHAVIOR -->|"behavior_params<br/>7 output values"| PIPELINE["17-Layer Pipeline<br/>(see Diagram 3)"]
+    BEHAVIOR -->|"behavior_params<br/>7 output values"| PIPELINE["<b>17-Layer Pipeline</b><br/>───────────────<br/>See: Diagram 3"]
 
-    PIPELINE -->|"final params"| POINTLIGHT["Point Light<br/>position · brightness<br/>falloff · pulse"]
+    PIPELINE -->|"final params"| POINTLIGHT["<b>Point Light</b><br/>───────────────<br/>Position: x, y, z<br/>Brightness: min/max<br/>Falloff: radius<br/>Pulse: phase"]
 
-    POINTLIGHT -->|"light state"| PANELSYS["Panel System<br/>12× distance → DMX"]
+    POINTLIGHT -->|"light state"| PANELSYS["<b>Panel System</b><br/>───────────────<br/>Panels: 12 (4 units x 3)<br/>Calc: distance to DMX"]
 
-    PANELSYS -->|"12 DMX channels"| ARTNET["Art-Net UDP<br/>→ Physical Panels"]
+    PANELSYS -->|"12 DMX channels"| ARTNET["<b>Art-Net Output</b><br/>───────────────<br/>Target: 10.42.0.200<br/>Universe: 0 / Rate: 30 FPS"]
 
-    POINTLIGHT -->|"state snapshot"| WEBSOCKET["WebSocket<br/>→ Public 3D Viewer"]
+    POINTLIGHT -->|"state snapshot"| WEBSOCKET["<b>WebSocket Broadcast</b><br/>───────────────<br/>Clients: Public 3D Viewer<br/>Rate: ~15 FPS"]
 
-    BEHAVIOR -->|"engagement context<br/>snapshots"| FEEDBACK["Feedback Learning<br/>50-context ring buffer<br/>position × time × flow"]
+    BEHAVIOR -->|"engagement context<br/>snapshots"| FEEDBACK["<b>Feedback Learning</b><br/>───────────────<br/>Buffer: 50 contexts<br/>Dims: position x time x flow<br/>Rate: +/-0.02 per event"]
 
     FEEDBACK -->|"learned weights"| BEHAVIOR
 
-    AUTOTUNE -->|"parameter journey<br/>end-of-day"| DAILY["Daily Learning<br/>optimal starts per<br/>time-of-day period"]
+    AUTOTUNE -->|"parameter journey<br/>end-of-day"| DAILY["<b>Daily Learning</b><br/>───────────────<br/>Compute: optimal starts<br/>Granularity: per time-of-day"]
 
     DAILY -->|"learned home values<br/>30% blend on startup"| AUTOTUNE
 
-    DAILY -->|"daily report"| DB[("Tracking Database<br/>hourly stats · learnings<br/>engagement history")]
+    DAILY -->|"daily report"| DB[("<b>Tracking Database</b><br/>───────────────<br/>Hourly stats, learnings,<br/>engagement history")]
 
     TRENDS -->|"raw events"| DB
     DB -->|"historical patterns"| TRENDS
     DB -->|"7-day weighted avg"| DAILY
 
-    OVERRIDES["autotune_overrides.json<br/>(external meta-tuner)"] -.->|"hot-reload<br/>every 30s"| AUTOTUNE
+    OVERRIDES["<b>autotune_overrides.json</b><br/>───────────────<br/>Hot-reload: every 30s<br/>Overrides: home values, caps, budget"] -.->|"hot-reload"| AUTOTUNE
 
-    TOD["Time of Day<br/>hour → period"] -->|"brightness × pulse ×<br/>wander Y · aggression cap"| BEHAVIOR
+    TOD["<b>Time of Day</b><br/>───────────────<br/>Maps: hour to period<br/>Scales: brightness, pulse,<br/>wander Y, aggression cap"] -->|"modifiers"| BEHAVIOR
 
     style CAM fill:#e94560,stroke:#fff,color:#fff
     style ARTNET fill:#e94560,stroke:#fff,color:#fff
@@ -636,15 +636,883 @@ flowchart TB
 
 ---
 
+# Part 2: Camera Tracking System
+
+The following diagrams explain how two RTSP cameras capture video, detect people
+using YOLO, project detections to real-world floor coordinates via calibration,
+fuse cross-camera observations, and output tracked positions over OSC. This is
+the upstream data source that feeds the behavior system described in Part 1.
+
+---
+
+## Diagram 9 — Camera System Overview
+
+High-level pipeline from physical cameras to the OSC messages consumed by
+lightController.
+
+```mermaid
+flowchart LR
+    CAM1["**Camera 1**
+    ───────────────
+    Model: Reolink RLC-520A
+    IP: 10.42.0.75
+    Protocol: RTSP port 555
+    Resolution: 2048 x 1536
+    FPS: 25"]
+
+    CAM2["**Camera 2**
+    ───────────────
+    Model: Reolink RLC-520A
+    IP: 10.42.0.172
+    Protocol: RTSP port 555
+    Resolution: 2048 x 1536
+    FPS: 25"]
+
+    RC["**RobustCamera**
+    ───────────────
+    Threads: 1 daemon per camera
+    Buffer: single-copy frame
+    Flush: grab() x3 per read
+    Reconnect: auto on failure
+    Max frame age: 0.5s"]
+
+    YOLO["**YOLO 11n Detection**
+    ───────────────
+    Input: 416px wide resize
+    Class: person only (id 0)
+    Confidence: 0.10 - 0.80
+    Output: bounding boxes"]
+
+    CAL["**Calibration**
+    ───────────────
+    Method: ray-plane intersect
+    Floor plane: Y = -66 cm
+    Pre-computed: R_T, K_inv
+    Output: world (X, Z) cm"]
+
+    FUSE["**TrackingFusion**
+    ───────────────
+    Merge: cross-camera only
+    Threshold: 50 - 300 cm
+    Smoothing: EMA alpha 0.03
+    Velocity: prediction + correct"]
+
+    OSC["**OSC Output**
+    ───────────────
+    Target: 127.0.0.1:7000
+    /tracker/count n
+    /tracker/person/id x z
+    Protocol: UDP"]
+
+    LC["**lightController_osc.py**
+    ───────────────
+    Zone classification
+    Behavior system
+    Light output"]
+
+    CAM1 --> RC
+    CAM2 --> RC
+    RC --> YOLO
+    YOLO --> CAL
+    CAL --> FUSE
+    FUSE --> OSC
+    OSC --> LC
+
+    style CAM1 fill:#1a1a2e,stroke:#e94560,color:#fff
+    style CAM2 fill:#1a1a2e,stroke:#e94560,color:#fff
+    style RC fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style YOLO fill:#0f3460,stroke:#e94560,color:#fff
+    style CAL fill:#533483,stroke:#e94560,color:#fff
+    style FUSE fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style OSC fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style LC fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+```
+
+---
+
+## Diagram 10 — Physical Setup and Coordinate System
+
+Camera positions, ArUco calibration markers, and tracking zones in the
+real-world coordinate system. All units in centimeters.
+
+```mermaid
+flowchart TB
+    subgraph COORD ["Coordinate System"]
+        ORIGIN["**Origin**
+        ───────────────
+        Location: back-right corner
+        of Panel Unit 0, floor level
+        X: negative toward Unit 3
+        Y: positive upward
+        Z: positive into tracking zone"]
+    end
+
+    subgraph LEVELS ["Reference Levels"]
+        FLOOR["**Storefront Floor**
+        ───────────────
+        Y: 0 cm
+        Role: reference plane"]
+
+        LEDGE["**Camera Ledge**
+        ───────────────
+        Y: -15 cm
+        Height: 51 cm above street"]
+
+        STREET["**Street Level**
+        ───────────────
+        Y: -66 cm
+        Role: pedestrian floor plane
+        Used by: calibration intersect"]
+    end
+
+    subgraph CAMERAS ["Camera Positions"]
+        C1["**Camera 1 (Right)**
+        ───────────────
+        Position: X=-30, Y=-15, Z=78
+        IP: 10.42.0.75
+        Aligned with: Unit 0 center
+        FOV: 80 deg horiz, 48 deg vert
+        Pitch: 22 deg down
+        Yaw: ~25 deg left"]
+
+        C2["**Camera 2 (Left)**
+        ───────────────
+        Position: X=-270, Y=-15, Z=78
+        IP: 10.42.0.172
+        Aligned with: Unit 3 center
+        FOV: 80 deg horiz, 48 deg vert
+        Pitch: 22 deg down
+        Yaw: ~25 deg right"]
+    end
+
+    subgraph PANELS ["Panel Units (60 cm wide, 80 cm spacing)"]
+        P0["**Unit 0**
+        ───────────────
+        Center X: -30
+        Edges: 0 to -60"]
+
+        P1["**Unit 1**
+        ───────────────
+        Center X: -110
+        Edges: -80 to -140"]
+
+        P2["**Unit 2**
+        ───────────────
+        Center X: -190
+        Edges: -160 to -220"]
+
+        P3["**Unit 3**
+        ───────────────
+        Center X: -270
+        Edges: -240 to -300"]
+    end
+
+    subgraph ZONES ["Tracking Zones"]
+        ACTIVE["**Active Zone**
+        ───────────────
+        X: -350 to 50
+        Z: 78 to 283
+        Depth: ~2 m from panels
+        Role: engaged interaction"]
+
+        PASSIVE["**Passive Zone**
+        ───────────────
+        X: -350 to 50
+        Z: 283 to 553
+        Depth: ~2.7 m beyond active
+        Role: sidewalk passersby"]
+    end
+
+    COORD --> LEVELS
+    COORD --> CAMERAS
+    CAMERAS --> PANELS
+    PANELS --> ZONES
+
+    style COORD fill:#0d1b2a,stroke:#778da9,color:#e0e1dd
+    style LEVELS fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style CAMERAS fill:#16213e,stroke:#e94560,color:#fff
+    style PANELS fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style ZONES fill:#0f3460,stroke:#e94560,color:#fff
+    style ORIGIN fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style FLOOR fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style LEDGE fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style STREET fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style C1 fill:#16213e,stroke:#e94560,color:#fff
+    style C2 fill:#16213e,stroke:#e94560,color:#fff
+    style P0 fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style P1 fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style P2 fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style P3 fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style ACTIVE fill:#0f3460,stroke:#e94560,color:#fff
+    style PASSIVE fill:#0f3460,stroke:#e94560,color:#fff
+```
+
+---
+
+## Diagram 11 — Camera Capture and YOLO Detection
+
+How each camera thread captures frames and how the main loop runs YOLO
+detection on resized images.
+
+```mermaid
+flowchart TB
+    subgraph THREAD ["RobustCamera Thread (1 per camera)"]
+        CONNECT["**_connect()**
+        ───────────────
+        Backend: cv2.CAP_FFMPEG
+        Buffer size: 1 frame
+        Timeout: 10s connection
+        Retry: 2s between attempts"]
+
+        LOOP["**_capture_loop()**
+        ───────────────
+        Method: cap.read()
+        Store: frame under lock
+        Buffer flush: cap.grab() x3
+        Purpose: discard stale RTSP
+        Failure limit: 30 consecutive"]
+
+        RECONNECT["**Reconnect Logic**
+        ───────────────
+        Trigger: 30+ read failures
+        Action: disconnect, sleep 2s
+        Stats: reconnect counter
+        Error log: every 10th failure"]
+
+        CONNECT --> LOOP
+        LOOP -->|failure > 30| RECONNECT
+        RECONNECT --> CONNECT
+    end
+
+    subgraph GETFRAME ["Frame Retrieval"]
+        GET["**get_frame()**
+        ───────────────
+        Lock: threading.Lock
+        Copy: single np.ndarray copy
+        Age check: < 0.5s max
+        Returns: (ok, frame, is_new)
+        Tracking: frame_num counter"]
+    end
+
+    subgraph DETECT ["Tracker._detect_all()"]
+        RESIZE["**Resize**
+        ───────────────
+        Target width: 416 px
+        Method: cv2.INTER_LINEAR
+        Aspect: preserved
+        Scale factor: saved for later"]
+
+        PREDICT["**YOLO Predict**
+        ───────────────
+        Model: yolo11n.pt
+        Classes: [0] person only
+        Confidence: slider value
+        Device: auto (CPU/CUDA)
+        Verbose: False"]
+
+        SCALE["**Scale to Full Resolution**
+        ───────────────
+        Input: YOLO boxes (416px space)
+        Operation: multiply by scale_inv
+        Output: boxes in 2048x1536 space
+        Format: (x1, y1, x2, y2, conf)"]
+
+        CACHE["**Detection Cache**
+        ───────────────
+        Storage: cfg[_last_boxes]
+        Per camera: list of detections
+        Reused when: frame is not new
+        Cleared on: new frame processed"]
+
+        RESIZE --> PREDICT
+        PREDICT --> SCALE
+        SCALE --> CACHE
+    end
+
+    THREAD --> GET
+    GET -->|frame| DETECT
+
+    style THREAD fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style GETFRAME fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style DETECT fill:#0f3460,stroke:#e94560,color:#fff
+    style CONNECT fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style LOOP fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style RECONNECT fill:#1a1a2e,stroke:#e94560,color:#fff
+    style GET fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style RESIZE fill:#0f3460,stroke:#e94560,color:#fff
+    style PREDICT fill:#0f3460,stroke:#e94560,color:#fff
+    style SCALE fill:#0f3460,stroke:#e94560,color:#fff
+    style CACHE fill:#1b263b,stroke:#415a77,color:#e0e1dd
+```
+
+---
+
+## Diagram 12 — Calibration: Pixel to World Coordinates
+
+The ray-plane intersection math that transforms a bounding-box foot position
+in image pixels to a real-world floor position in centimeters.
+
+```mermaid
+flowchart TB
+    subgraph INPUT ["Bounding Box Input"]
+        BBOX["**bbox_to_floor()**
+        ───────────────
+        Input: x1, y1, x2, y2
+        Foot X: (x1 + x2) / 2
+        Foot Y: y2 (box bottom)
+        Assumption: feet touch floor"]
+    end
+
+    subgraph PRECOMPUTED ["Pre-Computed at Load Time"]
+        LOAD["**CalibrationManager.__init__**
+        ───────────────
+        Source: camera_calibration.json
+        Per camera:
+          K = camera matrix 3x3
+          K_inv = np.linalg.inv(K)
+          R, _ = cv2.Rodrigues(rvec)
+          R_T = R.T (transpose)
+          cam_pos = -R_T @ tvec
+          dist = distortion coeffs"]
+    end
+
+    subgraph INTRINSICS ["Camera Intrinsics"]
+        KINTR["**Camera Matrix (K)**
+        ───────────────
+        fx: 1220.36 px
+        fy: 1220.36 px
+        cx: 1024.0 (image center)
+        cy: 768.0 (image center)
+        Source: 80 deg HFOV estimate
+        Formula: 1024 / tan(40 deg)
+        Distortion: all zeros"]
+    end
+
+    subgraph RAYSTEPS ["Ray-Plane Intersection Steps"]
+        STEP1["**Step 1: Undistort**
+        ───────────────
+        Method: cv2.undistortPoints
+        Input: (foot_x, foot_y)
+        Params: K, dist, P=K
+        Output: (ux, uy)"]
+
+        STEP2["**Step 2: Camera Ray**
+        ───────────────
+        Pixel to ray: K_inv @ [ux, uy, 1]
+        Normalize: ray / norm(ray)
+        Space: camera coordinates"]
+
+        STEP3["**Step 3: World Ray**
+        ───────────────
+        Transform: R_T @ ray_cam
+        Space: world coordinates
+        Direction: from camera outward"]
+
+        STEP4["**Step 4: Intersect Floor**
+        ───────────────
+        Floor plane: Y = -66 cm
+        Parameter: t = (floor_y - cam_y)
+                       / ray_world_y
+        Guard: abs(ray_y) > 1e-6
+        Guard: t > 0 (forward only)"]
+
+        STEP5["**Step 5: Hit Point**
+        ───────────────
+        Compute: cam_pos + t * ray_world
+        Extract: (hit_x, hit_z)
+        Units: centimeters
+        X: lateral position
+        Z: depth from panels"]
+
+        STEP1 --> STEP2
+        STEP2 --> STEP3
+        STEP3 --> STEP4
+        STEP4 --> STEP5
+    end
+
+    subgraph OUTPUT ["World Position"]
+        RESULT["**Return Value**
+        ───────────────
+        Format: (world_x, world_z)
+        Units: centimeters
+        Plane: Y = -66 (street)
+        Failure: returns None"]
+    end
+
+    INPUT --> STEP1
+    PRECOMPUTED --> STEP2
+    INTRINSICS --> STEP1
+    STEP5 --> OUTPUT
+
+    style INPUT fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style PRECOMPUTED fill:#533483,stroke:#e94560,color:#fff
+    style INTRINSICS fill:#533483,stroke:#e94560,color:#fff
+    style RAYSTEPS fill:#0f3460,stroke:#e94560,color:#fff
+    style OUTPUT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style BBOX fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style LOAD fill:#533483,stroke:#e94560,color:#fff
+    style KINTR fill:#533483,stroke:#e94560,color:#fff
+    style STEP1 fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP2 fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP3 fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP4 fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP5 fill:#0f3460,stroke:#e94560,color:#fff
+    style RESULT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+```
+
+---
+
+## Diagram 13 — Cross-Camera Fusion and Temporal Tracking
+
+How detections from two cameras are merged into unified positions and
+smoothed into stable tracks over time.
+
+```mermaid
+flowchart TB
+    subgraph INPUTDETS ["Per-Frame World Detections"]
+        DETS["**Detection List**
+        ───────────────
+        Per detection:
+          x: world X (cm)
+          z: world Z (cm)
+          camera: source camera name
+          conf: YOLO confidence
+        Typical: 0-6 detections/frame"]
+    end
+
+    subgraph FUSESTAGE ["Stage 1: Spatial Fusion"]
+        FUSE_ALG["**_fuse() Algorithm**
+        ───────────────
+        Method: greedy nearest-neighbor
+        Constraint: cross-camera only
+        Same-camera: never merged
+        Threshold: fusion_dist squared
+        Default: 150 cm (22500 sq)"]
+
+        FUSE_MERGE["**Merge Operation**
+        ───────────────
+        Match: closest unmatched pair
+        across different cameras
+        Position: average of cluster
+        Result: single fused position
+        Unmatched: kept as-is"]
+
+        FUSE_ALG --> FUSE_MERGE
+    end
+
+    subgraph MATCHSTAGE ["Stage 2: Temporal Matching"]
+        PREDICT["**Velocity Prediction**
+        ───────────────
+        For each existing track:
+          pred_x = track_x + vel_x
+          pred_z = track_z + vel_z
+        Purpose: anticipate movement
+        between frames"]
+
+        MATCH["**Track Matching**
+        ───────────────
+        Metric: distance to predicted pos
+        Threshold: fusion_dist * 0.6
+        Default: 90 cm (8100 sq)
+        Reason: prevent cross-person
+        jumps at closer range
+        Method: nearest-neighbor"]
+
+        NEWTRACK["**New Track Creation**
+        ───────────────
+        Trigger: unmatched detection
+        ID: incrementing _next_id
+        Initial velocity: (0, 0)
+        Initial position: raw detection"]
+
+        PREDICT --> MATCH
+        MATCH -->|unmatched| NEWTRACK
+    end
+
+    subgraph SMOOTHSTAGE ["Stage 3: EMA Smoothing"]
+        EMA["**Exponential Moving Average**
+        ───────────────
+        Alpha: 0.01 - 0.20 (slider)
+        Default: 0.03 (very smooth)
+        Formula:
+          new_x = pred_x + a*(raw - pred_x)
+          vel_x += a*((new_x - old_x) - vel_x)
+        Effect: low alpha = smooth path
+                high alpha = responsive"]
+    end
+
+    subgraph PRUNE ["Track Lifecycle"]
+        LIFECYCLE["**Pruning**
+        ───────────────
+        Lost counter: frames unseen
+        Threshold: max_lost_frames
+        Default: 60 frames (2.4s)
+        Action: delete track entirely
+        Effect: ID freed for reuse"]
+    end
+
+    subgraph TRACKOUT ["Tracked Output"]
+        TRACKS["**Track List**
+        ───────────────
+        Per track:
+          id: stable integer
+          x: smoothed world X (cm)
+          z: smoothed world Z (cm)
+        Rate: 25 updates/second
+        Consumers: OSC sender"]
+    end
+
+    INPUTDETS --> FUSESTAGE
+    FUSESTAGE --> MATCHSTAGE
+    MATCHSTAGE --> SMOOTHSTAGE
+    SMOOTHSTAGE --> TRACKOUT
+    MATCHSTAGE --> PRUNE
+    PRUNE -->|remove stale| MATCHSTAGE
+
+    style INPUTDETS fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style FUSESTAGE fill:#0f3460,stroke:#e94560,color:#fff
+    style MATCHSTAGE fill:#533483,stroke:#e94560,color:#fff
+    style SMOOTHSTAGE fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style PRUNE fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style TRACKOUT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style DETS fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style FUSE_ALG fill:#0f3460,stroke:#e94560,color:#fff
+    style FUSE_MERGE fill:#0f3460,stroke:#e94560,color:#fff
+    style PREDICT fill:#533483,stroke:#e94560,color:#fff
+    style MATCH fill:#533483,stroke:#e94560,color:#fff
+    style NEWTRACK fill:#533483,stroke:#e94560,color:#fff
+    style EMA fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style LIFECYCLE fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style TRACKS fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+```
+
+---
+
+## Diagram 14 — ArUco Calibration Process
+
+How the one-time camera calibration is performed using ArUco markers placed
+at known 3D positions to compute each camera's pose via solvePnP.
+
+```mermaid
+flowchart TB
+    subgraph MARKERS ["ArUco Marker Layout"]
+        MSETUP["**7 Markers (ArUco 4x4_50)**
+        ───────────────
+        Size: 20 cm per marker
+        Front row (Z=168):
+          ID 0: X=-30 (Cam 1 only)
+          ID 1: X=-150 (shared)
+          ID 2: X=-270 (Cam 2 only)
+        Back row (Z=219):
+          ID 3: X=-30 (Cam 1 only)
+          ID 6: X=-150 (shared)
+          ID 4: X=-270 (Cam 2 only)
+        Subway wall (Z=628):
+          ID 5: X=-150, Y=-15 (shared)"]
+
+        VISIBILITY["**Camera Visibility**
+        ───────────────
+        Camera 1 sees: 0, 1, 3, 5, 6
+        Camera 2 sees: 1, 2, 4, 5, 6
+        Shared markers: 1, 5, 6
+        Min required: 3 per camera
+        Points per marker: 4 corners"]
+    end
+
+    subgraph DETECTION ["Marker Detection"]
+        DETECT_M["**ArUco Detection**
+        ───────────────
+        Convert: BGR to grayscale
+        Dictionary: DICT_4X4_50
+        Threshold: adaptive 3-23 step 4
+        Perimeter: 0.02 - 4.0 rate
+        Border error: 0.25 max"]
+
+        REFINE["**Corner Refinement**
+        ───────────────
+        Method: CORNER_REFINE_SUBPIX
+        Sub-pixel: cv2.cornerSubPix
+        Window: 3x3
+        Iterations: 50 max
+        Accuracy: 0.01 epsilon"]
+
+        DETECT_M --> REFINE
+    end
+
+    subgraph SOLVE ["Pose Estimation"]
+        CORRESPOND["**3D-2D Correspondences**
+        ───────────────
+        Per marker: 4 corner points
+        3D: world coords + offsets
+        Horizontal offsets (cm):
+          (-10,0,-10) (10,0,-10)
+          (10,0,10) (-10,0,10)
+        Vertical offsets (cm):
+          (-10,10,0) (10,10,0)
+          (10,-10,0) (-10,-10,0)"]
+
+        SOLVEPNP["**cv2.solvePnP**
+        ───────────────
+        Primary: SOLVEPNP_SQPNP
+        Fallback: SOLVEPNP_ITERATIVE
+        with extrinsic guess
+        Corner combos: 16 rotations
+        tries (4 horiz x 4 vert)
+        Refinement: solvePnPRefineLM"]
+
+        VALIDATE["**Validation Gates**
+        ───────────────
+        Reprojection error: < 100 px
+        Camera Z: must be positive
+        Position drift: < 50 cm from
+        expected camera location
+        Selection: best valid solution"]
+
+        CORRESPOND --> SOLVEPNP
+        SOLVEPNP --> VALIDATE
+    end
+
+    subgraph SAVE ["Calibration Output"]
+        CALOUT["**camera_calibration.json**
+        ───────────────
+        Per camera:
+          rvec: rotation (3x1)
+          tvec: translation (3x1)
+          camera_matrix: K (3x3)
+          dist_coeffs: (5 values)
+          image_size: [2048, 1536]
+        Global:
+          synth_width: 800
+          synth_height: 600
+          cm_per_pixel: 1.0"]
+    end
+
+    MARKERS --> DETECTION
+    DETECTION --> SOLVE
+    SOLVE --> SAVE
+
+    style MARKERS fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style DETECTION fill:#0f3460,stroke:#e94560,color:#fff
+    style SOLVE fill:#533483,stroke:#e94560,color:#fff
+    style SAVE fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style MSETUP fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style VISIBILITY fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style DETECT_M fill:#0f3460,stroke:#e94560,color:#fff
+    style REFINE fill:#0f3460,stroke:#e94560,color:#fff
+    style CORRESPOND fill:#533483,stroke:#e94560,color:#fff
+    style SOLVEPNP fill:#533483,stroke:#e94560,color:#fff
+    style VALIDATE fill:#533483,stroke:#e94560,color:#fff
+    style CALOUT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+```
+
+---
+
+## Diagram 15 — Main Loop and Tunable Parameters
+
+The Tracker main loop running at 25 FPS, and the three live slider parameters
+that control detection and tracking quality.
+
+```mermaid
+flowchart TB
+    subgraph MAINLOOP ["Tracker._run() Main Loop"]
+        TIMING["**Frame Rate Control**
+        ───────────────
+        Target: 25 FPS (40ms/frame)
+        Method: sleep(0.001) while
+        elapsed < frame_interval
+        Clock: time.time()"]
+
+        STEP_DETECT["**Step 1: _detect_all()**
+        ───────────────
+        For each camera:
+          get_frame()
+          resize to 416px
+          YOLO predict
+          scale boxes back
+          bbox_to_floor()
+        Output: world detections list"]
+
+        STEP_FUSE["**Step 2: fusion.process()**
+        ───────────────
+        Spatial fusion (cross-camera)
+        Temporal matching (velocity)
+        EMA smoothing (alpha=0.03)
+        Output: tracked (id, x, z) list"]
+
+        STEP_OSC["**Step 3: _send_osc()**
+        ───────────────
+        /tracker/count n
+        /tracker/person/id x z
+        Target: 127.0.0.1:7000
+        Error log: 1st + every 100th"]
+
+        STEP_RENDER["**Step 4: _render()**
+        ───────────────
+        Skip if: headless mode
+        Display: camera feeds +
+        bounding boxes + world coords
+        Key 'q': quit
+        Key 's': save settings"]
+
+        TIMING --> STEP_DETECT
+        STEP_DETECT --> STEP_FUSE
+        STEP_FUSE --> STEP_OSC
+        STEP_OSC --> STEP_RENDER
+        STEP_RENDER --> TIMING
+    end
+
+    subgraph PERIODIC ["Periodic Tasks"]
+        SAVE_S["**Settings Auto-Save**
+        ───────────────
+        Interval: every 5 seconds
+        Condition: settings dirty flag
+        File: tracker_settings.json"]
+
+        HEALTH["**Health Logging**
+        ───────────────
+        Interval: every 300s (5 min)
+        Reports: FPS, frame counts
+        camera health, track count"]
+
+        RESET["**YOLO Reset**
+        ───────────────
+        Interval: every 3600s (1 hr)
+        Action: reload model state
+        Purpose: prevent tracker drift"]
+    end
+
+    subgraph SLIDERS ["Live Tunable Parameters (3 Sliders)"]
+        S1["**Confidence**
+        ───────────────
+        Range: 0.10 - 0.80
+        Default: 0.40
+        Affects: YOLO detection threshold
+        Low: more detections, more noise
+        High: fewer detections, precise"]
+
+        S2["**Fusion Distance**
+        ───────────────
+        Range: 50 - 300 cm
+        Default: 150 cm
+        Affects: cross-camera merge radius
+        and track match (60% of value)
+        Low: strict matching
+        High: loose matching"]
+
+        S3["**Smoothing**
+        ───────────────
+        Range: 0.01 - 0.20
+        Default: 0.03
+        Affects: EMA alpha for position
+        Low: very smooth, laggy path
+        High: responsive, jittery path"]
+    end
+
+    MAINLOOP --> PERIODIC
+    SLIDERS --> MAINLOOP
+
+    style MAINLOOP fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style PERIODIC fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style SLIDERS fill:#533483,stroke:#e94560,color:#fff
+    style TIMING fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style STEP_DETECT fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP_FUSE fill:#0f3460,stroke:#e94560,color:#fff
+    style STEP_OSC fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style STEP_RENDER fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style SAVE_S fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style HEALTH fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style RESET fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style S1 fill:#533483,stroke:#e94560,color:#fff
+    style S2 fill:#533483,stroke:#e94560,color:#fff
+    style S3 fill:#533483,stroke:#e94560,color:#fff
+```
+
+---
+
+## Diagram 16 — End-to-End Data Transform
+
+The exact data shape at each stage of the pipeline, showing how a raw pixel
+detection transforms into the OSC position consumed by the behavior system.
+
+```mermaid
+sequenceDiagram
+    participant RTSP as RTSP Stream
+    participant RC as RobustCamera
+    participant YOLO as YOLO 11n
+    participant CAL as Calibration
+    participant FUS as Fusion
+    participant TRK as Tracking
+    participant OSC as OSC Output
+    participant LC as lightController
+
+    Note over RTSP: 2048 x 1536 H.264 frame
+
+    RTSP->>RC: raw frame (BGR numpy array)
+    Note over RC: Thread buffer, grab() flush x3
+
+    RC->>YOLO: resized frame (416 x 312 px)
+    Note over YOLO: model.predict(conf=0.40, classes=[0])
+
+    YOLO->>YOLO: bbox in 416px space (x1, y1, x2, y2, conf)
+    YOLO->>CAL: bbox in 2048px space (scaled by 4.93x)
+
+    Note over CAL: foot = ((x1+x2)/2, y2)
+
+    rect rgb(83, 52, 131)
+        Note over CAL: Ray-Plane Intersection
+        CAL->>CAL: undistort (ux, uy)
+        CAL->>CAL: ray_cam = K_inv @ [ux, uy, 1]
+        CAL->>CAL: ray_world = R_T @ ray_cam
+        CAL->>CAL: t = (-66 - cam_y) / ray_y
+        CAL->>CAL: hit = cam_pos + t * ray_world
+    end
+
+    CAL->>FUS: world detection (x_cm, z_cm, camera, conf)
+
+    Note over FUS: Merge detections from<br/>different cameras within 150cm
+
+    rect rgb(15, 52, 96)
+        Note over FUS: Cross-Camera Fusion
+        FUS->>FUS: greedy nearest-neighbor
+        FUS->>FUS: average merged positions
+    end
+
+    FUS->>TRK: fused positions [(x, z), ...]
+
+    rect rgb(22, 33, 62)
+        Note over TRK: Temporal Tracking
+        TRK->>TRK: predict: pos + velocity
+        TRK->>TRK: match within 90cm (60% of 150)
+        TRK->>TRK: EMA smooth (alpha=0.03)
+        TRK->>TRK: update velocity
+        TRK->>TRK: prune lost > 60 frames
+    end
+
+    TRK->>OSC: tracked [(id, x_cm, z_cm), ...]
+
+    OSC->>LC: /tracker/count 3
+    OSC->>LC: /tracker/person/1 -120.5 195.3
+    OSC->>LC: /tracker/person/2 -45.8 310.7
+    OSC->>LC: /tracker/person/3 -250.1 155.2
+
+    Note over LC: Zone classification<br/>Behavior system<br/>Light output
+```
+
+---
+
 ## Cross-References
 
 | Resource | Description |
 |---|---|
-| [BEHAVIOR_SYSTEM.md](BEHAVIOR_SYSTEM.md) | Full prose reference for all systems described here |
+| [BEHAVIOR_SYSTEM.md](BEHAVIOR_SYSTEM.md) | Full prose reference for all behavior systems |
 | [light_behavior.py](light_behavior.py) | State machine, gestures, trend analysis, feedback learning |
 | [lightController_osc.py](lightController_osc.py) | Main loop, OSC, Art-Net, WebSocket, AutoTuning |
 | [public-viewer/](public-viewer/) | Three.js web viewer (connects via WebSocket) |
+| [V2_5Dev/camera_tracker_osc.py](V2_5Dev/camera_tracker_osc.py) | Camera tracker V2.5 (RTSP, YOLO, calibration, fusion, OSC) |
+| [camera_calibration.py](camera_calibration.py) | Camera calibration tool (ArUco, solvePnP, synth view) |
+| [camera_calibration.json](../calibration/camera_calibration.json) | Calibration data (rvec, tvec, K, distortion per camera) |
+| [world_coordinates.json](world_coordinates.json) | ArUco marker 3D positions and camera intrinsics |
 
 ---
 
-*These diagrams describe the behavior system as of the current codebase. The auto-tuning, feedback learning, and daily learning mechanisms mean the light's personality evolves over time — these diagrams capture the architecture, but the actual parameter values will drift as the system adapts to its environment.*
+*These diagrams describe the behavior and camera tracking systems as of the current codebase. The auto-tuning, feedback learning, and daily learning mechanisms mean the light's personality evolves over time — these diagrams capture the architecture, but the actual parameter values will drift as the system adapts to its environment.*
