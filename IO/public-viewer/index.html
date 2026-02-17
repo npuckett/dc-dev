@@ -32,18 +32,10 @@
                 <span class="now-label">Now</span>
                 <span class="now-value" id="trend-current">0</span>
                 <span class="now-meta"><span id="trend-current-active">0</span> engaged | <span id="trend-current-passive">0</span> passing</span>
+                <span class="now-meta daily-total"><span id="trend-daily-total">0</span> today</span>
             </div>
         </div>
         <div id="trends-panels">
-            <div class="trend-panel">
-                <div class="panel-label">Input Activity</div>
-                <canvas id="trends-input-canvas"></canvas>
-                <div class="panel-legend">
-                    <span class="legend-item"><span class="legend-dot engaged"></span>Engaged</span>
-                    <span class="legend-item"><span class="legend-dot passing"></span>Passing</span>
-                    <span class="legend-label">Zone events per min</span>
-                </div>
-            </div>
             <div class="trend-panel behavior-panel">
                 <div class="behavior-header">
                     <span class="behavior-title">Auto-Tune</span>
@@ -86,14 +78,7 @@
                         </div>
                         <span class="trend-count" id="trend-med-total">-</span>
                     </div>
-                    <div class="trend-row" data-range="long" id="trend-long-row">
-                        <span class="trend-tag">60m <span class="trend-tag-value" id="trend-long-weight">--</span></span>
-                        <div class="trend-bar">
-                            <span class="trend-seg engaged" id="trend-long-bar-active"></span>
-                            <span class="trend-seg passing" id="trend-long-bar-passive"></span>
-                        </div>
-                        <span class="trend-count" id="trend-long-total">-</span>
-                    </div>
+
                 </div>
                 <!-- Personality parameters -->
                 <div class="params-section-label">Personality</div>
@@ -168,6 +153,15 @@
                 <div class="behavior-footer">
                     <span class="behavior-foot-label">Tuning activity</span>
                     <span class="behavior-pulse" id="tuning-pulse"></span>
+                </div>
+            </div>
+            <div class="trend-panel">
+                <div class="panel-label">Input Activity</div>
+                <canvas id="trends-input-canvas"></canvas>
+                <div class="panel-legend">
+                    <span class="legend-item"><span class="legend-dot engaged"></span>Engaged</span>
+                    <span class="legend-item"><span class="legend-dot passing"></span>Passing</span>
+                    <span class="legend-label">Zone events per min</span>
                 </div>
             </div>
         </div>

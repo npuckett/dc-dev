@@ -94,13 +94,16 @@ function init() {
     scene.background = new THREE.Color(0x0a0a0c);
     scene.fog = new THREE.Fog(0x0a0a0c, 800, 2000);
     
-    // Camera - fixed position for mobile portrait view
+    // Camera - responsive position for desktop vs mobile
     camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
     
-    // Position camera higher and farther back to include more passive zone
-    // Panels center at X = -150, passive zone ends around Z = 553
-    camera.position.set(-138.86, 607.56, 889.87);
-    camera.lookAt(-140.45, 18.08, 434.19);
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) {
+        camera.position.set(-1263.57, 157.17, 193.23);
+    } else {
+        camera.position.set(-966.49, 237.19, 341.12);
+    }
+    camera.lookAt(-259.6, -41.15, 185.83);
     
     // Renderer
     const canvas = document.getElementById('viewer');
@@ -114,7 +117,7 @@ function init() {
     
     // Orbit controls - allows user to rotate/pan/zoom camera
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(-140.45, 18.08, 434.19);  // Look deeper into passive zone
+    controls.target.set(-259.6, -41.15, 185.83);  // Look deeper into passive zone
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.minDistance = 100;
@@ -214,11 +217,6 @@ function createFloor() {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(CONFIG.TRACKZONE.center_x, 0, (CONFIG.TRACKZONE.offset_z - 200) / 2);
     scene.add(floor);
-    
-    // Grid lines for depth
-    const gridHelper = new THREE.GridHelper(500, 20, 0x333340, 0x222230);
-    gridHelper.position.set(CONFIG.TRACKZONE.center_x, 0.1, 0);
-    scene.add(gridHelper);
 }
 
 function createPanels() {
@@ -649,6 +647,11 @@ function updateTrendStats() {
         currentPassiveEl.textContent = passive;
     }
 
+    const dailyTotalEl = document.getElementById('trend-daily-total');
+    if (dailyTotalEl) {
+        const dailyTotal = currentState?.population?.daily_total ?? 0;
+        dailyTotalEl.textContent = dailyTotal;
+    }
 }
 
 function updateTuningBars() {
@@ -657,7 +660,6 @@ function updateTuningBars() {
     const tuningRanges = [
         { key: 'short', weight: activity.short, available: latestRealtimeTrends?.short?.available },
         { key: 'med', weight: activity.medium, available: latestRealtimeTrends?.medium?.available },
-        { key: 'long', weight: activity.long, available: latestRealtimeTrends?.long?.available },
     ];
 
     tuningRanges.forEach((range) => {
@@ -665,13 +667,6 @@ function updateTuningBars() {
         const isAvailable = weight !== null;
         // Scale up for visibility: activity values are typically 0-0.3, show as % of 0.5 max
         const scaledWidth = isAvailable ? Math.min(weight / 0.5, 1) * 100 : 0;
-
-        if (range.key === 'long') {
-            const longRow = document.getElementById('trend-long-row');
-            if (longRow) {
-                longRow.style.display = isAvailable ? 'grid' : 'none';
-            }
-        }
 
         const activeEl = document.getElementById(`trend-${range.key}-bar-active`);
         const passiveEl = document.getElementById(`trend-${range.key}-bar-passive`);
