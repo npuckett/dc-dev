@@ -10,56 +10,155 @@ Each diagram builds on the previous one, starting with the highest-level overvie
 
 ## 1. System Overview
 
-The Drop Ceiling installation is a single simulated point light that moves above a grid of LED panels. A camera watches pedestrians below, and the light responds in real-time.
+The Drop Ceiling installation is a single simulated point light that moves above a grid of LED panels. Two cameras watch pedestrians below, and the light responds in real-time.
 
-At the highest level, data flows through five stages: the camera sees people, their positions arrive as OSC messages, the behavior system decides what the light should do, the controller computes per-panel brightness, and Art-Net sends DMX values to the physical panels.
+At the highest level, data flows through six stages: two RTSP cameras capture video, YOLO detects people, calibration projects detections to real-world floor coordinates, cross-camera fusion and temporal tracking produce stable positions, the behavior system decides what the light should do, and Art-Net sends DMX values to the physical panels.
 
 ```mermaid
 flowchart LR
-    subgraph INPUT["Input"]
-        CAM["<b>Overhead Camera</b><br/>───────────────<br/>Detection: YOLO v11<br/>Output: person bounding boxes<br/>Transport: UDP stream"]
+    subgraph INPUT["Camera Input"]
+        direction TB
+        CAM1["<b>Camera 1 (Right)</b>
+        ───────────────
+        Model: Reolink RLC-520A
+        Position: X=-30, Z=78
+        IP: 10.42.0.75
+        RTSP port 555
+        Resolution: 2048 x 1536"]
+
+        CAM2["<b>Camera 2 (Left)</b>
+        ───────────────
+        Model: Reolink RLC-520A
+        Position: X=-270, Z=78
+        IP: 10.42.0.172
+        RTSP port 555
+        Resolution: 2048 x 1536"]
     end
 
-    subgraph TRANSPORT["Transport"]
-        OSC["<b>OSC Messages</b><br/>───────────────<br/>Address: /tracker/person/id<br/>Payload: x, z coordinates<br/>Protocol: UDP"]
+    subgraph DETECT["Detection and Calibration"]
+        direction TB
+        ROBUST["<b>RobustCamera</b>
+        ───────────────
+        Threads: 1 daemon per camera
+        Buffer flush: grab() x3
+        Reconnect: auto on failure"]
+
+        YOLO["<b>YOLO 11n</b>
+        ───────────────
+        Input: 416px resize
+        Class: person only
+        Confidence: 0.10 - 0.80
+        Output: bounding boxes"]
+
+        CAL["<b>Calibration</b>
+        ───────────────
+        Method: ray-plane intersect
+        Floor: Y = -66 cm
+        Pre-computed: R_T, K_inv
+        Output: world (X, Z) cm"]
+
+        ROBUST --> YOLO --> CAL
+    end
+
+    subgraph TRACKING["Fusion and Tracking"]
+        direction TB
+        FUSE["<b>Cross-Camera Fusion</b>
+        ───────────────
+        Merge: different cameras only
+        Threshold: 50 - 300 cm
+        Method: greedy nearest-neighbor"]
+
+        SMOOTH["<b>Temporal Tracking</b>
+        ───────────────
+        Velocity: prediction + correct
+        EMA alpha: 0.01 - 0.20
+        Prune: 60 frames lost"]
+
+        FUSE --> SMOOTH
+    end
+
+    subgraph TRANSPORT["OSC Transport"]
+        OSC["<b>OSC Output</b>
+        ───────────────
+        /tracker/count n
+        /tracker/person/id x z
+        Target: 127.0.0.1:7000
+        Protocol: UDP, 25 Hz"]
     end
 
     subgraph BRAIN["Behavior Engine"]
         direction TB
-        TRACK["<b>Person Manager</b><br/>───────────────<br/>Zone: active / passive classify<br/>Velocity: per-person tracking<br/>Dwell: time in zone<br/>Callbacks: enter / exit / move"]
-        BEH["<b>Behavior System</b><br/>───────────────<br/>Mode: IDLE / ENGAGED / CROWD / FLOW<br/>Gestures: 16 types, phase-gated<br/>Personality: 6 meta sliders<br/>Learning: feedback + daily"]
+        TRACK["<b>Person Manager</b>
+        ───────────────
+        Zone: active / passive classify
+        Velocity: per-person tracking
+        Dwell: time in zone
+        Callbacks: enter / exit / move"]
+        BEH["<b>Behavior System</b>
+        ───────────────
+        Mode: IDLE / ENGAGED / CROWD / FLOW
+        Gestures: 16 types, phase-gated
+        Personality: 6 meta sliders
+        Learning: feedback + daily"]
         TRACK --> BEH
     end
 
     subgraph CONTROLLER["Light Controller"]
         direction TB
-        LIGHT["<b>Point Light</b><br/>───────────────<br/>Position: x, y, z (cm)<br/>Brightness: min / max range<br/>Falloff: radius (cm)<br/>Pulse: sine wave phase"]
-        PANELS["<b>Panel System</b><br/>───────────────<br/>Layout: 4 units x 3 panels<br/>Calc: distance-based falloff<br/>Output: 12 DMX values (1-255)"]
+        LIGHT["<b>Point Light</b>
+        ───────────────
+        Position: x, y, z (cm)
+        Brightness: min / max range
+        Falloff: radius (cm)
+        Pulse: sine wave phase"]
+        PANELS["<b>Panel System</b>
+        ───────────────
+        Layout: 4 units x 3 panels
+        Calc: distance-based falloff
+        Output: 12 DMX values (1-255)"]
         LIGHT --> PANELS
     end
 
     subgraph OUTPUT["Physical Output"]
-        ARTNET["<b>Art-Net</b><br/>───────────────<br/>Protocol: Art-Net UDP<br/>Channels: 12 (Universe 0)<br/>Target: 10.42.0.200<br/>Rate: 30 FPS"]
-        LEDS["<b>LED Panels</b><br/>───────────────<br/>Units: 4 ceiling-mounted<br/>Panels per unit: 3<br/>Control: single DMX ch each"]
+        ARTNET["<b>Art-Net</b>
+        ───────────────
+        Protocol: Art-Net UDP
+        Channels: 12 (Universe 0)
+        Target: 10.42.0.200
+        Rate: 30 FPS"]
+        LEDS["<b>LED Panels</b>
+        ───────────────
+        Units: 4 ceiling-mounted
+        Panels per unit: 3
+        Control: single DMX ch each"]
         ARTNET --> LEDS
     end
 
-    CAM -->|"UDP"| OSC
+    CAM1 --> ROBUST
+    CAM2 --> ROBUST
+    CAL -->|"world detections"| FUSE
+    SMOOTH -->|"tracked (id, x, z)"| OSC
     OSC -->|"x, z per person"| TRACK
-    BEH -->|"behavior_params dict<br/>brightness, speed, falloff,<br/>pulse, smoothing, wander"| LIGHT
-    PANELS -->|"12 DMX values<br/>(1-255 per panel)"| ARTNET
+    BEH -->|"behavior_params dict
+    brightness, speed, falloff,
+    pulse, smoothing, wander"| LIGHT
+    PANELS -->|"12 DMX values
+    (1-255 per panel)"| ARTNET
 
     style INPUT fill:#1a1a2e,stroke:#e94560,color:#fff
+    style DETECT fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style TRACKING fill:#0f3460,stroke:#e94560,color:#fff
     style TRANSPORT fill:#1a1a2e,stroke:#0f3460,color:#fff
     style BRAIN fill:#1a1a2e,stroke:#16213e,color:#fff
     style CONTROLLER fill:#1a1a2e,stroke:#533483,color:#fff
     style OUTPUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-Two Python files implement the entire system:
+Three Python files implement the system:
 
 | File | Responsibility |
 |---|---|
+| `camera_tracker_osc.py` | Camera capture, YOLO detection, calibration, fusion, temporal tracking, OSC output |
 | `light_behavior.py` | State machine, gestures, trend analysis, feedback learning |
 | `lightController_osc.py` | Main loop, OSC input, point light, panel math, Art-Net output, auto-tuning |
 
