@@ -892,7 +892,7 @@ This final diagram shows the complete system with all feedback loops visible at 
 
 ```mermaid
 flowchart TB
-    CAM["<b>Camera + YOLO</b><br/>───────────────<br/>Detection: person bounding boxes<br/>Output: OSC x, z per person"] -->|"OSC x,z"| TRACKER["<b>Person Manager</b><br/>───────────────<br/>Zone: active / passive classify<br/>Tracking: velocity, dwell time"]
+    CAM["<b>Camera + YOLO + Fusion</b><br/>───────────────<br/>Cameras: 2x Reolink RLC-520A<br/>Capture: threaded RTSP, 2048x1536<br/>Detection: YOLO 11n (416px resize)<br/>Calibration: ray-plane to floor<br/>Fusion: cross-camera merge (150cm)<br/>Tracking: EMA smooth, velocity pred<br/>Output: OSC /tracker/person/id x z"] -->|"OSC x,z<br/>25 Hz UDP"| TRACKER["<b>Person Manager</b><br/>───────────────<br/>Zone: active / passive classify<br/>Tracking: velocity, dwell time"]
 
     TRACKER -->|"active/passive counts<br/>person positions"| BEHAVIOR["<b>Behavior System</b><br/>───────────────<br/>Mode: state machine<br/>Dwell: phase tracking<br/>Gestures: event + interaction"]
 
