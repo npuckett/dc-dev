@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "markdown-pdf": {
+      "command": "node",
+      "args": ["/tmp/md-mermaid-to-pdf-mcp/build/index.js"]
+    }
+  }
+}
