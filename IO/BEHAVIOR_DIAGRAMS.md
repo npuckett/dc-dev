@@ -74,29 +74,95 @@ The light is always in one of four modes. Mode determines the base personality �
 Transitions are **not instantaneous**. Conditions must persist for a minimum duration (stickiness) before the mode switches, and parameters interpolate smoothly over a transition period. This prevents erratic flickering between states.
 
 ```mermaid
-stateDiagram-v2
-    direction LR
+flowchart LR
+    START(( )) --> IDLE
 
-    IDLE: IDLE\n─────────────\nTrigger: no one in active zone\nBehavior: gentle wandering\n─────────────\nSpeed: 20 cm/s\nBrightness: 3-15\nPulse: 4000 ms\nFalloff: 80 cm\nSmoothing: 0
-    ENGAGED: ENGAGED\n─────────────\nTrigger: 1-2 in active zone\nBehavior: follows nearest person\n─────────────\nSpeed: 25 cm/s\nBrightness: 8-30\nPulse: 2500 ms\nFalloff: 50 cm\nSmoothing: 0.03
-    CROWD: CROWD\n─────────────\nTrigger: 3+ in active zone\nBehavior: follows centroid\n─────────────\nSpeed: 60 cm/s\nBrightness: 12-45\nPulse: 1500 ms\nFalloff: 40 cm\nSmoothing: 0.03
-    FLOW: FLOW\n─────────────\nTrigger: heavy passive traffic\nBehavior: drifts with crowd flow\n─────────────\nSpeed: 25 cm/s\nBrightness: 5-20\nPulse: 3000 ms\nFalloff: 70 cm\nSmoothing: 0
+    IDLE["**IDLE**
+    ───────────────
+    Trigger: no one in active zone
+    Behavior: gentle wandering
+    ───────────────
+    Speed: 20 cm/s
+    Brightness: 3-15
+    Pulse: 4000 ms
+    Falloff: 80 cm
+    Smoothing: 0"]
 
-    [*] --> IDLE
+    ENGAGED["**ENGAGED**
+    ───────────────
+    Trigger: 1-2 in active zone
+    Behavior: follows nearest person
+    ───────────────
+    Speed: 25 cm/s
+    Brightness: 8-30
+    Pulse: 2500 ms
+    Falloff: 50 cm
+    Smoothing: 0.03"]
 
-    IDLE --> ENGAGED: Person enters active zone\nStickiness: 0s (immediate)\nTransition: 0.8s
-    IDLE --> FLOW: 15s sustained passive traffic\nTransition: 2.0s
-    ENGAGED --> IDLE: 5s after last person leaves\nTransition: 3.0s (slow goodbye)
-    ENGAGED --> CROWD: 3s with 3+ people\nTransition: 0.5s (quick)
-    CROWD --> ENGAGED: 5s after crowd thins\nTransition: 2.0s
-    CROWD --> IDLE: 5s after everyone leaves\nTransition: 4.0s
-    FLOW --> IDLE: 10s of low traffic\nTransition: 3.0s
-    FLOW --> ENGAGED: Person enters active zone\nStickiness: 0s (immediate)\nTransition: 0.8s
+    CROWD["**CROWD**
+    ───────────────
+    Trigger: 3+ in active zone
+    Behavior: follows centroid
+    ───────────────
+    Speed: 60 cm/s
+    Brightness: 12-45
+    Pulse: 1500 ms
+    Falloff: 40 cm
+    Smoothing: 0.03"]
 
-    note right of IDLE
-        Minimum mode duration: 8 seconds
-        (prevents rapid flip-flopping)
-    end note
+    FLOW["**FLOW**
+    ───────────────
+    Trigger: heavy passive traffic
+    Behavior: drifts with crowd flow
+    ───────────────
+    Speed: 25 cm/s
+    Brightness: 5-20
+    Pulse: 3000 ms
+    Falloff: 70 cm
+    Smoothing: 0"]
+
+    IDLE -->|"person enters active zone
+    stickiness: 0s (immediate)
+    transition: 0.8s"| ENGAGED
+
+    IDLE -->|"15s sustained passive traffic
+    transition: 2.0s"| FLOW
+
+    ENGAGED -->|"5s after last person leaves
+    transition: 3.0s (slow goodbye)"| IDLE
+
+    ENGAGED -->|"3s with 3+ people
+    transition: 0.5s (quick)"| CROWD
+
+    CROWD -->|"5s after crowd thins
+    transition: 2.0s"| ENGAGED
+
+    CROWD -->|"5s after everyone leaves
+    transition: 4.0s"| IDLE
+
+    FLOW -->|"10s of low traffic
+    transition: 3.0s"| IDLE
+
+    FLOW -->|"person enters active zone
+    stickiness: 0s (immediate)
+    transition: 0.8s"| ENGAGED
+
+    GUARD["**Mode Guard**
+    ───────────────
+    Min duration: 8 seconds
+    prevents rapid flip-flopping"]
+
+    GUARD -.-> IDLE
+    GUARD -.-> ENGAGED
+    GUARD -.-> CROWD
+    GUARD -.-> FLOW
+
+    style START fill:#e94560,stroke:#e94560,color:#fff
+    style IDLE fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style ENGAGED fill:#0f3460,stroke:#e94560,color:#fff
+    style CROWD fill:#533483,stroke:#e94560,color:#fff
+    style FLOW fill:#1b263b,stroke:#778da9,color:#e0e1dd
+    style GUARD fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
 ```
 
 **Key design choice**: Engaging is fast (0.5–0.8s), disengaging is slow (2.0–4.0s). The light is eager to connect and reluctant to let go.
