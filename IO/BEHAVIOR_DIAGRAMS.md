@@ -634,6 +634,149 @@ The falloff radius is the single most impactful parameter on how the light "look
 
 ---
 
+## Wander Box: Behavior Inputs to Spatial Motion
+
+The wander box is a 3D bounding volume that constrains where the virtual point light can move. Rather than roaming freely, the light picks random targets inside this box and lerps toward them, creating the characteristic slow drift seen in IDLE mode and the tight tracking seen in ENGAGED mode. Every behavior modifier — flow direction, aggression, engagement contraction — works by reshaping the box, not by steering the light directly.
+
+The box uses a three-layer animation system: `current_wander_box` reflects the raw mode and modifier state, `animated_wander_box` smooths that with an exponential lerp (speed 3.0, ~95% converged in one second), and `WanderBehavior` picks random points inside the animated box at timed intervals. This layered approach prevents jarring jumps when mode or engagement state changes.
+
+```mermaid
+flowchart TB
+    subgraph BASE ["Base Wander Box (IDLE Default)"]
+        BASEBOX["**Default Dimensions**
+        ───────────────
+        X: -290 to -30 cm
+        Y: 0 to 150 cm
+        Z: -32 to 28 cm
+        Source: light_behavior.py
+        Covers: full panel array width"]
+    end
+
+    subgraph MODIFIERS ["Behavior Modifiers to Target Box"]
+        FLOW["**Flow Positioning**
+        ───────────────
+        Mode: IDLE only
+        Effect: shift X +/-60 cm
+        Source: flow_balance trend
+        Direction: follows crowd flow"]
+
+        AGG["**Aggression**
+        ───────────────
+        Mode: IDLE only
+        Z expand: +40 cm
+        Y expand: +30 cm
+        Wander interval: faster
+        Trigger: high aggression param"]
+
+        ENGAGE["**Engagement Contraction**
+        ───────────────
+        Mode: ENGAGED
+        Method: contract around people
+        1 person: +/-15cm X, +/-35cm Y,
+        +/-15cm Z centered on them
+        2 people: 70/30 weighted center
+        3+: centroid of all positions
+        Y offset: +100 cm"]
+
+        MOMENTUM["**Flow Momentum**
+        ───────────────
+        Mode: FLOW
+        Effect: shift X up to +/-40 cm
+        Source: flow velocity
+        Applied to: current box"]
+
+        DRIFT["**Almost-Engaged Drift**
+        ───────────────
+        Phase: engagement candidate
+        Effect: shift X +/-50 cm
+        Direction: toward candidate
+        Blended with: engagement timer"]
+    end
+
+    subgraph LERP ["Three-Layer Animation"]
+        CURRENT["**current_wander_box**
+        ───────────────
+        Role: base + mode modifiers
+        Updates: per calculate_parameters
+        Reflects: mode and trend state"]
+
+        ANIMATED["**animated_wander_box**
+        ───────────────
+        Role: smoothed version of current
+        Lerp speed: 3.0 (exponential)
+        Convergence: ~95% in 1 second
+        Method: per-axis exponential lerp
+        dt-scaled for frame rate"]
+
+        CURRENT -->|"exponential lerp"| ANIMATED
+    end
+
+    subgraph WANDER ["WanderBehavior Output"]
+        PICK["**Random Target Selection**
+        ───────────────
+        Trigger: wander_interval timer
+        Base interval: 2.0 - 5.0s
+        Exploration scale: x0.5 to x1.5
+        Target: random point inside
+        animated_wander_box bounds"]
+
+        MOVE["**Position Lerp**
+        ───────────────
+        Method: 3% per-frame lerp
+        Smoothing: continuous motion
+        Override: gesture targets
+        Output: smooth (x, y, z)"]
+
+        PICK --> MOVE
+    end
+
+    subgraph LIGHTOUT ["To Light System (see Diagram 7)"]
+        POINTLIGHT["**PointLight.update()**
+        ───────────────
+        Input: wander position
+        Speed: move_speed param
+        Effect: virtual light moves
+        through 3D panel space"]
+
+        PANEL["**PanelSystem**
+        ───────────────
+        Distance: light to each panel
+        Falloff: linear within radius
+        Result: 12 DMX brightness values"]
+
+        POINTLIGHT --> PANEL
+    end
+
+    BASE --> CURRENT
+    FLOW --> CURRENT
+    AGG --> CURRENT
+    ENGAGE --> CURRENT
+    MOMENTUM --> CURRENT
+    DRIFT --> CURRENT
+    ANIMATED --> PICK
+    MOVE --> POINTLIGHT
+
+    style BASE fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style MODIFIERS fill:#533483,stroke:#e94560,color:#fff
+    style LERP fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style WANDER fill:#0f3460,stroke:#e94560,color:#fff
+    style LIGHTOUT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style BASEBOX fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style FLOW fill:#533483,stroke:#e94560,color:#fff
+    style AGG fill:#533483,stroke:#e94560,color:#fff
+    style ENGAGE fill:#533483,stroke:#e94560,color:#fff
+    style MOMENTUM fill:#533483,stroke:#e94560,color:#fff
+    style DRIFT fill:#533483,stroke:#e94560,color:#fff
+    style CURRENT fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style ANIMATED fill:#16213e,stroke:#0f3460,color:#e0e1dd
+    style PICK fill:#0f3460,stroke:#e94560,color:#fff
+    style MOVE fill:#0f3460,stroke:#e94560,color:#fff
+    style POINTLIGHT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style PANEL fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+```
+
+---
+
 ## 8. Engagement Lifecycle
 
 This diagram traces a complete person interaction from arrival to departure, showing which systems activate at each stage. The dwell phases progressively deepen the connection, while the gesture system and breathing overlay add expressive texture throughout.
@@ -812,8 +955,7 @@ the upstream data source that feeds the behavior system described in Part 1.
 
 ## Diagram 9 — Camera System Overview
 
-High-level pipeline from physical cameras to the OSC messages consumed by
-lightController.
+High-level pipeline from physical cameras to the OSC messages consumed by the light controller. Two Reolink PoE cameras feed RTSP streams into threaded capture buffers, YOLO detects people, calibration projects pixel positions onto the floor plane, and cross-camera fusion produces stable world-coordinate tracks. The final OSC messages carry person count and per-person (id, x, z) positions to `lightController_osc.py` at roughly 25 updates per second.
 
 ```mermaid
 flowchart LR
@@ -897,8 +1039,7 @@ flowchart LR
 
 ## Diagram 10 — Physical Setup and Coordinate System
 
-Camera positions, ArUco calibration markers, and tracking zones in the
-real-world coordinate system. All units in centimeters.
+Camera positions, ArUco calibration markers, and tracking zones placed in the real-world coordinate system. The origin sits at the back-right corner of Panel Unit 0 at floor level, with X running negative toward Unit 3, Y pointing up, and Z extending outward into the sidewalk. Seven ArUco markers at known 3D positions provide the calibration reference, and two depth zones (active and passive) define the engagement boundaries used by the behavior system.
 
 ```mermaid
 flowchart TB
@@ -1016,8 +1157,7 @@ flowchart TB
 
 ## Diagram 11 — Camera Capture and YOLO Detection
 
-How each camera thread captures frames and how the main loop runs YOLO
-detection on resized images.
+Each camera runs a dedicated daemon thread that continuously reads RTSP frames and stores the most recent one under a lock. The main tracking loop retrieves these frames, resizes them to 416 pixels wide for speed, and passes them through YOLO 11n to detect people. Detected bounding boxes are scaled back to full resolution and cached per camera so that unchanged frames reuse the previous detection without re-running inference.
 
 ```mermaid
 flowchart TB
@@ -1114,8 +1254,7 @@ flowchart TB
 
 ## Diagram 12 — Calibration: Pixel to World Coordinates
 
-The ray-plane intersection math that transforms a bounding-box foot position
-in image pixels to a real-world floor position in centimeters.
+The ray-plane intersection math that transforms a bounding-box foot position in image pixels to a real-world floor position in centimeters. For each detection, the bottom-center of the bounding box is treated as the person's feet; that pixel is undistorted, projected into a camera-space ray using the inverse intrinsic matrix, rotated into world space, and intersected with the known floor plane at Y = -66 cm. The result is a (world_x, world_z) pair in centimeters that feeds directly into the fusion stage.
 
 ```mermaid
 flowchart TB
@@ -1229,8 +1368,7 @@ flowchart TB
 
 ## Diagram 13 — Cross-Camera Fusion and Temporal Tracking
 
-How detections from two cameras are merged into unified positions and
-smoothed into stable tracks over time.
+Detections from the two cameras are fused spatially and then matched temporally to produce stable, smoothed tracks. Spatial fusion uses greedy nearest-neighbor matching across cameras only (same-camera detections are never merged) with a configurable distance threshold. Temporal tracking predicts each existing track's next position using its velocity, matches incoming detections to predictions, applies exponential moving average smoothing, and prunes tracks unseen for more than 60 frames.
 
 ```mermaid
 flowchart TB
@@ -1355,8 +1493,7 @@ flowchart TB
 
 ## Diagram 14 — ArUco Calibration Process
 
-How the one-time camera calibration is performed using ArUco markers placed
-at known 3D positions to compute each camera's pose via solvePnP.
+The one-time camera calibration uses seven ArUco markers placed at known 3D positions to compute each camera's rotation and translation via `cv2.solvePnP`. Each marker provides four corner correspondences between known world coordinates and detected image pixels, giving enough constraints for a robust pose estimate. The solver tries multiple corner orderings and validates results against reprojection error, camera position sanity, and expected location drift before saving the best solution to `camera_calibration.json`.
 
 ```mermaid
 flowchart TB
@@ -1474,8 +1611,7 @@ flowchart TB
 
 ## Diagram 15 — Main Loop and Tunable Parameters
 
-The Tracker main loop running at 25 FPS, and the three live slider parameters
-that control detection and tracking quality.
+The tracker's main loop runs at a fixed 25 FPS, cycling through detection, fusion, OSC output, and optional visualization on every frame. Three live slider parameters — confidence threshold, fusion distance, and EMA smoothing alpha — let the operator tune the tradeoff between responsiveness and stability without restarting. Periodic background tasks auto-save settings every 5 seconds, log health metrics every 5 minutes, and reload the YOLO model hourly to prevent tracker drift.
 
 ```mermaid
 flowchart TB
@@ -1596,8 +1732,7 @@ flowchart TB
 
 ## Diagram 16 — End-to-End Data Transform
 
-The exact data shape at each stage of the pipeline, showing how a raw pixel
-detection transforms into the OSC position consumed by the behavior system.
+A sequential walkthrough showing the exact data shape at each stage of the pipeline, from a 2048x1536 H.264 frame to the final OSC messages consumed by the behavior system. Each handoff is annotated with the concrete values and formats involved — pixel coordinates, scale factors, ray equations, fusion thresholds, and EMA parameters. This diagram serves as a debugging reference: if tracking behaves unexpectedly, you can trace the data transforms step by step to isolate where the problem occurs.
 
 ```mermaid
 sequenceDiagram

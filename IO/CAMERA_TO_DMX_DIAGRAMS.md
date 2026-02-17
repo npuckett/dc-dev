@@ -16,6 +16,8 @@ It is based on the runtime stack centered on:
 
 ## 1) End-to-End System Overview
 
+This is the high-level map of the whole runtime pipeline. It shows where camera data enters, where behavior decisions are made, and where physical light output is produced. Read this first to understand the major blocks before diving into internal mechanics.
+
 ```mermaid
 flowchart LR
     subgraph CAM["Camera Inputs"]
@@ -62,6 +64,8 @@ flowchart LR
 
 ## 2) Runtime Services and Startup Order
 
+This diagram shows how runtime processes are started and kept alive in production. It highlights that the light controller depends on network and camera tracker readiness, then runs with automatic restart policies. This helps explain why OSC and DMX are stable even during transient failures.
+
 ```mermaid
 flowchart TB
     BOOT["System boot"] --> NET["network.target + network-online.target"]
@@ -78,6 +82,8 @@ flowchart TB
 ---
 
 ## 3) Data Contract Between Tracker and Controller
+
+This sequence focuses on message-level handoff between tracking and behavior layers. The important idea is that the tracker sends only person positions and counts, while all meaning (zones, modes, gestures, tuning) is decided downstream by the controller. The loop cadence also clarifies where latency and responsiveness are controlled.
 
 ```mermaid
 sequenceDiagram
@@ -103,6 +109,8 @@ sequenceDiagram
 
 ## 4) Tracker Pipeline (Inside `camera_tracker_osc.py`)
 
+This is the internal tracking chain from frame capture to OSC output. It shows where live slider settings affect the result: detection confidence, camera fusion distance, and temporal smoothing. The output of this stage is a stable stream of world-space person positions, not lighting decisions.
+
 ```mermaid
 flowchart TB
     A["RobustCamera threads\nRTSP capture + reconnect"] --> B["Main loop\nframe sync + pacing"]
@@ -121,6 +129,8 @@ flowchart TB
 ---
 
 ## 5) Calibration Geometry (Pixel to World Floor)
+
+This diagram explains how an image-space foot point becomes a physical floor coordinate. Calibration values define camera geometry, and a ray-floor intersection gives each person location in centimeters. If this stage is off, all downstream behavior can look wrong even when detection itself is good.
 
 ```mermaid
 flowchart LR
@@ -144,11 +154,14 @@ flowchart LR
 
 ## 6) Controller Frame Loop (Inside `lightController_osc.py`)
 
+This is the runtime heartbeat of the light controller. It combines incoming tracked people with behavior logic, wander/follow target selection, panel brightness calculation, and output publishing. It also shows where observability data is emitted to the database and WebSocket viewer.
+
 ```mermaid
 sequenceDiagram
     participant OSC as OSC Handler
     participant PM as TrackedPersonManager
     participant BS as BehaviorSystem
+    participant WB as WanderBehavior
     participant PS as PanelSystem
     participant AN as Art-Net
     participant DB as Tracking DB
@@ -159,7 +172,9 @@ sequenceDiagram
         PM->>PM: classify active/passive zones
         PM->>BS: counts + dwell + positions
         BS->>BS: mode logic + parameter pipeline
-        BS-->>PS: move_speed, pulse_speed, falloff_radius, brightness range, smoothing
+        BS-->>WB: wander_interval + move/follow constraints + wander box
+        WB-->>PS: next light target position (x,y,z)
+        BS-->>PS: pulse_speed, falloff_radius, brightness range, smoothing
         PS->>PS: compute per-panel brightness
         PS->>AN: send 12 DMX bytes
         BS->>DB: behavior and trend records
@@ -171,6 +186,8 @@ sequenceDiagram
 ---
 
 ## 7) Behavior Mode State Machine (Runtime Values)
+
+This state machine defines the light’s base personality before overlays are applied. Each mode sets a baseline for movement speed, brightness range, pulse period, and falloff radius. Stickiness and minimum-duration guards prevent jittery mode flipping when people move around quickly.
 
 ```mermaid
 stateDiagram-v2
@@ -203,6 +220,8 @@ stateDiagram-v2
 
 ## 8) Behavior Parameter Pipeline (Frame-by-Frame)
 
+This pipeline shows how one frame’s final behavior parameters are built step by step. Mode defaults are progressively reshaped by transitions, context, engagement depth, trend signals, and personality controls. The result is a stable parameter bundle that drives both movement behavior and panel intensity rendering.
+
 ```mermaid
 flowchart TB
     A["1. Start from mode base values"] --> B["2. Blend transitions if mode is switching"]
@@ -211,17 +230,83 @@ flowchart TB
     D --> E["5. Apply dwell rewards\nnotice/greet/engage/bond"]
     E --> F["6. Apply active count influence\n(single vs multi-person)"]
     F --> G["7. Apply flow / trend influence\nmostly in idle/flow"]
-    G --> H["8. Apply gesture overlays\nwelcome, nod, sway, orbit, bloom..."]
-    H --> I["9. Apply meta personality sliders"]
-    I --> J["10. Apply global multipliers"]
-    J --> K["11. Clamp safe ranges + return params dict"]
+    G --> H["8. Update target wander box\nsize/position by mode + trends + engagement"]
+    H --> I["9. Apply gesture overlays\nwelcome, nod, sway, orbit, bloom..."]
+    I --> J["10. Apply meta personality sliders"]
+    J --> K["11. Apply global multipliers"]
+    K --> L["12. Clamp safe ranges + return params dict"]
 
-    K --> OUT["Output params\nbrightness_min/max\npulse_speed\nfalloff_radius\nmove_speed\nfollow_smoothing\nwander_interval"]
+    L --> OUT["Output params\nbrightness_min/max\npulse_speed\nfalloff_radius\nmove_speed\nfollow_smoothing\nwander_interval + wander-box intent"]
 ```
 
 ---
 
-## 9) Meta Parameters -> Actual Light Behavior
+## 9) Wander Box: Behavior Inputs to Motion Output
+
+This diagram makes the wander box role explicit. Behavior state and meta parameters continuously reshape the wander box, which constrains where the light can pick targets when it is not tightly following a person. That target selection then changes point-light position, which directly changes panel distances and final DMX values.
+
+```mermaid
+flowchart TB
+    subgraph IN["What changes the wander box"]
+        M["Mode\n(IDLE/ENGAGED/CROWD/FLOW)"]
+        T["Trend + flow signals\n(passive rate, direction)"]
+        D["Dwell phase + active people"]
+        P["Meta sliders\n(exploration, responsiveness, sociability)"]
+    end
+
+    M --> WB1
+    T --> WB1
+    D --> WB1
+    P --> WB1
+
+    WB1["Behavior computes target_wander_box\n(min/max x,y,z)"] --> WB2["Animated box lerp\n(smooth box transitions)"]
+    WB2 --> WB3["WanderBehavior picks next target\ninside current box"]
+    WB3 --> POS["Light position trajectory\n(move_speed + follow_smoothing apply)"]
+    POS --> DIST["Panel distance field changes"]
+    DIST --> DMX["DMX output pattern changes\n(spot focus, spread, panel emphasis)"]
+```
+
+### Wander box mechanics (runtime values)
+
+- Base wander box starts near the panels: `x: -290..-30`, `y: 0..150`, `z: -32..28`.
+- Box transitions are smoothed (`wander_box_lerp_speed = 3.0`) so motion does not jump when mode/context changes.
+- In engagement, behavior can contract movement around people using tight paddings (`±15cm x`, `±35cm y`, `±15cm z`) and controlled approach limits (`z` clamped roughly `-32..60`).
+
+### Worked example: IDLE vs ENGAGED
+
+When discussing output impact, this is the simplest practical comparison:
+
+| Stage | IDLE (no active person) | ENGAGED (1 active person) |
+|---|---|---|
+| Mode baseline | `move_speed=20`, `wander_interval=5.0`, `falloff=80` | `move_speed=25`, `wander_interval=4.0`, `falloff=50`, `follow_smoothing=0.03` |
+| Wander box behavior | Uses broader base box, chooses exploratory targets | Contracts/anchors around person; target updates stay close to person |
+| Position path | Slower, wider drift across panel span | Tighter, more deliberate tracking near person position |
+| DMX result | Wider illumination spread, gentler panel transitions | More localized hotspots, stronger panel contrast, faster local changes |
+
+In plain terms: the wander box is the movement boundary that decides *where* the light can go between updates. Behavior parameters decide *how fast and how tightly* it moves inside that boundary. Together they strongly shape the spatial pattern of DMX output, not just brightness.
+
+### Mini scenario: passive flow shifts panel emphasis (10-20s)
+
+This timeline shows a common street condition: people move through passive zone mostly left-to-right while nobody is actively engaged. The behavior system treats that as directional flow pressure and shifts wander preference toward the incoming side. As the point light trajectory shifts, panel distance relationships change and DMX emphasis follows.
+
+```mermaid
+flowchart LR
+    T0["t=0s\nNo active person\nMode: IDLE or FLOW candidate"] --> T1["t=0..10s\nPassive detections accumulate\nflow tracker updates (~1.5s)"]
+    T1 --> T2["t~10..15s\nSustained direction signal\n(passive_rate + flow_direction)"]
+    T2 --> T3["Behavior nudges wander box center\nin flow direction"]
+    T3 --> T4["Wander target picks bias\ntoward shifted side"]
+    T4 --> T5["Light path drifts to that side\nover multiple updates"]
+    T5 --> T6["Nearest panels on that side brighten more often\nfar-side panels dim more often"]
+    T6 --> T7["Observed output: directional DMX emphasis\nwithout full hard switch"]
+```
+
+Practical read: this is one reason output can look intentionally directional even when nobody is standing in the active zone. The wander box is carrying crowd-flow context into spatial light behavior.
+
+---
+
+## 10) Meta Parameters -> Actual Light Behavior
+
+This view isolates personality controls from mode logic. It shows how sliders and global multipliers shape concrete output parameters like speed, pulse timing, brightness, and follow tightness. Use this to explain why two runs with the same tracked people can still feel behaviorally different.
 
 ```mermaid
 flowchart LR
@@ -265,7 +350,9 @@ flowchart LR
 
 ---
 
-## 10) Auto-Tuning Loop (Every 5 Seconds)
+## 11) Auto-Tuning Loop (Every 5 Seconds)
+
+This is the short-timescale adaptation loop that keeps the light responsive to current street activity. It computes bounded parameter changes, applies safety constraints, and uses a budget mechanism to avoid abrupt over-adjustment. Over time, this loop changes the personality and global multipliers while staying within safe operating limits.
 
 ```mermaid
 flowchart TB
@@ -300,7 +387,9 @@ flowchart TB
 
 ---
 
-## 11) Feedback and Meta-Tuning Layer
+## 12) Feedback and Meta-Tuning Layer
+
+This is the slower learning loop above the 5-second tuner. Historical analysis writes override settings that retune the tuner itself, then runtime hot-reloads those settings without restarting the process. In practice, this prevents drift and helps the system evolve over days instead of only reacting second-to-second.
 
 ```mermaid
 flowchart LR
@@ -334,7 +423,9 @@ flowchart LR
 
 ---
 
-## 12) Final Step: Point Light to 12 DMX Channels
+## 13) Final Step: Point Light to 12 DMX Channels
+
+This is the last transform from behavior state to physical output. The point light and falloff model produce per-panel intensity values, and each is mapped to a DMX byte for Art-Net transmission. The same behavior parameters therefore influence output both indirectly through position and directly through brightness/pulse/falloff settings.
 
 ```mermaid
 flowchart TB
