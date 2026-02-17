@@ -12,11 +12,15 @@ It is based on the runtime stack centered on:
 
 > Audience: coding-literate readers who want clear system understanding without heavy jargon.
 
+## How to Read This Set
+
+Read top-to-bottom once for system flow, then jump back to sections 8-13 for behavior depth. Labels prefixed with `WANDER:` mark movement-boundary logic that strongly affects spatial DMX output. If a section feels abstract, use section 9 as the anchor and map other diagrams back to it.
+
 ---
 
 ## 1) End-to-End System Overview
 
-This is the high-level map of the whole runtime pipeline. It shows where camera data enters, where behavior decisions are made, and where physical light output is produced. Read this first to understand the major blocks before diving into internal mechanics.
+This is the high-level map of the whole runtime pipeline. It shows where camera data enters, where behavior decisions are made, and where physical light output is produced. It also highlights that the wander box sits in the movement path between behavior decisions and panel brightness output.
 
 ```mermaid
 flowchart LR
@@ -37,9 +41,10 @@ flowchart LR
         L1["OSC receive\n0.0.0.0:7000"]
         L2["Zone classify\nactive / passive"]
         L3["BehaviorSystem\nmode + gestures + params"]
+        L35["WANDER: Motion targeting\nbox + follow"]
         L4["Point light -> 12 panel intensities"]
         L5["Art-Net send\nuniverse 0"]
-        L1 --> L2 --> L3 --> L4 --> L5
+        L1 --> L2 --> L3 --> L35 --> L4 --> L5
     end
 
     subgraph OUT["Outputs"]
@@ -83,7 +88,7 @@ flowchart TB
 
 ## 3) Data Contract Between Tracker and Controller
 
-This sequence focuses on message-level handoff between tracking and behavior layers. The important idea is that the tracker sends only person positions and counts, while all meaning (zones, modes, gestures, tuning) is decided downstream by the controller. The loop cadence also clarifies where latency and responsiveness are controlled.
+This sequence focuses on message-level handoff between tracking and behavior layers. The important idea is that the tracker sends only person positions and counts, while all meaning (zones, modes, gestures, tuning, wander-box movement boundaries) is decided downstream by the controller. The loop cadence also clarifies where latency and responsiveness are controlled.
 
 ```mermaid
 sequenceDiagram
@@ -100,7 +105,7 @@ sequenceDiagram
         Trk->>Ctl: OSC /tracker/count n
         Ctl->>Ctl: Update tracked people and zones
         Ctl->>Beh: update(active_count, passive_count, positions, trends)
-        Beh-->>Ctl: behavior params dict
+        Beh-->>Ctl: behavior params dict + wander-box intent
         Ctl->>Dmx: 12 DMX values (1..255)
     end
 ```
@@ -172,7 +177,7 @@ sequenceDiagram
         PM->>PM: classify active/passive zones
         PM->>BS: counts + dwell + positions
         BS->>BS: mode logic + parameter pipeline
-        BS-->>WB: wander_interval + move/follow constraints + wander box
+        BS-->>WB: WANDER: interval + move/follow constraints + box
         WB-->>PS: next light target position (x,y,z)
         BS-->>PS: pulse_speed, falloff_radius, brightness range, smoothing
         PS->>PS: compute per-panel brightness
@@ -187,16 +192,16 @@ sequenceDiagram
 
 ## 7) Behavior Mode State Machine (Runtime Values)
 
-This state machine defines the light’s base personality before overlays are applied. Each mode sets a baseline for movement speed, brightness range, pulse period, and falloff radius. Stickiness and minimum-duration guards prevent jittery mode flipping when people move around quickly.
+This state machine defines the light’s base personality before overlays are applied. Each mode sets a baseline for movement speed, brightness range, pulse period, falloff radius, and wander behavior profile. Stickiness and minimum-duration guards prevent jittery mode flipping when people move around quickly.
 
 ```mermaid
 stateDiagram-v2
     [*] --> IDLE
 
-    IDLE: IDLE\nmove 20 cm/s\nbright 3..15\npulse 4000 ms\nfalloff 80 cm
-    ENGAGED: ENGAGED\nmove 25 cm/s\nbright 8..30\npulse 2500 ms\nfalloff 50 cm
-    CROWD: CROWD\nmove 60 cm/s\nbright 12..45\npulse 1500 ms\nfalloff 40 cm
-    FLOW: FLOW\nmove 25 cm/s\nbright 5..20\npulse 3000 ms\nfalloff 70 cm
+    IDLE: IDLE\nmove 20 cm/s\nbright 3..15\npulse 4000 ms\nfalloff 80 cm\nWANDER: broad/loose
+    ENGAGED: ENGAGED\nmove 25 cm/s\nbright 8..30\npulse 2500 ms\nfalloff 50 cm\nWANDER: tight/anchored
+    CROWD: CROWD\nmove 60 cm/s\nbright 12..45\npulse 1500 ms\nfalloff 40 cm\nWANDER: minimal
+    FLOW: FLOW\nmove 25 cm/s\nbright 5..20\npulse 3000 ms\nfalloff 70 cm\nWANDER: direction-biased
 
     IDLE --> ENGAGED: active>=1\nstickiness 0s\ntransition 0.8s
     IDLE --> FLOW: passive_rate>=3/min for 15s\ntransition 2.0s
@@ -230,13 +235,13 @@ flowchart TB
     D --> E["5. Apply dwell rewards\nnotice/greet/engage/bond"]
     E --> F["6. Apply active count influence\n(single vs multi-person)"]
     F --> G["7. Apply flow / trend influence\nmostly in idle/flow"]
-    G --> H["8. Update target wander box\nsize/position by mode + trends + engagement"]
+    G --> H["8. WANDER: update target box\nsize/position by mode + trends + engagement"]
     H --> I["9. Apply gesture overlays\nwelcome, nod, sway, orbit, bloom..."]
     I --> J["10. Apply meta personality sliders"]
     J --> K["11. Apply global multipliers"]
     K --> L["12. Clamp safe ranges + return params dict"]
 
-    L --> OUT["Output params\nbrightness_min/max\npulse_speed\nfalloff_radius\nmove_speed\nfollow_smoothing\nwander_interval + wander-box intent"]
+    L --> OUT["Output params\nbrightness_min/max\npulse_speed\nfalloff_radius\nmove_speed\nfollow_smoothing\nWANDER: interval + box intent"]
 ```
 
 ---
@@ -248,10 +253,10 @@ This diagram makes the wander box role explicit. Behavior state and meta paramet
 ```mermaid
 flowchart TB
     subgraph IN["What changes the wander box"]
-        M["Mode\n(IDLE/ENGAGED/CROWD/FLOW)"]
-        T["Trend + flow signals\n(passive rate, direction)"]
-        D["Dwell phase + active people"]
-        P["Meta sliders\n(exploration, responsiveness, sociability)"]
+        M["WANDER input: Mode\n(IDLE/ENGAGED/CROWD/FLOW)"]
+        T["WANDER input: Trend + flow\n(passive rate, direction)"]
+        D["WANDER input: Dwell + active people"]
+        P["WANDER input: Meta sliders\n(exploration, responsiveness, sociability)"]
     end
 
     M --> WB1
@@ -259,8 +264,8 @@ flowchart TB
     D --> WB1
     P --> WB1
 
-    WB1["Behavior computes target_wander_box\n(min/max x,y,z)"] --> WB2["Animated box lerp\n(smooth box transitions)"]
-    WB2 --> WB3["WanderBehavior picks next target\ninside current box"]
+    WB1["WANDER: compute target_wander_box\n(min/max x,y,z)"] --> WB2["WANDER: animated box lerp\n(smooth transitions)"]
+    WB2 --> WB3["WANDER: pick next target\ninside current box"]
     WB3 --> POS["Light position trajectory\n(move_speed + follow_smoothing apply)"]
     POS --> DIST["Panel distance field changes"]
     DIST --> DMX["DMX output pattern changes\n(spot focus, spread, panel emphasis)"]
@@ -293,8 +298,8 @@ This timeline shows a common street condition: people move through passive zone 
 flowchart LR
     T0["t=0s\nNo active person\nMode: IDLE or FLOW candidate"] --> T1["t=0..10s\nPassive detections accumulate\nflow tracker updates (~1.5s)"]
     T1 --> T2["t~10..15s\nSustained direction signal\n(passive_rate + flow_direction)"]
-    T2 --> T3["Behavior nudges wander box center\nin flow direction"]
-    T3 --> T4["Wander target picks bias\ntoward shifted side"]
+    T2 --> T3["WANDER: nudge box center\nin flow direction"]
+    T3 --> T4["WANDER: target picks bias\ntoward shifted side"]
     T4 --> T5["Light path drifts to that side\nover multiple updates"]
     T5 --> T6["Nearest panels on that side brighten more often\nfar-side panels dim more often"]
     T6 --> T7["Observed output: directional DMX emphasis\nwithout full hard switch"]
@@ -306,7 +311,7 @@ Practical read: this is one reason output can look intentionally directional eve
 
 ## 10) Meta Parameters -> Actual Light Behavior
 
-This view isolates personality controls from mode logic. It shows how sliders and global multipliers shape concrete output parameters like speed, pulse timing, brightness, and follow tightness. Use this to explain why two runs with the same tracked people can still feel behaviorally different.
+This view isolates personality controls from mode logic. It shows how sliders and global multipliers shape concrete output parameters like speed, pulse timing, brightness, follow tightness, and roaming behavior in the wander box. Use this to explain why two runs with the same tracked people can still feel behaviorally different.
 
 ```mermaid
 flowchart LR
@@ -332,7 +337,7 @@ flowchart LR
     E --> O2["brightness range\npulse speed"]
     A --> O3["focus stability\nmode/gesture persistence"]
     S --> O4["gesture frequency\nengagement eagerness"]
-    X --> O5["wander interval\nwander spread"]
+    X --> O5["WANDER: interval\nroam bias in box"]
     M --> O6["anti-repetition strength"]
 
     BG --> O2
@@ -347,6 +352,7 @@ flowchart LR
 - `move_speed *= lerp(0.6, 1.4, responsiveness) * speed_global`
 - `pulse_speed *= lerp(1.3, 0.7, energy) * pulse_global`
 - `brightness_max *= lerp(0.7, 1.3, energy) * brightness_global`
+- `wander_interval *= lerp(1.5, 0.5, exploration)` (changes how often targets are picked inside the wander box)
 
 ---
 
@@ -425,11 +431,12 @@ flowchart LR
 
 ## 13) Final Step: Point Light to 12 DMX Channels
 
-This is the last transform from behavior state to physical output. The point light and falloff model produce per-panel intensity values, and each is mapped to a DMX byte for Art-Net transmission. The same behavior parameters therefore influence output both indirectly through position and directly through brightness/pulse/falloff settings.
+This is the last transform from behavior state to physical output. The point light and falloff model produce per-panel intensity values, and each is mapped to a DMX byte for Art-Net transmission. The same behavior parameters therefore influence output both indirectly through wander-box-constrained position and directly through brightness/pulse/falloff settings.
 
 ```mermaid
 flowchart TB
-    P["Current virtual light position + pulse"] --> D["For each panel:\ncompute distance to panel center"]
+    WPOS["WANDER/FOLLOW position result\n(current light x,y,z)"] --> P["Current virtual light pulse state"]
+    P --> D["For each panel:\ncompute distance to panel center"]
     D --> R{"distance <= falloff_radius?"}
     R -- No --> OFF["Panel DMX = 1"]
     R -- Yes --> F["falloff factor\n(near=bright, far=dim)"]
@@ -449,6 +456,7 @@ flowchart TB
 
 - **Active zone**: where people are treated as engaging with the installation.
 - **Passive zone**: sidewalk traffic area that can influence behavior without direct engagement.
+- **Wander box**: the current allowed movement boundary for the light target (`min/max x,y,z`), continuously updated by behavior context.
 - **Meta parameters**: personality sliders and global multipliers that reshape mode defaults.
 - **Auto-tuning**: the 5-second adjustment loop that updates meta parameters.
 - **Meta-tuning**: slower review process that updates auto-tuner configuration.

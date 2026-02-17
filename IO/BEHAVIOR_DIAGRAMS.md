@@ -108,6 +108,7 @@ flowchart LR
         LIGHT["<b>Point Light</b>
         ───────────────
         Position: x, y, z (cm)
+        Constrained by: wander box
         Brightness: min / max range
         Falloff: radius (cm)
         Pulse: sine wave phase"]
@@ -141,7 +142,7 @@ flowchart LR
     OSC -->|"x, z per person"| TRACK
     BEH -->|"behavior_params dict
     brightness, speed, falloff,
-    pulse, smoothing, wander"| LIGHT
+    pulse, smoothing, wander_box"| LIGHT
     PANELS -->|"12 DMX values
     (1-255 per panel)"| ARTNET
 
@@ -185,7 +186,8 @@ flowchart LR
     Brightness: 3-15
     Pulse: 4000 ms
     Falloff: 80 cm
-    Smoothing: 0"]
+    Smoothing: 0
+    Wander box: full width (260cm)"]
 
     ENGAGED["**ENGAGED**
     ───────────────
@@ -196,7 +198,8 @@ flowchart LR
     Brightness: 8-30
     Pulse: 2500 ms
     Falloff: 50 cm
-    Smoothing: 0.03"]
+    Smoothing: 0.03
+    Wander box: tight around person"]
 
     CROWD["**CROWD**
     ───────────────
@@ -207,7 +210,8 @@ flowchart LR
     Brightness: 12-45
     Pulse: 1500 ms
     Falloff: 40 cm
-    Smoothing: 0.03"]
+    Smoothing: 0.03
+    Wander box: around group centroid"]
 
     FLOW["**FLOW**
     ───────────────
@@ -218,7 +222,8 @@ flowchart LR
     Brightness: 5-20
     Pulse: 3000 ms
     Falloff: 70 cm
-    Smoothing: 0"]
+    Smoothing: 0
+    Wander box: shifted with traffic"]
 
     IDLE -->|"person enters active zone
     stickiness: 0s (immediate)
@@ -317,7 +322,7 @@ flowchart TB
     L7 --> L8
     L13 --> L14
 
-    L17 --> OUT["<b>Final behavior_params dict</b><br/>───────────────<br/>brightness_min / brightness_max<br/>pulse_speed / falloff_radius<br/>move_speed / follow_smoothing<br/>wander_interval"]
+    L17 --> OUT["<b>Final behavior_params + wander_box</b><br/>───────────────<br/>brightness_min / brightness_max<br/>pulse_speed / falloff_radius<br/>move_speed / follow_smoothing<br/>wander_interval<br/>───────────────<br/>wander_box: x, y, z bounds<br/>(shaped by layers 9, 10, 14)"]
 
     style FOUNDATION fill:#0d1b2a,stroke:#1b263b,color:#e0e1dd
     style PERSONALITY fill:#1b263b,stroke:#415a77,color:#e0e1dd
@@ -336,6 +341,7 @@ flowchart TB
 | `move_speed` | How fast the light moves toward its target (cm/s) |
 | `follow_smoothing` | How tightly the light tracks a person (0 = no follow, 0.2 = tight) |
 | `wander_interval` | Time between picking new wander targets (s) |
+| `wander_box` | 3D bounding volume (x/y/z min-max) constraining light position — see Wander Box diagram |
 
 ---
 
@@ -566,7 +572,7 @@ The final stage converts the virtual point light into 12 physical DMX values. Th
 ```mermaid
 flowchart TB
     subgraph LIGHT["Virtual Point Light"]
-        POS["Position (x, y, z)<br/>from wander/follow system"]
+        POS["Position (x, y, z)<br/>constrained by wander box"]
         PULSE["Pulse Phase<br/>sin(phase) oscillation<br/>period = pulse_speed"]
         BRANGE["Brightness Range<br/>brightness_min → brightness_max"]
         FALLOFF["Falloff Radius<br/>40 – 80 cm"]
@@ -801,6 +807,7 @@ sequenceDiagram
     P->>Z: Crosses into active zone
     Z->>B: active_count += 1
     B->>B: Mode: IDLE → ENGAGED (immediate)
+    Note over B: Wander box contracts around person
     B->>G: Trigger WELCOME
     G->>L: Entry pulse: +25 brightness flash
     B->>L: Transition interpolation (0.8s)
@@ -860,9 +867,10 @@ sequenceDiagram
 
     Note over B: 5s passes with no one...
     B->>B: Mode: ENGAGED → IDLE
+    Note over B: Wander box expands to full 260cm width
     B->>L: Transition interpolation (3.0s slow goodbye)
     B->>L: Breathing overlay ramps out
-    B->>L: Return to gentle wandering
+    B->>L: Return to gentle wandering within full wander box
 ```
 
 **What the person experiences:**
@@ -907,6 +915,10 @@ flowchart TB
 
     PIPELINE -->|"final params"| POINTLIGHT["<b>Point Light</b><br/>───────────────<br/>Position: x, y, z<br/>Brightness: min/max<br/>Falloff: radius<br/>Pulse: phase"]
 
+    PIPELINE -->|"wander_box bounds"| WANDERBOX["<b>Wander Box</b><br/>───────────────<br/>Spatial constraint for position<br/>Shape: mode + flow + aggression<br/>Animation: exponential lerp"]
+
+    WANDERBOX -->|"position target"| POINTLIGHT
+
     POINTLIGHT -->|"light state"| PANELSYS["<b>Panel System</b><br/>───────────────<br/>Panels: 12 (4 units x 3)<br/>Calc: distance to DMX"]
 
     PANELSYS -->|"12 DMX channels"| ARTNET["<b>Art-Net Output</b><br/>───────────────<br/>Target: 10.42.0.200<br/>Universe: 0 / Rate: 30 FPS"]
@@ -940,6 +952,7 @@ flowchart TB
     style DAILY fill:#1b263b,stroke:#415a77,color:#e0e1dd
     style FEEDBACK fill:#1b263b,stroke:#415a77,color:#e0e1dd
     style OVERRIDES fill:#1a1a2e,stroke:#778da9,color:#e0e1dd
+    style WANDERBOX fill:#0f3460,stroke:#e94560,color:#fff
 ```
 
 ---
