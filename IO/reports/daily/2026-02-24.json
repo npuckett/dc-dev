@@ -1,0 +1,191 @@
+{
+  "date": "2026-02-24",
+  "generated_at": "2026-02-24T12:35:46.625023",
+  "data_source": "hourly_stats",
+  "summary": {
+    "total_unique_people": 7038,
+    "total_events": 50286,
+    "total_active_zone_visits": 585,
+    "total_passive_zone_count": 25950,
+    "total_blooms": 0,
+    "overall_avg_speed": 8510.9,
+    "avg_brightness": 13.61,
+    "hours_with_data": 12
+  },
+  "peak_times": {
+    "peak_hour": 8,
+    "peak_hour_count": 1708,
+    "quietest_hour": 3,
+    "quietest_hour_count": 9
+  },
+  "flow": {
+    "total_left_to_right": 9376,
+    "total_right_to_left": 15345,
+    "dominant_flow": "balanced",
+    "flow_balance": -0.241
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_events": 377,
+      "total_people": 46,
+      "active_count": 0,
+      "passive_count": 252,
+      "avg_speed": 9389.4,
+      "flow_ltr": 138,
+      "flow_rtl": 105,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.27
+    },
+    {
+      "hour": 1,
+      "total_events": 78,
+      "total_people": 11,
+      "active_count": 0,
+      "passive_count": 44,
+      "avg_speed": 5679.8,
+      "flow_ltr": 7,
+      "flow_rtl": 36,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.18
+    },
+    {
+      "hour": 2,
+      "total_events": 74,
+      "total_people": 12,
+      "active_count": 0,
+      "passive_count": 40,
+      "avg_speed": 9747.4,
+      "flow_ltr": 21,
+      "flow_rtl": 19,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.18
+    },
+    {
+      "hour": 3,
+      "total_events": 107,
+      "total_people": 9,
+      "active_count": 0,
+      "passive_count": 68,
+      "avg_speed": 10043.7,
+      "flow_ltr": 31,
+      "flow_rtl": 34,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.1
+    },
+    {
+      "hour": 4,
+      "total_events": 167,
+      "total_people": 26,
+      "active_count": 7,
+      "passive_count": 87,
+      "avg_speed": 7718.3,
+      "flow_ltr": 42,
+      "flow_rtl": 41,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.16
+    },
+    {
+      "hour": 5,
+      "total_events": 680,
+      "total_people": 114,
+      "active_count": 0,
+      "passive_count": 329,
+      "avg_speed": 10309.7,
+      "flow_ltr": 182,
+      "flow_rtl": 136,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 7.38
+    },
+    {
+      "hour": 6,
+      "total_events": 2660,
+      "total_people": 350,
+      "active_count": 0,
+      "passive_count": 1497,
+      "avg_speed": 9468.9,
+      "flow_ltr": 482,
+      "flow_rtl": 930,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 14.07
+    },
+    {
+      "hour": 7,
+      "total_events": 6334,
+      "total_people": 743,
+      "active_count": 31,
+      "passive_count": 3467,
+      "avg_speed": 10065.0,
+      "flow_ltr": 1167,
+      "flow_rtl": 2159,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 14.62
+    },
+    {
+      "hour": 8,
+      "total_events": 15711,
+      "total_people": 1708,
+      "active_count": 46,
+      "passive_count": 8696,
+      "avg_speed": 8983.3,
+      "flow_ltr": 2554,
+      "flow_rtl": 5757,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 18.17
+    },
+    {
+      "hour": 9,
+      "total_events": 11762,
+      "total_people": 1451,
+      "active_count": 23,
+      "passive_count": 6198,
+      "avg_speed": 9026.8,
+      "flow_ltr": 2327,
+      "flow_rtl": 3605,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 23.52
+    },
+    {
+      "hour": 10,
+      "total_events": 4800,
+      "total_people": 600,
+      "active_count": 5,
+      "passive_count": 2504,
+      "avg_speed": 6779.3,
+      "flow_ltr": 1215,
+      "flow_rtl": 1131,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 20.81
+    },
+    {
+      "hour": 11,
+      "total_events": 7536,
+      "total_people": 937,
+      "active_count": 473,
+      "passive_count": 2768,
+      "avg_speed": 4918.8,
+      "flow_ltr": 1210,
+      "flow_rtl": 1392,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 28.86
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "idle": 1.0
+    }
+  },
+  "auto_tuning": {}
+}

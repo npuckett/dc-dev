@@ -81,6 +81,7 @@ except ImportError:
 
 # JSON is always needed for slider persistence and data serialization
 import json
+from pathlib import Path
 
 # =============================================================================
 # CONFIGURATION (all units in centimeters)
@@ -513,6 +514,9 @@ class DailyReportScheduler:
                         # Generate report for yesterday
                         report = self.report_generator.generate_report()
                         
+                        # Persist to JSON file and database
+                        self._persist_report(report)
+                        
                         # Broadcast over WebSocket
                         if self.ws_broadcaster:
                             self._broadcast_report(report)
@@ -532,6 +536,99 @@ class DailyReportScheduler:
             # Sleep for 30 seconds before next check
             time.sleep(30)
     
+    def _persist_report(self, report: DailyReport):
+        """Save report to JSON file and database tables for permanent storage."""
+        report_dict = report.to_dict()
+        
+        # --- Save JSON file ---
+        try:
+            reports_dir = Path(__file__).parent / 'reports' / 'daily'
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            filepath = reports_dir / f"{report.date}.json"
+            with open(filepath, 'w') as f:
+                json.dump(report_dict, f, indent=2)
+            logger.info(f"💾 Report saved to {filepath}")
+        except Exception as e:
+            logger.error(f"Error saving report JSON: {e}")
+        
+        # --- Save to database tables ---
+        try:
+            db = self.report_generator.database
+            s = report_dict['summary']
+            p = report_dict['peak_times']
+            fl = report_dict['flow']
+            with db.lock:
+                cursor = db.conn.cursor()
+                # daily_summary
+                cursor.execute('''
+                    INSERT OR REPLACE INTO daily_summary
+                    (date, total_people, active_zone_visits, passive_zone_count,
+                     avg_speed, dominant_flow, busiest_hour, peak_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    report.date,
+                    s['total_unique_people'],
+                    s['total_active_zone_visits'],
+                    s['total_passive_zone_count'],
+                    s['overall_avg_speed'],
+                    fl['dominant_flow'],
+                    p['peak_hour'],
+                    p['peak_hour_count'],
+                ))
+                # daily_stats_v2
+                cursor.execute('''
+                    INSERT OR REPLACE INTO daily_stats_v2
+                    (date, total_events, unique_people, total_active, total_passive,
+                     peak_hour, peak_count, quietest_hour,
+                     dominant_flow, flow_balance, avg_speed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    report.date,
+                    s['total_active_zone_visits'] + s['total_passive_zone_count'],
+                    s['total_unique_people'],
+                    s['total_active_zone_visits'],
+                    s['total_passive_zone_count'],
+                    p['peak_hour'],
+                    p['peak_hour_count'],
+                    p['quietest_hour'],
+                    fl['dominant_flow'],
+                    fl['flow_balance'],
+                    s['overall_avg_speed'],
+                ))
+                db.conn.commit()
+            logger.info(f"💾 Report persisted to database for {report.date}")
+        except Exception as e:
+            logger.error(f"Error persisting report to database: {e}")
+        
+        # --- Update JSON index ---
+        try:
+            reports_dir = Path(__file__).parent / 'reports' / 'daily'
+            index_path = reports_dir / '_index.json'
+            index = {'generated_at': datetime.now().isoformat(), 'reports': []}
+            if index_path.exists():
+                with open(index_path) as f:
+                    index = json.load(f)
+            # Update or add entry
+            existing = {r['date']: i for i, r in enumerate(index.get('reports', []))}
+            entry = {
+                'date': report.date,
+                'file': f"{report.date}.json",
+                'total_people': s['total_unique_people'],
+                'peak_hour': p['peak_hour'],
+                'dominant_flow': fl['dominant_flow'],
+            }
+            if report.date in existing:
+                index['reports'][existing[report.date]] = entry
+            else:
+                index['reports'].append(entry)
+                index['reports'].sort(key=lambda r: r['date'])
+            index['generated_at'] = datetime.now().isoformat()
+            index['total_reports'] = len(index['reports'])
+            with open(index_path, 'w') as f:
+                json.dump(index, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error updating report index: {e}")
+
     def _broadcast_report(self, report: DailyReport):
         """Broadcast report over WebSocket"""
         if not self.ws_broadcaster:
@@ -553,6 +650,7 @@ class DailyReportScheduler:
             self.pause_tracking()
             time.sleep(1)
             report = self.report_generator.generate_report()
+            self._persist_report(report)
             if self.ws_broadcaster:
                 self._broadcast_report(report)
             if self.on_report_ready:

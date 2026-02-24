@@ -1,8 +1,12 @@
 tracking_history.db
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.db.bak*
+*-journal
 __pycache__/
+*.pyc
 *.pt
 .venv/
-*-journal
-*.db.bak*
-*.db-journal
+node_modules/

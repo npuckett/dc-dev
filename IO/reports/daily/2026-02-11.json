@@ -1,0 +1,61 @@
+{
+  "date": "2026-02-11",
+  "generated_at": "2026-02-24T12:36:17.498424",
+  "data_source": "hourly_stats",
+  "summary": {
+    "total_unique_people": 225,
+    "total_events": 2579,
+    "total_active_zone_visits": 1,
+    "total_passive_zone_count": 1459,
+    "total_blooms": 0,
+    "overall_avg_speed": 502.3,
+    "avg_brightness": 0.0,
+    "hours_with_data": 2
+  },
+  "peak_times": {
+    "peak_hour": 15,
+    "peak_hour_count": 116,
+    "quietest_hour": 16,
+    "quietest_hour_count": 109
+  },
+  "flow": {
+    "total_left_to_right": 975,
+    "total_right_to_left": 431,
+    "dominant_flow": "left_to_right",
+    "flow_balance": 0.387
+  },
+  "hourly_trends": [
+    {
+      "hour": 15,
+      "total_events": 1268,
+      "total_people": 116,
+      "active_count": 1,
+      "passive_count": 706,
+      "avg_speed": 293.5,
+      "flow_ltr": 539,
+      "flow_rtl": 143,
+      "bloom_count": 0,
+      "dominant_mode": "unknown",
+      "avg_brightness": 0.0
+    },
+    {
+      "hour": 16,
+      "total_events": 1311,
+      "total_people": 109,
+      "active_count": 0,
+      "passive_count": 753,
+      "avg_speed": 711.2,
+      "flow_ltr": 436,
+      "flow_rtl": 288,
+      "bloom_count": 0,
+      "dominant_mode": "unknown",
+      "avg_brightness": 0.0
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "unknown": 1.0
+    }
+  },
+  "auto_tuning": {}
+}
