@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drop Ceiling — Daily Reports</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <link rel="stylesheet" href="reports.css">
+</head>
+<body>
+
+<!-- Top Navigation -->
+<header id="top-nav">
+    <div class="nav-left">
+        <h1>Drop Ceiling</h1>
+        <span class="nav-separator">/</span>
+        <span class="nav-section">Reports</span>
+    </div>
+    <div class="nav-right">
+        <a href="index.html" class="nav-link">Live Viewer</a>
+        <button id="export-page-btn" class="nav-btn" title="Export full page as PNG">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export Page
+        </button>
+    </div>
+</header>
+
+<!-- View Toggle + Date Navigation -->
+<div id="controls">
+    <div class="view-toggle">
+        <button class="toggle-btn active" data-view="day">Day</button>
+        <button class="toggle-btn" data-view="multi">Trends</button>
+    </div>
+    <div id="date-nav">
+        <button id="date-prev" class="date-arrow" title="Previous day">‹</button>
+        <div id="date-pills"></div>
+        <button id="date-next" class="date-arrow" title="Next day">›</button>
+    </div>
+</div>
+
+<!-- Single-Day View -->
+<main id="day-view">
+    <!-- Summary Cards -->
+    <section id="summary-cards" class="card-row">
+        <div class="summary-card">
+            <span class="card-label">Total People</span>
+            <span class="card-value" id="card-people">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Active Zone</span>
+            <span class="card-value" id="card-active">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Passive Zone</span>
+            <span class="card-value" id="card-passive">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Peak Hour</span>
+            <span class="card-value" id="card-peak">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Avg Brightness</span>
+            <span class="card-value" id="card-brightness">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Hours Active</span>
+            <span class="card-value" id="card-hours">--</span>
+        </div>
+    </section>
+
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+        <!-- Hourly Traffic (Stacked Area) -->
+        <div class="chart-panel wide">
+            <div class="panel-header">
+                <span class="panel-label">Hourly Traffic</span>
+                <div class="panel-legend-inline">
+                    <span class="legend-item"><span class="legend-dot engaged"></span>Active</span>
+                    <span class="legend-item"><span class="legend-dot passing"></span>Passive</span>
+                </div>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-hourly-traffic"></canvas></div>
+        </div>
+
+        <!-- Hourly People (Bar) -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">People Per Hour</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-hourly-people"></canvas></div>
+        </div>
+
+        <!-- Flow Direction -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Flow Direction</span>
+                <div class="panel-legend-inline">
+                    <span class="legend-item"><span class="legend-dot" style="background:#7cd3ff"></span>L→R</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:rgba(255,140,100,0.85)"></span>R→L</span>
+                </div>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-flow"></canvas></div>
+        </div>
+
+        <!-- Brightness Curve -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Brightness</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-brightness"></canvas></div>
+        </div>
+
+        <!-- Behavior Modes (Donut + Legend) -->
+        <div class="chart-panel small">
+            <div class="panel-header">
+                <span class="panel-label">Behavior Modes</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="modes-layout">
+                <div class="chart-container square"><canvas id="chart-modes"></canvas></div>
+                <div class="modes-legend" id="modes-legend"></div>
+            </div>
+        </div>
+
+        <!-- Auto-Tuning Personality -->
+        <div class="chart-panel" id="tuning-panel">
+            <div class="panel-header">
+                <span class="panel-label">Auto-Tuning Personality</span>
+                <span class="tuning-badge" id="tuning-adjustments"></span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container tall"><canvas id="chart-tuning"></canvas></div>
+            <div class="tuning-strategy" id="tuning-strategy"></div>
+        </div>
+    </div>
+</main>
+
+<!-- Multi-Day Trends View -->
+<main id="multi-view" class="hidden">
+    <!-- Totals Summary -->
+    <section id="totals-cards" class="card-row">
+        <div class="summary-card">
+            <span class="card-label">Total People</span>
+            <span class="card-value" id="totals-people">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Total Events</span>
+            <span class="card-value" id="totals-events">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Daily Average</span>
+            <span class="card-value" id="totals-avg">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Active Zone Total</span>
+            <span class="card-value" id="totals-active">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Avg Brightness</span>
+            <span class="card-value" id="totals-brightness">--</span>
+        </div>
+        <div class="summary-card">
+            <span class="card-label">Days Tracked</span>
+            <span class="card-value" id="totals-days">--</span>
+        </div>
+    </section>
+
+    <div class="charts-grid">
+        <!-- Daily People Trend -->
+        <div class="chart-panel wide">
+            <div class="panel-header">
+                <span class="panel-label">Daily People</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-multi-people"></canvas></div>
+        </div>
+
+        <!-- Engagement Rate -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Engagement Rate</span>
+                <div class="panel-legend-inline">
+                    <span class="legend-item"><span class="legend-dot engaged"></span>Active %</span>
+                    <span class="legend-item"><span class="legend-dot passing"></span>Passive %</span>
+                </div>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-multi-engagement"></canvas></div>
+        </div>
+
+        <!-- Flow Balance -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Flow Balance</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-multi-flow"></canvas></div>
+        </div>
+
+        <!-- Hourly Heatmap -->
+        <div class="chart-panel wide">
+            <div class="panel-header">
+                <span class="panel-label">Hourly Heatmap</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container" id="heatmap-container"><canvas id="chart-heatmap"></canvas></div>
+        </div>
+
+        <!-- Peak Hour Shift -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Peak Hour Shift</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-multi-peak"></canvas></div>
+        </div>
+
+        <!-- Brightness Trend -->
+        <div class="chart-panel">
+            <div class="panel-header">
+                <span class="panel-label">Brightness Trend</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container"><canvas id="chart-multi-brightness"></canvas></div>
+        </div>
+
+        <!-- Personality Evolution -->
+        <div class="chart-panel wide" id="personality-panel">
+            <div class="panel-header">
+                <span class="panel-label">Personality Evolution</span>
+                <button class="export-chart-btn" title="Export chart as PNG">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+            </div>
+            <div class="chart-container tall"><canvas id="chart-multi-personality"></canvas></div>
+        </div>
+    </div>
+</main>
+
+<!-- Loading overlay -->
+<div id="loading" class="hidden">
+    <div class="loading-spinner"></div>
+    <span>Loading reports…</span>
+</div>
+
+<script src="reports.js"></script>
+</body>
+</html>
