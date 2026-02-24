@@ -6,6 +6,12 @@ Each diagram builds on the previous one, starting with the highest-level overvie
 
 > All diagrams use [Mermaid](https://mermaid.js.org/) syntax and render natively on GitHub.
 
+## How to Read This Document
+
+Read top-to-bottom once for system flow, then jump to specific diagrams by topic. Part 1 (Diagrams 1–8 + Wander Box + Appendix) covers the behavior system — how the light makes decisions and translates them into physical output. Part 2 (Diagrams 9–16) covers the camera tracking system — how people are detected and tracked upstream of behavior.
+
+If a section feels abstract, use the **Wander Box** diagram as the anchor: it connects behavior decisions to spatial motion and ultimately to DMX output. The **Appendix** shows every component at once with all feedback loops visible.
+
 ---
 
 ## 1. System Overview
@@ -487,18 +493,18 @@ flowchart TB
 
 | Parameter | Min | Max | Safe Floor | Soft Cap | Home |
 |---|---|---|---|---|---|
-| responsiveness | 0.1 | 0.95 | 0.30 | — | 0.50 |
-| energy | 0.1 | 0.95 | 0.25 | — | 0.50 |
-| attention_span | 0.1 | 0.95 | — | — | 0.50 |
-| sociability | 0.1 | 0.95 | 0.20 | — | 0.50 |
-| exploration | 0.1 | 0.95 | — | — | 0.50 |
-| memory | 0.1 | 0.95 | — | — | 0.50 |
-| brightness_global | 0.3 | 5.0 | 0.50 | 3.0 | 1.00 |
-| speed_global | 0.3 | 3.0 | 0.40 | 1.6 | 1.00 |
-| pulse_global | 0.3 | 3.0 | — | 2.0 | 1.00 |
-| follow_speed_global | 0.3 | 3.0 | — | — | 1.00 |
-| dwell_influence | 0.0 | 3.0 | — | — | 1.00 |
-| idle_trend_weight | 0.0 | 3.0 | — | — | 1.00 |
+| responsiveness | 0.0 | 1.0 | 0.30 | 0.90 | 0.50 |
+| energy | 0.0 | 1.0 | 0.25 | 0.85 | 0.45 |
+| attention_span | 0.0 | 1.0 | 0.10 | — | 0.50 |
+| sociability | 0.0 | 1.0 | 0.20 | — | 0.45 |
+| exploration | 0.0 | 1.0 | 0.15 | — | 0.40 |
+| memory | 0.0 | 1.0 | — | — | 0.30 |
+| brightness_global | 0.2 | 5.0 | 0.60 | 3.0 | 1.20 |
+| speed_global | 0.2 | 2.0 | 0.35 | 1.6 | 0.70 |
+| pulse_global | 0.3 | 3.0 | 0.35 | 2.0 | 0.80 |
+| follow_speed_global | 0.5 | 3.0 | 0.60 | — | 1.00 |
+| dwell_influence | 0.0 | 2.0 | — | — | 0.50 |
+| idle_trend_weight | 0.0 | 2.0 | 0.10 | — | 0.40 |
 
 **Step sizes**: Personality params max ±0.03 per 5s cycle. Global multipliers max ±0.08. Changes below 0.002 are zeroed to prevent micro-drift.
 
@@ -780,6 +786,43 @@ flowchart TB
     style POINTLIGHT fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
     style PANEL fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
 ```
+
+### Worked Example: IDLE vs ENGAGED
+
+| Stage | IDLE (no active person) | ENGAGED (1 active person) |
+|---|---|---|
+| Mode baseline | `move_speed=20`, `wander_interval=5.0`, `falloff=80` | `move_speed=25`, `wander_interval=4.0`, `falloff=50`, `follow_smoothing=0.03` |
+| Wander box behavior | Uses broader base box, chooses exploratory targets | Contracts and anchors around person; target updates stay close |
+| Position path | Slower, wider drift across full panel span | Tighter, more deliberate tracking near person position |
+| DMX result | Wider illumination spread, gentler panel transitions | More localized hotspots, stronger panel contrast, faster local changes |
+
+In plain terms: the wander box is the movement boundary that decides *where* the light can go between updates. Behavior parameters decide *how fast and how tightly* it moves inside that boundary. Together they shape the spatial pattern of DMX output, not just brightness.
+
+### Mini Scenario: Passive Flow Shifts Panel Emphasis (10–20s)
+
+A common street condition: people move through the passive zone mostly left-to-right while nobody is actively engaged. The behavior system treats that as directional flow pressure and shifts wander preference toward the incoming side. As the point light trajectory shifts, panel distance relationships change and DMX emphasis follows.
+
+```mermaid
+flowchart LR
+    T0["t=0s<br/>No active person<br/>Mode: IDLE or FLOW candidate"] --> T1["t=0..10s<br/>Passive detections accumulate<br/>flow tracker updates (~1.5s)"]
+    T1 --> T2["t~10..15s<br/>Sustained direction signal<br/>(passive_rate + flow_direction)"]
+    T2 --> T3["Wander box: nudge center<br/>in flow direction"]
+    T3 --> T4["Target picks bias<br/>toward shifted side"]
+    T4 --> T5["Light path drifts to flow side<br/>over multiple updates"]
+    T5 --> T6["Nearest panels on that side<br/>brighten more often"]
+    T6 --> T7["Observed output: directional<br/>DMX emphasis without hard switch"]
+
+    style T0 fill:#0d1b2a,stroke:#415a77,color:#e0e1dd
+    style T1 fill:#1b263b,stroke:#415a77,color:#e0e1dd
+    style T2 fill:#415a77,stroke:#778da9,color:#e0e1dd
+    style T3 fill:#0f3460,stroke:#e94560,color:#fff
+    style T4 fill:#0f3460,stroke:#e94560,color:#fff
+    style T5 fill:#533483,stroke:#e94560,color:#fff
+    style T6 fill:#533483,stroke:#e94560,color:#fff
+    style T7 fill:#e94560,stroke:#fff,color:#fff
+```
+
+This is one reason the output can look intentionally directional even when nobody is standing in the active zone. The wander box is carrying crowd-flow context into spatial light behavior.
 
 ---
 
@@ -1828,6 +1871,25 @@ sequenceDiagram
 | [camera_calibration.py](camera_calibration.py) | Camera calibration tool (ArUco, solvePnP, synth view) |
 | [camera_calibration.json](../calibration/camera_calibration.json) | Calibration data (rvec, tvec, K, distortion per camera) |
 | [world_coordinates.json](world_coordinates.json) | ArUco marker 3D positions and camera intrinsics |
+
+---
+
+---
+
+## Terms
+
+| Term | Definition |
+|---|---|
+| **Active zone** | The area directly under the panels (~2m deep) where people are treated as engaging with the installation. |
+| **Passive zone** | The sidewalk traffic area beyond the active zone (~2.7m deep) that can influence behavior without direct engagement. |
+| **Wander box** | The current allowed movement boundary for the light target (`min/max x,y,z`), continuously updated by behavior context. |
+| **Meta parameters** | Personality sliders (0–1) and global multipliers that reshape mode defaults. |
+| **Auto-tuning** | The 5-second adjustment loop that updates meta parameters based on observed activity. |
+| **Meta-tuning** | The slower review process (daily/manual) that updates auto-tuner configuration via `autotune_overrides.json`. |
+| **Falloff radius** | How far from the virtual light position panels still receive illumination. The single most impactful parameter on visual output. |
+| **Dwell phase** | One of four progressive engagement stages (Notice → Greet → Engage → Bond) based on how long a person remains in the active zone. |
+| **Aggression** | A 0–1 value that rises when the light has not engaged anyone for a while. Causes wider, more active wandering to attract attention. |
+| **Flow tracking** | The 1.5-second loop that measures pedestrian direction and speed through the passive zone, expressed as direction (-1 to +1) and strength (0–1). |
 
 ---
 
