@@ -1,0 +1,30 @@
+# Drop Ceiling - Daily Report Timer
+# Runs daily at 12:15 AM (after the 12:01 AM report data cutoff)
+# and again at 6:00 AM to catch any late data.
+#
+# Install:
+#   sudo cp daily-reports.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable daily-reports.timer
+#   sudo systemctl start  daily-reports.timer
+#
+# Check: systemctl list-timers daily-reports*
+
+[Unit]
+Description=Run daily report generation + deploy
+
+[Timer]
+# Primary: shortly after midnight data cutoff
+OnCalendar=*-*-* 00:15:00
+
+# Secondary: catch any late data
+OnCalendar=*-*-* 06:00:00
+
+# Small jitter to avoid exact-second collisions
+RandomizedDelaySec=120
+
+# Run if missed (e.g. device was off)
+Persistent=true
+
+[Install]
+WantedBy=timers.target

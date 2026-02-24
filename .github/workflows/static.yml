@@ -1,28 +1,39 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+# Drop Ceiling — Deploy viewer + reports to GitHub Pages
+#
+# Triggers:
+#   1. Push to main (any change to viewer or reports)
+#   2. Manual dispatch from Actions tab
+#   3. Repository dispatch (called from device after generating reports)
+#      curl -X POST \
+#        -H "Authorization: token $GITHUB_TOKEN" \
+#        -H "Accept: application/vnd.github.v3+json" \
+#        https://api.github.com/repos/npuckett/dc-dev/dispatches \
+#        -d '{"event_type":"deploy-reports"}'
+#
+name: Deploy to Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
+    paths:
+      - 'IO/public-viewer/**'
+      - 'IO/reports/daily/**'
 
-  # Allows you to run this workflow manually from the Actions tab
+  repository_dispatch:
+    types: [deploy-reports]
+
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
@@ -31,13 +42,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/reports/daily
+
+          # Copy the public-viewer files to site root
+          cp IO/public-viewer/*.html _site/
+          cp IO/public-viewer/*.css  _site/
+          cp IO/public-viewer/*.js   _site/
+          cp IO/public-viewer/*.png  _site/ 2>/dev/null || true
+
+          # Copy report JSON data
+          cp IO/reports/daily/*.json _site/reports/daily/
+
+      - name: Fix report paths for root-level hosting
+        run: |
+          # reports.js references '../reports/daily' because locally it's
+          # served from IO/ with public-viewer/ as a subdirectory.
+          # On Pages, everything is at the root, so fix the path.
+          sed -i "s|'../reports/daily'|'./reports/daily'|g" _site/reports.js
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          path: '_site'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

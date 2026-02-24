@@ -1,0 +1,35 @@
+# Drop Ceiling - Daily Report Generation + Deploy
+# Generates reports from tracking DB and pushes to GitHub Pages.
+#
+# Install:
+#   sudo cp daily-reports.service /etc/systemd/system/
+#   sudo cp daily-reports.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable daily-reports.timer
+#   sudo systemctl start  daily-reports.timer
+#
+# Check: systemctl list-timers daily-reports*
+# Logs:  journalctl -u daily-reports -f
+
+[Unit]
+Description=Generate daily reports and deploy to Pages
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dc
+WorkingDirectory=/home/dc/dc-dev/IO
+
+# Generate today's report (and re-gen yesterday in case of late events)
+ExecStart=/usr/bin/python3 generate_reports.py --days 2
+
+# Push to GitHub and trigger Pages deploy
+ExecStartPost=/bin/bash deploy_reports.sh
+
+Environment=GITHUB_TOKEN=%h/.config/dc/github-token
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
