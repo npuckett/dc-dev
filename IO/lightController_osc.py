@@ -99,6 +99,9 @@ OSC_PORT = 7000
 WEBSOCKET_PORT = 8765
 WEBSOCKET_ENABLED = True
 WEBSOCKET_BROADCAST_INTERVAL = 0.066  # ~15 FPS for WebSocket (instead of 30)
+WEBSOCKET_MAX_CLIENTS = 200          # Hard cap on simultaneous connections
+WEBSOCKET_BROADCAST_BATCH = 25       # Send to N clients at a time to avoid event loop stalls
+WEBSOCKET_MAX_RESTARTS = 50          # Allow many restarts for long-running production
 
 # Health monitoring (for 24/7 operation)
 HEALTH_LOG_INTERVAL = 300  # Log health stats every 5 minutes
@@ -1011,10 +1014,18 @@ class TrackedPersonManager:
 # =============================================================================
 
 class WebSocketBroadcaster:
-    """Broadcasts installation state to web clients with efficiency optimizations"""
+    """Broadcasts installation state to web clients with efficiency optimizations.
     
-    def __init__(self, port: int = 8765):
+    Hardened for high-concurrency scenarios (talks, demos):
+    - Connection cap (WEBSOCKET_MAX_CLIENTS) rejects excess clients gracefully
+    - Batched broadcast prevents event loop stalls with many clients
+    - All handler/broadcast exceptions are caught to protect the main controller
+    - Auto-restart with generous retry budget
+    """
+    
+    def __init__(self, port: int = 8765, max_clients: int = WEBSOCKET_MAX_CLIENTS):
         self.port = port
+        self.max_clients = max_clients
         self.clients: set = set()
         self.clients_lock = asyncio.Lock()  # Thread-safe client management
         self.loop = None
@@ -1025,19 +1036,37 @@ class WebSocketBroadcaster:
         self._last_json: str = ""  # Cache serialized JSON
         self._last_state_hash: int = 0  # Track state changes
         self._pending_broadcast: bool = False  # Coalesce rapid updates
+        self._total_connections: int = 0  # Lifetime counter
+        self._rejected_connections: int = 0  # Over-cap rejections
     
     async def handler(self, websocket):
-        """Handle a WebSocket connection with ping/pong heartbeat"""
-        async with self.clients_lock:
-            self.clients.add(websocket)
-        
+        """Handle a WebSocket connection with connection cap and error isolation."""
         client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else 'unknown'
-        logger.info(f"WebSocket client connected: {client_ip} (total: {len(self.clients)})")
+        
+        # --- Connection cap: reject excess clients gracefully ---
+        async with self.clients_lock:
+            if len(self.clients) >= self.max_clients:
+                self._rejected_connections += 1
+                logger.warning(f"WebSocket connection rejected (cap {self.max_clients}): "
+                             f"{client_ip} (rejected total: {self._rejected_connections})")
+                try:
+                    await websocket.close(1013, "Server at capacity, please retry later")
+                except Exception:
+                    pass
+                return
+            self.clients.add(websocket)
+            self._total_connections += 1
+        
+        logger.info(f"WebSocket client connected: {client_ip} "
+                   f"(active: {len(self.clients)}, lifetime: {self._total_connections})")
         
         try:
             # Send current state immediately
             if self._last_json:
-                await websocket.send(self._last_json)
+                try:
+                    await asyncio.wait_for(websocket.send(self._last_json), timeout=5.0)
+                except (asyncio.TimeoutError, Exception):
+                    pass  # Don't fail the whole handler for initial send
             
             # Keep connection alive with ping/pong (handled by websockets library)
             async for message in websocket:
@@ -1045,9 +1074,11 @@ class WebSocketBroadcaster:
                 try:
                     data = json.loads(message)
                     if data.get('type') == 'request_report' and self._last_json:
-                        await websocket.send(self._last_json)
-                except json.JSONDecodeError:
-                    pass  # Ignore malformed messages
+                        await asyncio.wait_for(websocket.send(self._last_json), timeout=5.0)
+                except (json.JSONDecodeError, asyncio.TimeoutError):
+                    pass  # Ignore malformed / slow client messages
+                except Exception:
+                    pass  # Never let a client message crash the handler
                     
         except websockets.exceptions.ConnectionClosed as e:
             logger.debug(f"WebSocket connection closed: {client_ip} (code: {e.code})")
@@ -1059,7 +1090,11 @@ class WebSocketBroadcaster:
             logger.info(f"WebSocket client disconnected: {client_ip} (remaining: {len(self.clients)})")
     
     async def broadcast(self):
-        """Broadcast cached state to all connected clients"""
+        """Broadcast cached state to all connected clients in batches.
+        
+        Batching prevents the event loop from stalling when there are
+        many clients — each batch yields control back to the loop.
+        """
         if not self.clients or not self._last_json:
             return
         
@@ -1070,60 +1105,80 @@ class WebSocketBroadcaster:
         if not clients_snapshot:
             return
         
-        # Broadcast to all clients concurrently
         dead_clients = []
+        json_data = self._last_json  # Local ref for consistency
         
         async def send_to_client(client):
             try:
-                await asyncio.wait_for(client.send(self._last_json), timeout=5.0)
+                await asyncio.wait_for(client.send(json_data), timeout=3.0)
             except asyncio.TimeoutError:
-                logger.warning("WebSocket send timeout, marking client dead")
                 dead_clients.append(client)
             except websockets.exceptions.ConnectionClosed:
                 dead_clients.append(client)
-            except Exception as e:
-                logger.debug(f"WebSocket send error: {e}")
+            except Exception:
                 dead_clients.append(client)
         
-        # Send concurrently to all clients
-        await asyncio.gather(*[send_to_client(c) for c in clients_snapshot], return_exceptions=True)
+        # Send in batches to avoid event loop stalls with many clients
+        batch_size = WEBSOCKET_BROADCAST_BATCH
+        for i in range(0, len(clients_snapshot), batch_size):
+            batch = clients_snapshot[i:i + batch_size]
+            try:
+                await asyncio.gather(*[send_to_client(c) for c in batch], return_exceptions=True)
+            except Exception as e:
+                logger.warning(f"WebSocket batch broadcast error: {e}")
+            # Yield to event loop between batches
+            if i + batch_size < len(clients_snapshot):
+                await asyncio.sleep(0)
         
         # Remove dead clients
         if dead_clients:
             async with self.clients_lock:
                 for client in dead_clients:
                     self.clients.discard(client)
+            if len(dead_clients) > 5:
+                logger.info(f"WebSocket: pruned {len(dead_clients)} dead clients")
     
     def update_state(self, state: dict):
-        """Update the current state (called from main thread) - optimized"""
-        # Compute simple hash to detect meaningful changes
-        population = state.get('population', {})
-        state_hash = hash((
-            state.get('mode'),
-            len(state.get('people', [])),
-            state.get('report_version', 0),
-            state.get('auto_tuning', {}).get('revision', 0),
-            int(state.get('light', {}).get('x', 0) * 10),
-            int(state.get('light', {}).get('y', 0) * 10),
-            population.get('daily_total', 0),
-            population.get('current', 0),
-        ))
+        """Update the current state (called from main thread).
         
-        # Only re-serialize if state actually changed
-        if state_hash != self._last_state_hash:
-            self._last_state_hash = state_hash
-            self._last_json = json.dumps(state, separators=(',', ':'))  # Compact JSON
-        
-        self.current_state = state
-        
-        if self.loop and self.running and not self._pending_broadcast:
-            self._pending_broadcast = True
+        Fully isolated — any exception here is caught and logged,
+        never propagated to the main controller loop.
+        """
+        try:
+            # Compute simple hash to detect meaningful changes
+            population = state.get('population', {})
+            state_hash = hash((
+                state.get('mode'),
+                len(state.get('people', [])),
+                state.get('report_version', 0),
+                state.get('auto_tuning', {}).get('revision', 0),
+                int(state.get('light', {}).get('x', 0) * 10),
+                int(state.get('light', {}).get('y', 0) * 10),
+                population.get('daily_total', 0),
+                population.get('current', 0),
+            ))
             
-            async def do_broadcast():
-                self._pending_broadcast = False
-                await self.broadcast()
+            # Only re-serialize if state actually changed
+            if state_hash != self._last_state_hash:
+                self._last_state_hash = state_hash
+                self._last_json = json.dumps(state, separators=(',', ':'))  # Compact JSON
             
-            asyncio.run_coroutine_threadsafe(do_broadcast(), self.loop)
+            self.current_state = state
+            
+            if self.loop and self.running and not self._pending_broadcast:
+                self._pending_broadcast = True
+                
+                async def do_broadcast():
+                    try:
+                        self._pending_broadcast = False
+                        await self.broadcast()
+                    except Exception as e:
+                        self._pending_broadcast = False
+                        logger.warning(f"WebSocket broadcast failed: {e}")
+                
+                asyncio.run_coroutine_threadsafe(do_broadcast(), self.loop)
+        except Exception as e:
+            logger.warning(f"WebSocket update_state error (isolated): {e}")
     
     async def _run_server(self):
         """Run the WebSocket server with optimized settings"""
@@ -1150,10 +1205,21 @@ class WebSocketBroadcaster:
         
         await self.server.wait_closed()
     
+    @property
+    def stats(self) -> dict:
+        """Return current stats for health monitoring."""
+        return {
+            'active_clients': len(self.clients),
+            'total_connections': self._total_connections,
+            'rejected_connections': self._rejected_connections,
+            'max_clients': self.max_clients,
+            'running': self.running,
+        }
+    
     def _thread_main(self):
         """Main function for the WebSocket thread with auto-restart"""
         restart_count = 0
-        max_restarts = 10
+        max_restarts = WEBSOCKET_MAX_RESTARTS
         restart_delay = 5  # seconds
         
         while self.running and restart_count < max_restarts:
@@ -1472,11 +1538,11 @@ class AutoTuningManager:
                     if v is not None:
                         self._reversion_progressive = v
             
-            # Apply budget overrides (max [5, 100], cost_scale [1, 200], restore_seconds [30, 1200])
+            # Apply budget overrides (max [5, 500], cost_scale [1, 200], restore_seconds [30, 1200])
             if 'budget' in overrides and isinstance(overrides.get('budget'), dict):
                 b = overrides['budget']
                 if 'max' in b:
-                    v = _safe_float(b['max'], 5.0, 100.0)
+                    v = _safe_float(b['max'], 5.0, 500.0)
                     if v is not None:
                         slider = self.sliders.get('interaction_budget')
                         if slider is not None:
@@ -4150,7 +4216,7 @@ def main():
         'follow_speed_global': Slider(right_col_x, display[1] - 505, col_width, slider_h, 0.5, 3.0, 1.0, "Follow Spd ×", "{:.2f}", autotuned=True),
         'dwell_influence': Slider(right_col_x, display[1] - 545, col_width, slider_h, 0.0, 2.0, 1.0, "Dwell Influence", "{:.2f}", autotuned=True),
         'idle_trend_weight': Slider(right_col_x, display[1] - 585, col_width, slider_h, 0.0, 2.0, 1.0, "Idle Trend ×", "{:.2f}", autotuned=True),
-        'interaction_budget': Slider(left_col_x, display[1] - 420, col_width, slider_h, 0.0, 120.0, 60.0, "Interaction Budget", "{:.0f}", autotuned=False),
+        'interaction_budget': Slider(left_col_x, display[1] - 420, col_width, slider_h, 0.0, 500.0, 200.0, "Interaction Budget", "{:.0f}", autotuned=False),
     }
     
     # Combine all sliders
@@ -5133,6 +5199,23 @@ def main():
                 f"mode={behavior_status['mode']}, active={active_count}, passive={passive_count}, "
                 f"ws_clients={len(ws_broadcaster.clients) if ws_broadcaster else 0}"
             )
+            
+            # --- WebSocket watchdog: restart if the thread died ---
+            if ws_broadcaster and not ws_broadcaster.running:
+                logger.warning("⚠️  WebSocket server died — restarting watchdog recovery")
+                try:
+                    ws_broadcaster.stop()
+                except Exception:
+                    pass
+                try:
+                    ws_broadcaster = WebSocketBroadcaster(port=WEBSOCKET_PORT)
+                    ws_broadcaster.start()
+                    # Re-wire references
+                    daily_report_scheduler.ws_broadcaster = ws_broadcaster
+                    behavior.ws_broadcaster = ws_broadcaster
+                    logger.info("✅ WebSocket server recovered by watchdog")
+                except Exception as e:
+                    logger.error(f"WebSocket watchdog restart failed: {e}")
             
             last_health_log = current_time
         

@@ -1,6 +1,7 @@
 {
-  "confidence": 0.74,
-  "fusion_dist": 287.0,
-  "smoothing": 0.42,
-  "max_lost_frames": 60
+  "confidence": 0.6,
+  "fusion_dist": 100.0,
+  "match_dist": 120.0,
+  "smoothing": 0.08,
+  "max_lost_frames": 8.0
 }

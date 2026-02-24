@@ -103,7 +103,7 @@ DEFAULT_REVERSION = {
 }
 
 DEFAULT_BUDGET = {
-    'max': 30.0,
+    'max': 200.0,
     'restore_seconds': 300.0,
     'cost_scale': 60.0,
 }
@@ -265,24 +265,55 @@ def get_tracking_stats(db_path: Path, since_timestamp: float) -> Dict:
 
 
 def get_budget_stats(db_path: Path, since_timestamp: float) -> Dict:
-    """Get budget usage statistics."""
+    """Get comprehensive budget usage statistics for analysis."""
     rows = query_db(db_path, """
         SELECT 
             AVG(json_extract(adjustments_json, '$.budget_before')) as avg_before,
+            AVG(json_extract(adjustments_json, '$.budget_after')) as avg_after,
             AVG(json_extract(adjustments_json, '$.budget_cost')) as avg_cost,
+            AVG(json_extract(adjustments_json, '$.budget_max')) as avg_max,
             SUM(CASE WHEN json_extract(adjustments_json, '$.budget_before') >= 
                 json_extract(adjustments_json, '$.budget_max') * 0.95 THEN 1 ELSE 0 END) as full_count,
+            SUM(CASE WHEN json_extract(adjustments_json, '$.budget_after') < 1.0
+                THEN 1 ELSE 0 END) as depleted_count,
+            SUM(CASE WHEN json_extract(adjustments_json, '$.budget_cost') > 0 AND
+                json_extract(adjustments_json, '$.budget_before') < 
+                json_extract(adjustments_json, '$.budget_cost') * 1.1
+                THEN 1 ELSE 0 END) as throttled_count,
             COUNT(*) as total
         FROM behavior_adjustments
         WHERE timestamp >= ? AND adjustments_json IS NOT NULL
     """, (since_timestamp,))
     r = rows[0] if rows else {}
     total = r.get('total', 1) or 1
+    avg_max = r.get('avg_max', 0) or 0
+    avg_before = r.get('avg_before', 0) or 0
+    fullness_pct = round(100.0 * avg_before / avg_max, 1) if avg_max > 0 else 0
     return {
-        'avg_budget_before': round(r.get('avg_before', 0) or 0, 1),
+        'avg_budget_before': round(avg_before, 1),
+        'avg_budget_after': round(r.get('avg_after', 0) or 0, 1),
         'avg_cost': round(r.get('avg_cost', 0) or 0, 2),
+        'avg_budget_max': round(avg_max, 1),
         'pct_full': round(100.0 * (r.get('full_count', 0) or 0) / total, 1),
+        'pct_depleted': round(100.0 * (r.get('depleted_count', 0) or 0) / total, 1),
+        'pct_throttled': round(100.0 * (r.get('throttled_count', 0) or 0) / total, 1),
+        'fullness_pct': fullness_pct,
+        'total_adjustments': total,
     }
+
+
+def was_budget_adjusted_today(db_path: Path) -> bool:
+    """Check if the meta-tuner already adjusted budget in a review today."""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = query_db(db_path, """
+        SELECT changes_summary FROM meta_tuning_reviews 
+        WHERE datetime >= ? ORDER BY timestamp DESC
+    """, (today_start.isoformat(),))
+    for row in rows:
+        summary = row.get('changes_summary', '')
+        if summary and 'budget' in summary.lower():
+            return True
+    return False
 
 
 def get_previous_overrides() -> Dict:
@@ -352,12 +383,23 @@ def diagnose(adj_stats: Dict, param_stats: Dict, pct_floor: Dict,
         issues.append(f"Very high engagement ({engaged_pct}%) — may be over-responsive")
         recommendations.append("decrease_personality_home")
     
-    # 5. Check budget effectiveness
-    if budget_stats.get('pct_full', 0) > 90:
-        issues.append(f"Budget nearly always full ({budget_stats['pct_full']}%) — not constraining")
+    # 5. Check budget effectiveness (comprehensive analysis)
+    pct_depleted = budget_stats.get('pct_depleted', 0)
+    pct_throttled = budget_stats.get('pct_throttled', 0)
+    fullness_pct = budget_stats.get('fullness_pct', 50)
+    pct_full = budget_stats.get('pct_full', 0)
+    
+    if pct_full > 90:
+        issues.append(f"Budget nearly always full ({pct_full}%) — not constraining")
         recommendations.append("tighten_budget")
-    elif budget_stats.get('pct_full', 0) < 20:
-        issues.append(f"Budget frequently depleted (full only {budget_stats['pct_full']}%) — may be too tight")
+    elif pct_depleted > 50:
+        issues.append(f"Budget depleted {pct_depleted}% of the time (fullness avg {fullness_pct}%, throttled {pct_throttled}%) — too tight")
+        recommendations.append("loosen_budget")
+    elif pct_throttled > 30:
+        issues.append(f"Budget throttling {pct_throttled}% of adjustments (depleted {pct_depleted}%, fullness {fullness_pct}%) — consider loosening")
+        recommendations.append("loosen_budget")
+    elif fullness_pct < 15:
+        issues.append(f"Budget avg fullness only {fullness_pct}% — spending faster than restoring")
         recommendations.append("loosen_budget")
     
     # 6. Check param variance (are things moving or static?)
@@ -391,7 +433,7 @@ MAX_CHANGES_PER_REVIEW = 25
 def compute_adjustments(param_stats: Dict, pct_floor: Dict, pct_ceiling: Dict,
                         mode_dist: Dict, activity_values: List[float],
                         budget_stats: Dict, recommendations: List[str],
-                        current_overrides: Dict) -> Dict:
+                        current_overrides: Dict, db_path: Path = None) -> Dict:
     """
     Compute new config values based on diagnosis.
     Returns a dict matching the autotune_overrides.json structure.
@@ -494,23 +536,39 @@ def compute_adjustments(param_stats: Dict, pct_floor: Dict, pct_ceiling: Dict,
             reversion['progressive'] = round(new_prog, 4)
             changes.append(f"reversion: base {old_base:.3f}→{new_base:.3f}, prog {old_prog:.3f}→{new_prog:.3f} ({total_clamped} clamped)")
     
-    # --- Adjust budget if it's not constraining ---
-    if "tighten_budget" in recommendations:
-        old_max = budget.get('max', 30.0)
-        new_max = max(old_max * 0.85, 15.0)
-        old_restore = budget.get('restore_seconds', 300.0)
-        new_restore = min(old_restore * 1.15, 600.0)
-        budget['max'] = round(new_max, 1)
-        budget['restore_seconds'] = round(new_restore, 1)
-        changes.append(f"budget: max {old_max:.0f}→{new_max:.0f}, restore {old_restore:.0f}s→{new_restore:.0f}s")
-    elif "loosen_budget" in recommendations:
-        old_max = budget.get('max', 30.0)
-        new_max = min(old_max * 1.2, 60.0)
-        old_restore = budget.get('restore_seconds', 300.0)
-        new_restore = max(old_restore * 0.85, 120.0)
-        budget['max'] = round(new_max, 1)
-        budget['restore_seconds'] = round(new_restore, 1)
-        changes.append(f"budget: max {old_max:.0f}→{new_max:.0f}, restore {old_restore:.0f}s→{new_restore:.0f}s")
+    # --- Adjust budget (DAILY ONLY — skip if already adjusted today) ---
+    budget_rec = [r for r in recommendations if r in ('tighten_budget', 'loosen_budget')]
+    skip_budget = False
+    if budget_rec and db_path:
+        if was_budget_adjusted_today(db_path):
+            skip_budget = True
+            logger.info("⏭️  Budget already adjusted today — skipping budget changes")
+    
+    if budget_rec and not skip_budget:
+        if "tighten_budget" in budget_rec:
+            old_max = budget.get('max', 200.0)
+            new_max = max(old_max * 0.85, 50.0)
+            old_restore = budget.get('restore_seconds', 300.0)
+            new_restore = min(old_restore * 1.15, 600.0)
+            budget['max'] = round(new_max, 1)
+            budget['restore_seconds'] = round(new_restore, 1)
+            changes.append(f"budget: max {old_max:.0f}→{new_max:.0f}, restore {old_restore:.0f}s→{new_restore:.0f}s (tighten)")
+        elif "loosen_budget" in budget_rec:
+            old_max = budget.get('max', 200.0)
+            pct_depleted = budget_stats.get('pct_depleted', 0)
+            # Scale the increase based on how badly depleted the budget is
+            if pct_depleted > 70:
+                multiplier = 1.4  # Severely depleted — big increase
+            elif pct_depleted > 40:
+                multiplier = 1.25  # Moderately depleted
+            else:
+                multiplier = 1.15  # Mildly constrained
+            new_max = min(old_max * multiplier, 400.0)
+            old_restore = budget.get('restore_seconds', 300.0)
+            new_restore = max(old_restore * 0.85, 120.0)
+            budget['max'] = round(new_max, 1)
+            budget['restore_seconds'] = round(new_restore, 1)
+            changes.append(f"budget: max {old_max:.0f}→{new_max:.0f}, restore {old_restore:.0f}s→{new_restore:.0f}s (loosen, {pct_depleted}% depleted)")
     
     # Safety cap: if something caused an unusually large number of changes,
     # truncate to MAX_CHANGES_PER_REVIEW and fall back to current overrides
@@ -602,7 +660,8 @@ def run_review(window_hours: float = 8, dry_run: bool = False, verbose: bool = F
     
     new_config, changes = compute_adjustments(
         param_stats, pct_floor, pct_ceiling, mode_dist,
-        activity_values, budget_stats, recommendations, current_overrides
+        activity_values, budget_stats, recommendations, current_overrides,
+        db_path=DB_PATH
     )
     
     if changes:

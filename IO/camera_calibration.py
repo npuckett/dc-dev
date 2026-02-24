@@ -941,7 +941,8 @@ class CalibrationMode:
         self.synth_width = synth_width
         self.synth_height = synth_height
         
-        # ArUco setup — tuned for surveillance camera conditions
+        # ArUco setup — tuned for RTSP surveillance camera conditions
+        # (H.264 compression artifacts, variable lighting, distance)
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.aruco_params = cv2.aruco.DetectorParameters()
         # Enable built-in sub-pixel corner refinement
@@ -949,17 +950,17 @@ class CalibrationMode:
         self.aruco_params.cornerRefinementWinSize = 5
         self.aruco_params.cornerRefinementMaxIterations = 50
         self.aruco_params.cornerRefinementMinAccuracy = 0.05
-        # Adaptive threshold — moderate step count to balance detection vs false positives
+        # Adaptive threshold — slightly wider than default for street lighting
         self.aruco_params.adaptiveThreshWinSizeMin = 3
-        self.aruco_params.adaptiveThreshWinSizeMax = 23
+        self.aruco_params.adaptiveThreshWinSizeMax = 33
         self.aruco_params.adaptiveThreshWinSizeStep = 4
-        # Minimum marker size — 0.02 rejects small reflection artifacts
-        self.aruco_params.minMarkerPerimeterRate = 0.02
+        # Minimum marker size — 0.015 rejects tiny artifacts but allows markers at distance
+        self.aruco_params.minMarkerPerimeterRate = 0.015
         self.aruco_params.maxMarkerPerimeterRate = 4.0
-        # Strict border check to reject reflections/noise that look like markers
-        self.aruco_params.maxErroneousBitsInBorderRate = 0.25
-        # Default polygon approximation (tighter = fewer false detections)
-        self.aruco_params.polygonalApproxAccuracyRate = 0.05
+        # Moderately relaxed border check for H.264 compression
+        self.aruco_params.maxErroneousBitsInBorderRate = 0.40
+        # Slightly relaxed polygon approximation for compressed markers
+        self.aruco_params.polygonalApproxAccuracyRate = 0.07
         # Minimum distances between corners/markers (prevent duplicates)
         self.aruco_params.minCornerDistanceRate = 0.05
         self.aruco_params.minMarkerDistanceRate = 0.05
@@ -1820,8 +1821,9 @@ class CalibrationMode:
                         'matrix': matrix, 'dist_coeffs': dist, 'size': (w, h)
                     }
             
-            # Require marker detected in at least half the frames to count as real
-            min_detections = max(3, num_frames // 2)
+            # Require marker detected in at least 2 frames to count as real
+            # (median filtering + corner jitter check handle outliers)
+            min_detections = max(2, num_frames // 5)
             
             for mid, corner_list in corner_accumulator[cam_name].items():
                 if len(corner_list) >= min_detections:
