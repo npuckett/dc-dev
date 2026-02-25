@@ -129,9 +129,10 @@ async function init() {
     showLoading(true);
     try {
         reportIndex = await fetchJSON(`${REPORTS_BASE}/_index.json`);
-        // Filter to only include reports from 2/13 onward
+        // Filter to only include reports from 2/13 through 2/23
         const MIN_DATE = '2026-02-13';
-        reportIndex.reports = reportIndex.reports.filter(r => r.date >= MIN_DATE);
+        const MAX_DATE = '2026-02-23';
+        reportIndex.reports = reportIndex.reports.filter(r => r.date >= MIN_DATE && r.date <= MAX_DATE);
         buildDateNav();
         setupEventListeners();
         // Select initial date — 2/13 is first full day of reliable data

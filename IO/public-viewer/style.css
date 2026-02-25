@@ -53,23 +53,6 @@ html, body {
     opacity: 0.9;
 }
 
-.header-link {
-    display: inline-block;
-    pointer-events: auto;
-    font-size: 13px;
-    font-weight: 400;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    text-decoration: none;
-    margin-top: 6px;
-    transition: color 0.2s;
-}
-
-.header-link:hover {
-    color: var(--accent-color);
-}
-
 #behavior-status {
     font-size: 14px;
     font-weight: 300;
@@ -124,6 +107,8 @@ html, body {
     font-size: 11px;
     letter-spacing: 2px;
     line-height: 1;
+    text-decoration: none;
+    color: inherit;
 }
 
 .about-title:hover {
