@@ -1,0 +1,20 @@
+{
+  "offset_x": 0,
+  "offset_z": 0.0,
+  "scale_x": 1.0,
+  "scale_z": 1.0,
+  "responsiveness": 0.5813253065216744,
+  "energy": 0.5515869326988189,
+  "attention_span": 0.6243744622079535,
+  "sociability": 0.594276843455886,
+  "exploration": 0.48924096664177275,
+  "memory": 0.024088773516043445,
+  "brightness_global": 1.6399772462685196,
+  "speed_global": 0.998247178406556,
+  "pulse_global": 1.159269607959067,
+  "follow_speed_global": 0.9289742360798408,
+  "dwell_influence": 0.49773960160045966,
+  "idle_trend_weight": 0.8811289013811267,
+  "interaction_budget": 200.0,
+  "invert_x": false
+}

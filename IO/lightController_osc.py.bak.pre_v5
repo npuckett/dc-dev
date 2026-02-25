@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-3D Light Controller V5 - Development Version
+3D Light Controller V3 - Development Version
 
-V5 Changes (Feb 2026):
-- Anisotropic falloff: per-axis scale (X/Y/Z) + Y-axis rotation with spring inertia
-- New gestures: SWEEP (wide X scan) and FOCUS (spotlight narrowing)
-- Faster/clearer ENGAGED mode transitions and stronger entry pulse
-- Higher max intensity (up to 100) for impact moments
-- Time-of-day home value profiles for autotuning (replaces periodic resets)
-- Reduced mean reversion on output multipliers for more expressive range
-- Enhanced dwell progression with phase-transition pulses
-- Re-entry acknowledgment pulses in ENGAGED/CROWD mode
+This is a development version with enhanced visual debugging:
+- Origin sphere at (0,0,0) with label
+- Camera position spheres with labels
+- Light panel unit labels with coordinates
+- AR marker labels with coordinates
+- Camera view overlays showing what each camera sees
 
-Based on lightController_osc.py (V3)
+Based on lightController_osc.py
 
 Controls:
 - Arrow keys: Move light manually (when wander disabled)
@@ -53,17 +50,13 @@ from OpenGL.GLU import *
 # OSC
 from pythonosc import dispatcher, osc_server
 
-# Add parent directory (IO/) to path for shared imports (tracking_database, etc.)
-# Also add this directory for v5-specific imports
-V5_DIR = os.path.dirname(os.path.abspath(__file__))
-IO_DIR = os.path.dirname(V5_DIR)
-sys.path.insert(0, V5_DIR)
-sys.path.insert(0, IO_DIR)
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Tracking database (shared from IO/)
+# Tracking database
 from tracking_database import TrackingDatabase
 
-# Behavior system (V5 version with anisotropic falloff + new gestures)
+# Behavior system (V2 version with updated coordinate system)
 from light_behavior import (
     BehaviorSystem, BehaviorMode, MetaParameters, GestureType,
     PRESETS, load_preset
@@ -94,9 +87,9 @@ from pathlib import Path
 # CONFIGURATION (all units in centimeters)
 # =============================================================================
 
-# Resolve all relative paths to IO/ directory (parent of v5Dev/)
-# This ensures the DB, slider settings, and reports are in the same place as production
-SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Resolve all relative paths to this script's directory (IO/)
+# This ensures the DB is always in the same place regardless of cwd
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # OSC settings
 OSC_IP = "0.0.0.0"  # Listen on all interfaces
@@ -1386,8 +1379,6 @@ class AutoTuningManager:
         
         # Mean-reversion targets — params drift back toward these when
         # not being actively pushed. Prevents extremes from being sticky.
-        # V5: Static home_values replaced by time-of-day profiles.
-        # These serve as the default / fallback.
         self.home_values = {
             'responsiveness': 0.50,
             'energy': 0.45,
@@ -1402,82 +1393,6 @@ class AutoTuningManager:
             'dwell_influence': 0.50,
             'idle_trend_weight': 0.40,
         }
-        
-        # V5: Time-of-day profiles — home values shift smoothly throughout the day.
-        # Keys are hours (0-23). Values between defined hours are linearly interpolated.
-        # This replaces the periodic 6-hour reset blends with continuous variation.
-        # "Morning" = energetic/exploratory, "Afternoon" = sociable/engaged,
-        # "Evening" = bright/dramatic, "Night" = quiet/contemplative
-        self._time_profiles = {
-            0: {  # Midnight — quiet, contemplative
-                'brightness_global': 0.8,
-                'speed_global': 0.50,
-                'pulse_global': 0.60,
-                'energy': 0.30,
-                'responsiveness': 0.40,
-                'sociability': 0.35,
-                'exploration': 0.50,
-                'attention_span': 0.60,
-                'dwell_influence': 0.40,
-            },
-            6: {  # Early morning — waking up, exploratory
-                'brightness_global': 1.0,
-                'speed_global': 0.65,
-                'pulse_global': 0.70,
-                'energy': 0.45,
-                'responsiveness': 0.50,
-                'sociability': 0.40,
-                'exploration': 0.55,
-                'attention_span': 0.50,
-                'dwell_influence': 0.45,
-            },
-            10: {  # Mid-morning — active, energetic
-                'brightness_global': 1.2,
-                'speed_global': 0.75,
-                'pulse_global': 0.85,
-                'energy': 0.55,
-                'responsiveness': 0.55,
-                'sociability': 0.50,
-                'exploration': 0.45,
-                'attention_span': 0.45,
-                'dwell_influence': 0.55,
-            },
-            14: {  # Afternoon — sociable, engaged
-                'brightness_global': 1.3,
-                'speed_global': 0.80,
-                'pulse_global': 0.90,
-                'energy': 0.55,
-                'responsiveness': 0.60,
-                'sociability': 0.60,
-                'exploration': 0.35,
-                'attention_span': 0.45,
-                'dwell_influence': 0.60,
-            },
-            18: {  # Evening — bright, dramatic, high engagement
-                'brightness_global': 1.5,
-                'speed_global': 0.85,
-                'pulse_global': 1.00,
-                'energy': 0.60,
-                'responsiveness': 0.60,
-                'sociability': 0.55,
-                'exploration': 0.40,
-                'attention_span': 0.50,
-                'dwell_influence': 0.65,
-            },
-            22: {  # Late evening — winding down
-                'brightness_global': 1.1,
-                'speed_global': 0.60,
-                'pulse_global': 0.75,
-                'energy': 0.40,
-                'responsiveness': 0.45,
-                'sociability': 0.40,
-                'exploration': 0.45,
-                'attention_span': 0.55,
-                'dwell_influence': 0.50,
-            },
-        }
-        # Sort profile hours for interpolation
-        self._time_profile_hours = sorted(self._time_profiles.keys())
         
         # Curiosity: periodic random perturbation to explore parameter space
         # Increased strength (0.015→0.04) and frequency (60s→30s) so curiosity
@@ -1494,14 +1409,14 @@ class AutoTuningManager:
         self._adaptive_target_min = 0.03  # Don't let target go below this
         self._adaptive_target_max = 0.40  # Don't let target go above this
         
-        # V5: Removed periodic 6-hour resets — replaced by continuous time-of-day
-        # home value interpolation via _get_current_home_values()
+        # Fix 6: Periodic resets toward home values at time-of-day transitions
+        self._last_reset_hour: Optional[int] = None  # Track which reset window we last applied
+        self._reset_hours = {0, 6, 12, 18}  # Reset at midnight, 6am, noon, 6pm
+        self._reset_blend = 0.40  # Blend 40% toward home values on reset
         
-        # V5: Reduced mean reversion to let parameters drift further from home
-        # Output multipliers (brightness, speed, pulse) get half reversion
-        self._reversion_base = 0.01       # was 0.02
-        self._reversion_progressive = 0.03  # was 0.06
-        self._output_reversion_scale = 0.5  # Halve reversion for brightness/speed/pulse
+        # Mean reversion parameters (overridable by meta-tuner)
+        self._reversion_base = 0.02
+        self._reversion_progressive = 0.06
         
         # Budget restore time (overridable by meta-tuner)
         self._budget_restore_seconds = 300.0
@@ -1824,55 +1739,6 @@ class AutoTuningManager:
             if name in self.sliders:
                 self.sliders[name].value = value
 
-    def _get_current_home_values(self) -> dict:
-        """V5: Get home values interpolated by current time of day.
-        
-        Smoothly blends between the nearest defined time profile hours.
-        For params not in a profile, falls back to self.home_values defaults.
-        """
-        now = datetime.now()
-        current_hour = now.hour + now.minute / 60.0  # fractional hour
-        
-        hours = self._time_profile_hours
-        if not hours:
-            return dict(self.home_values)
-        
-        # Find surrounding profile hours for interpolation
-        lower_hour = hours[-1]  # wrap around (e.g., 22 for midnight)
-        upper_hour = hours[0]   # wrap around (e.g., 0 for midnight)
-        for i, h in enumerate(hours):
-            if h <= current_hour:
-                lower_hour = h
-                upper_hour = hours[(i + 1) % len(hours)]
-            else:
-                upper_hour = h
-                break
-        
-        # Calculate interpolation factor
-        if lower_hour == upper_hour:
-            t = 0.0
-        else:
-            span = upper_hour - lower_hour
-            if span <= 0:
-                span += 24  # wrap around midnight
-            elapsed = current_hour - lower_hour
-            if elapsed < 0:
-                elapsed += 24
-            t = elapsed / span
-        
-        lower_profile = self._time_profiles.get(lower_hour, {})
-        upper_profile = self._time_profiles.get(upper_hour, {})
-        
-        # Start with defaults, then override with interpolated profile values
-        result = dict(self.home_values)
-        all_keys = set(lower_profile.keys()) | set(upper_profile.keys())
-        for key in all_keys:
-            low_val = lower_profile.get(key, self.home_values.get(key, 0.5))
-            high_val = upper_profile.get(key, self.home_values.get(key, 0.5))
-            result[key] = low_val * (1.0 - t) + high_val * t
-        
-        return result
-    
     def _clamp(self, name: str, value: float) -> float:
         max_val = min(self.max_vals.get(name, 1.0), self.caps.get(name, self.max_vals.get(name, 1.0)))
         min_val = max(self.min_vals.get(name, 0.0), self.safe_floors.get(name, 0.0))
@@ -1919,10 +1785,26 @@ class AutoTuningManager:
         elif aggression_level > 0.6:
             damping = self.config.damping_moderate
 
-        # --- V5: CONTINUOUS TIME-OF-DAY HOME VALUES ---
-        # Instead of periodic 6-hour reset blends, home values continuously
-        # shift throughout the day via interpolated time profiles.
-        time_home_values = self._get_current_home_values()
+        # --- FIX 6: PERIODIC TIME-OF-DAY RESETS ---
+        # Every 6 hours (midnight, 6am, noon, 6pm), blend params 40% toward
+        # home values. This breaks floor-clamping cycles even if deltas have issues.
+        current_hour = datetime.now().hour
+        if current_hour in self._reset_hours:
+            if self._last_reset_hour != current_hour:
+                self._last_reset_hour = current_hour
+                current_values = self._get_values()
+                reset_values = {}
+                for name, home_val in self.home_values.items():
+                    cur = current_values.get(name)
+                    if cur is not None:
+                        blended = cur * (1.0 - self._reset_blend) + home_val * self._reset_blend
+                        reset_values[name] = self._clamp(name, blended)
+                self._apply_values(reset_values)
+                logger.info(f"🔄 Time-of-day reset (hour={current_hour}): blended {len(reset_values)} params {self._reset_blend:.0%} toward home")
+        elif self._last_reset_hour is not None and current_hour not in self._reset_hours:
+            # Clear the flag so the next reset hour triggers again
+            if self._last_reset_hour in self._reset_hours and current_hour != self._last_reset_hour:
+                self._last_reset_hour = None
 
         # --- FIX 3: ADAPTIVE TARGET ---
         # Track rolling history of short_activity and use its median as the target,
@@ -1989,35 +1871,31 @@ class AutoTuningManager:
         deltas['dwell_influence'] = (energy_level - 0.5) * 0.03 * damping
         deltas['idle_trend_weight'] = (0.5 - short_activity) * 0.03 * damping
 
-        # --- V5: REDUCED PROGRESSIVE MEAN REVERSION WITH TIME-OF-DAY HOMES ---
-        # Uses interpolated time-of-day home values instead of static ones.
-        # Reduced base/progressive to let params drift further from home.
-        # Output multipliers (brightness, speed, pulse) get half reversion.
+        # --- FIX 2: STRONGER PROGRESSIVE MEAN REVERSION ---
+        # Base strength and progressive component are overridable by meta-tuner
         current_values = self._get_values()
         reversion_base = self._reversion_base
         reversion_progressive = self._reversion_progressive
-        output_params = {'brightness_global', 'speed_global', 'pulse_global'}
-        for name, home_val in time_home_values.items():
+        for name, home_val in self.home_values.items():
             current_val = current_values.get(name)
             if current_val is not None:
                 distance_from_home = home_val - current_val
                 # Progressive: stronger pull when further from home
                 strength = reversion_base + reversion_progressive * abs(distance_from_home)
-                # V5: Halve reversion for output multipliers
-                if name in output_params:
-                    strength *= self._output_reversion_scale
                 pull = distance_from_home * strength
                 deltas[name] = deltas.get(name, 0.0) + pull
 
-        # --- FIX 5: CURIOSITY BIASED TOWARD TIME-OF-DAY HOME ---
-        # V5: Uses time-interpolated home values for curiosity bias direction
+        # --- FIX 5: STRONGER CURIOSITY BIASED TOWARD HOME ---
+        # Increased strength (0.015→0.04) and frequency (60s→30s).
+        # Also biased: 60% of the nudge is toward home, 40% is random.
+        # This helps exploration while gently countering floor-clamping.
         if now - self._last_curiosity_time > self._curiosity_interval:
             self._last_curiosity_time = now
             for name in self.param_order:
                 # Random component
                 random_nudge = (random.random() - 0.5) * 2.0 * self._curiosity_strength
                 # Bias toward home: if below home, bias nudge positive (and vice versa)
-                home_val = time_home_values.get(name)
+                home_val = self.home_values.get(name)
                 current_val = current_values.get(name)
                 if home_val is not None and current_val is not None:
                     home_direction = 1.0 if home_val > current_val else -1.0
@@ -2210,35 +2088,14 @@ class OSCHandler:
 
 @dataclass
 class PointLight:
-    """Virtual point light with anisotropic falloff support.
-    
-    V5 additions:
-    - falloff_scale: per-axis scale [sx, sy, sz] for ellipsoidal falloff
-    - falloff_rotation: rotation angle (radians) around Y axis
-    - Spring animation toward target values with configurable speed
-    - Automatic inertia return to spherical (scale=[1,1,1], rotation=0)
-    """
+    """Virtual point light"""
     position: np.ndarray = field(default_factory=lambda: np.array([-160.0, 60.0, -10.0]))
     target_position: np.ndarray = field(default_factory=lambda: np.array([-160.0, 60.0, -10.0]))
     
     brightness_min: int = 5
-    brightness_max: int = 100  # V5: raised from 40, most visible range still 1-50
+    brightness_max: int = 40
     pulse_speed: float = 2000
     falloff_radius: float = 50
-    
-    # V5: Anisotropic falloff shape
-    falloff_scale: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))
-    target_falloff_scale: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))
-    falloff_rotation: float = 0.0       # Current rotation (radians, around Y axis)
-    target_falloff_rotation: float = 0.0  # Target rotation
-    
-    # Spring animation speed (higher = faster convergence, ~2s at speed=2.0)
-    scale_spring_speed: float = 2.5     # V5.1: faster spring for snappier gesture shapes
-    rotation_spring_speed: float = 2.5
-    # Inertia: how fast scale/rotation return to neutral when no target is set
-    # V5.1: much slower inertia so shapes actually persist visibly
-    scale_inertia_speed: float = 0.4    # Was 1.5 — shapes now hold ~2.5s before fading
-    rotation_inertia_speed: float = 0.5  # Was 1.5 — rotation holds longer
     
     move_speed: float = 50
     pulse_phase: float = 0.0
@@ -2249,31 +2106,11 @@ class PointLight:
     def update(self, dt: float):
         self.pulse_phase += (2 * math.pi * dt * 1000) / self.pulse_speed
         
-        # Position animation
         diff = self.target_position - self.position
         dist = np.linalg.norm(diff)
         if dist > 0.1:
             move = min(self.move_speed * dt, dist)
             self.position += (diff / dist) * move
-        
-        # V5: Animate falloff scale toward target with spring dynamics
-        scale_diff = self.target_falloff_scale - self.falloff_scale
-        scale_factor = 1.0 - math.exp(-self.scale_spring_speed * dt)
-        self.falloff_scale = self.falloff_scale + scale_diff * scale_factor
-        
-        # V5: Animate falloff rotation toward target
-        rot_diff = self.target_falloff_rotation - self.falloff_rotation
-        rot_factor = 1.0 - math.exp(-self.rotation_spring_speed * dt)
-        self.falloff_rotation = self.falloff_rotation + rot_diff * rot_factor
-        
-        # V5: Inertia — always drift target_falloff_scale toward [1,1,1]
-        # and target_falloff_rotation toward 0 (unless actively set by behavior)
-        neutral_scale = np.array([1.0, 1.0, 1.0])
-        inertia_factor = 1.0 - math.exp(-self.scale_inertia_speed * dt)
-        self.target_falloff_scale = self.target_falloff_scale + (neutral_scale - self.target_falloff_scale) * inertia_factor
-        
-        rot_inertia = 1.0 - math.exp(-self.rotation_inertia_speed * dt)
-        self.target_falloff_rotation = self.target_falloff_rotation * (1.0 - rot_inertia)
 
 
 class PanelSystem:
@@ -2300,43 +2137,14 @@ class PanelSystem:
                 }
     
     def calculate_brightness(self, light: PointLight):
-        """Calculate brightness for each panel using ellipsoidal falloff.
-        
-        V5: The diff vector is transformed by inverse rotation (Y-axis) and 
-        inverse scale before computing distance. This gives an ellipsoidal
-        falloff shape that can be stretched/rotated by gestures.
-        
-        When falloff_scale = [1,1,1] and falloff_rotation = 0, this is 
-        identical to the original spherical falloff.
-        """
         intensity = light.get_brightness()
-        
-        # Pre-compute rotation matrix (2D rotation in XZ plane around Y axis)
-        rot = light.falloff_rotation
-        cos_r = math.cos(-rot)  # Inverse rotation
-        sin_r = math.sin(-rot)
-        
-        # Pre-compute inverse scale (avoid division by zero)
-        inv_scale = np.array([
-            1.0 / max(0.01, light.falloff_scale[0]),
-            1.0 / max(0.01, light.falloff_scale[1]),
-            1.0 / max(0.01, light.falloff_scale[2]),
-        ])
         
         for key, panel in self.panels.items():
             diff = panel['center'] - light.position
-            
-            # V5: Transform diff by inverse rotation (Y-axis rotation in XZ plane)
-            rotated_x = diff[0] * cos_r - diff[2] * sin_r
-            rotated_z = diff[0] * sin_r + diff[2] * cos_r
-            rotated_diff = np.array([rotated_x, diff[1], rotated_z])
-            
-            # V5: Apply inverse scale to get ellipsoidal distance
-            scaled_diff = rotated_diff * inv_scale
-            distance = np.linalg.norm(scaled_diff)
+            distance = np.linalg.norm(diff)
             
             if light.falloff_radius > 0 and distance > light.falloff_radius:
-                # Outside the ellipsoidal radius — panel is off
+                # Outside the radius — panel is off
                 panel['brightness'] = 0.0
                 panel['dmx_value'] = DMX_MIN
                 continue
@@ -2572,54 +2380,6 @@ def draw_sphere_wireframe(center, radius, color, segments=16):
             glVertex3f(x, y, z)
         glEnd()
     
-    for j in range(segments // 2):
-        lon = math.pi * j / (segments // 2)
-        
-        glBegin(GL_LINE_LOOP)
-        for i in range(segments):
-            lat = 2 * math.pi * i / segments
-            x = radius * math.cos(lat) * math.sin(lon)
-            y = radius * math.sin(lat)
-            z = radius * math.cos(lat) * math.cos(lon)
-            glVertex3f(x, y, z)
-        glEnd()
-    
-    glPopMatrix()
-
-
-def draw_ellipsoid_wireframe(center, radius, scale, rotation, color, segments=16):
-    """Draw a wireframe ellipsoid (V5: anisotropic falloff visualization).
-    
-    Args:
-        center: Position [x, y, z]
-        radius: Base falloff radius
-        scale: Per-axis scale factors [sx, sy, sz]
-        rotation: Y-axis rotation in radians
-        color: RGBA tuple
-        segments: Wireframe resolution
-    """
-    glPushMatrix()
-    glTranslatef(*center)
-    glRotatef(math.degrees(rotation), 0, 1, 0)  # Y-axis rotation
-    glScalef(scale[0], scale[1], scale[2])       # Per-axis stretch
-    glColor4f(*color)
-    glLineWidth(1)
-    
-    # Horizontal rings (latitude)
-    for i in range(segments // 2 + 1):
-        lat = math.pi * i / (segments // 2) - math.pi / 2
-        r = radius * math.cos(lat)
-        y = radius * math.sin(lat)
-        
-        glBegin(GL_LINE_LOOP)
-        for j in range(segments):
-            lon = 2 * math.pi * j / segments
-            x = r * math.cos(lon)
-            z = r * math.sin(lon)
-            glVertex3f(x, y, z)
-        glEnd()
-    
-    # Vertical rings (longitude)
     for j in range(segments // 2):
         lon = math.pi * j / (segments // 2)
         
@@ -4191,7 +3951,7 @@ def main():
     display = fullscreen_size
     # Use NOFRAME instead of FULLSCREEN - stays visible when focus is lost
     screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | NOFRAME)
-    pygame.display.set_caption("3D Light Controller V5 - Production")
+    pygame.display.set_caption("3D Light Controller V3 - Production")
     
     font = pygame.font.SysFont('monospace', 14)
     font_small = pygame.font.SysFont('monospace', 12)
@@ -4636,7 +4396,7 @@ def main():
                     else:
                         display = windowed_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
-                    pygame.display.set_caption("3D Light Controller V5 - Production")
+                    pygame.display.set_caption("3D Light Controller V3 - Production")
                     # Reinitialize OpenGL state after display change
                     glEnable(GL_DEPTH_TEST)
                     glEnable(GL_BLEND)
@@ -4826,14 +4586,6 @@ def main():
         light.move_speed = behavior_params.get('move_speed', 50)
         light.falloff_radius = behavior_params.get('falloff_radius', 50)
         
-        # V5: Apply anisotropic falloff shape from behavior gestures
-        light.target_falloff_scale = np.array([
-            behavior_params.get('falloff_scale_x', 1.0),
-            behavior_params.get('falloff_scale_y', 1.0),
-            behavior_params.get('falloff_scale_z', 1.0),
-        ])
-        light.target_falloff_rotation = behavior_params.get('falloff_rotation', 0.0)
-        
         # Update wander behavior based on behavior system
         wander.update_wander_box(behavior.get_wander_box())
         wander.wander_interval = behavior_params.get('wander_interval', 3.0)
@@ -4905,10 +4657,7 @@ def main():
                         'y': float(light.position[1]),
                         'z': float(light.position[2]),
                         'brightness': float(light.get_brightness()),
-                        'falloff_radius': float(light.falloff_radius),
-                        # V5: Anisotropic falloff shape
-                        'falloff_scale': [float(s) for s in light.falloff_scale],
-                        'falloff_rotation': float(light.falloff_rotation),
+                        'falloff_radius': float(light.falloff_radius)
                     },
                     'wander_box': {
                         'min_x': float(wander.wander_box['min_x']),
@@ -5114,12 +4863,7 @@ def main():
         brightness = light.get_brightness()
         radius = 8 + brightness * 7
         draw_sphere(light.position, radius, (1, 1, brightness, 1))
-        # V5: Draw ellipsoidal falloff wireframe (shows anisotropic shape)
-        draw_ellipsoid_wireframe(
-            light.position, light.falloff_radius,
-            light.falloff_scale, light.falloff_rotation,
-            (1, 0.8, 0, 0.3), segments=24
-        )
+        draw_sphere_wireframe(light.position, light.falloff_radius, (1, 0.8, 0, 0.3), segments=24)
         
         # Draw tracked people
         for person in tracked_manager.get_all():
@@ -5185,7 +4929,7 @@ def main():
         
         # GUI title (centered across full panel)
         title_center_x = view_width + gui_width // 2 - 100
-        draw_text_2d(title_center_x, display[1] - 30, "LIGHT CONTROLLER V5", font)
+        draw_text_2d(title_center_x, display[1] - 30, "LIGHT CONTROLLER V3", font)
         draw_text_2d(view_width + col_padding, display[1] - 50, "─" * 62, font)
         
         # Column headers

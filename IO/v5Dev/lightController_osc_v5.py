@@ -2233,11 +2233,12 @@ class PointLight:
     target_falloff_rotation: float = 0.0  # Target rotation
     
     # Spring animation speed (higher = faster convergence, ~2s at speed=2.0)
-    scale_spring_speed: float = 2.0
-    rotation_spring_speed: float = 2.0
+    scale_spring_speed: float = 2.5     # V5.1: faster spring for snappier gesture shapes
+    rotation_spring_speed: float = 2.5
     # Inertia: how fast scale/rotation return to neutral when no target is set
-    scale_inertia_speed: float = 1.5    # Slightly slower return to round
-    rotation_inertia_speed: float = 1.5
+    # V5.1: much slower inertia so shapes actually persist visibly
+    scale_inertia_speed: float = 0.4    # Was 1.5 — shapes now hold ~2.5s before fading
+    rotation_inertia_speed: float = 0.5  # Was 1.5 — rotation holds longer
     
     move_speed: float = 50
     pulse_phase: float = 0.0

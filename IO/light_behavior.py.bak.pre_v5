@@ -417,9 +417,6 @@ class GestureType(Enum):
     ORBIT = "orbit"              # Small lazy circle around person's position
     SETTLE = "settle"            # Gradually tighten and slow - getting comfortable
     BREATHE = "breathe"          # Visible brightness wave - shared rhythm
-    # V5: New gestures using anisotropic falloff
-    SWEEP = "sweep"              # Wide X scan - falloff stretches horizontally + slow X translation
-    FOCUS = "focus"              # Spotlight narrowing - falloff contracts + brightens
 
 
 @dataclass
@@ -548,19 +545,6 @@ class BehaviorState:
     engaged_breathe_depth: float = 0.0         # 0-1 how deep the breathing is (ramps up)
     last_engaged_gesture_time: float = 0.0     # When last engaged gesture was triggered
     engaged_gesture_count: int = 0             # How many engaged gestures this session
-    
-    # V5.1: Ambient falloff oscillation phases (always running)
-    ambient_falloff_phase_x: float = 0.0       # Phase for X scale oscillation
-    ambient_falloff_phase_z: float = 0.0       # Phase for Z scale oscillation
-    ambient_falloff_phase_rot: float = 0.0     # Phase for rotation wobble
-    
-    # V5: Gesture-driven falloff shape (set by _compute_engaged_gesture_position)
-    gesture_falloff_scale: Tuple = (1.0, 1.0, 1.0)   # (sx, sy, sz) from current gesture
-    gesture_falloff_rotation: float = 0.0              # rotation from current gesture
-    gesture_brightness_boost: float = 0.0              # extra brightness from FOCUS gesture
-    
-    # V5: Dwell phase tracking for transition pulses
-    last_dwell_phase: str = 'none'                     # Previous dwell phase for transition detection
 
 
 class BehaviorSystem:
@@ -596,19 +580,19 @@ class BehaviorSystem:
             'follow_smoothing': 0.0,  # Not following
         },
         BehaviorMode.ENGAGED: {
-            'move_speed': 60,           # V5.1: much faster initial response (was 40)
+            'move_speed': 25,           # Slower, more contemplative
             'wander_interval': 4.0,     # Longer pauses between movements
-            'brightness_min': 12,       # V5: brighter minimum (was 8)
-            'brightness_max': 55,       # V5: much brighter (was 30)
+            'brightness_min': 8,
+            'brightness_max': 30,
             'pulse_speed': 2500,
             'falloff_radius': 50,
-            'follow_smoothing': 0.08,   # V5.1: faster tracking (was 0.06)
+            'follow_smoothing': 0.03,   # Gentler following
         },
         BehaviorMode.CROWD: {
             'move_speed': 60,
             'wander_interval': 0.0,
-            'brightness_min': 15,       # V5: brighter (was 12)
-            'brightness_max': 80,       # V5: much brighter (was 45)
+            'brightness_min': 12,
+            'brightness_max': 45,
             'pulse_speed': 1500,
             'falloff_radius': 40,
             'follow_smoothing': 0.03,
@@ -626,14 +610,14 @@ class BehaviorSystem:
     
     # Transition durations - how long parameter interpolation takes
     TRANSITIONS = {
-        (BehaviorMode.IDLE, BehaviorMode.ENGAGED): 0.4,    # V5: snappier (was 0.8)
+        (BehaviorMode.IDLE, BehaviorMode.ENGAGED): 0.8,    # Quick engage
         (BehaviorMode.ENGAGED, BehaviorMode.IDLE): 3.0,    # Slow fade out - reluctant goodbye
         (BehaviorMode.ENGAGED, BehaviorMode.CROWD): 0.5,   # Quick escalate
         (BehaviorMode.CROWD, BehaviorMode.ENGAGED): 2.0,   # Gradual de-escalate
         (BehaviorMode.CROWD, BehaviorMode.IDLE): 4.0,      # Slow fade when everyone leaves
         (BehaviorMode.IDLE, BehaviorMode.FLOW): 2.0,       # Gradual flow transition
         (BehaviorMode.FLOW, BehaviorMode.IDLE): 3.0,       # Slow exit from flow
-        (BehaviorMode.FLOW, BehaviorMode.ENGAGED): 0.4,    # V5: snappier (was 0.8)
+        (BehaviorMode.FLOW, BehaviorMode.ENGAGED): 0.8,    # Quick engage from flow
     }
     
     # Mode stickiness - minimum time conditions must persist before switching
@@ -664,16 +648,8 @@ class BehaviorSystem:
     PROXIMITY_SMOOTHING_MULT = {'near': 0.7, 'far': 1.3}  # More precise when close
     
     # Entry pulse settings
-    ENTRY_PULSE_BRIGHTNESS_BOOST = 50  # V5: stronger pulse (was 25)
-    ENTRY_PULSE_DURATION = 1.5         # V5: longer visibility (was 0.8)
-    
-    # V5: Re-entry pulse (acknowledgment when new person enters during ENGAGED/CROWD)
-    REENTRY_PULSE_BRIGHTNESS_BOOST = 30
-    REENTRY_PULSE_DURATION = 0.5
-    
-    # V5: Phase transition pulse (subtle flash when dwell phase advances)
-    PHASE_PULSE_BRIGHTNESS_BOOST = 10
-    PHASE_PULSE_DURATION = 0.3
+    ENTRY_PULSE_BRIGHTNESS_BOOST = 25  # Additional brightness during entry pulse
+    ENTRY_PULSE_DURATION = 0.8         # Seconds
     
     # Status text templates - plain language describing what's happening
     STATUS_TEXTS = {
@@ -736,16 +712,6 @@ class BehaviorSystem:
             "Slowly circling. Attentive.",
             "Gentle orbit around visitor.",
             "Moving around, staying close.",
-        ],
-        ('engaged', 'sweep'): [
-            "Sweeping across. Dramatic gesture.",
-            "Wide beam sweep. Showing off.",
-            "Stretching light across the space.",
-        ],
-        ('engaged', 'focus'): [
-            "Focusing beam. Intense attention.",
-            "Narrowing in. Deep concentration.",
-            "Tight spotlight. All attention here.",
         ],
         ('crowd', 'default'): [
             "2+ people. Crowd mode. Following centroid.",
@@ -1074,51 +1040,43 @@ class BehaviorSystem:
             'gestures': [],
         },
         'greet': {
-            'interval_range': (6, 12),     # V5: slightly more frequent (was 8-15)
+            'interval_range': (8, 15),     # Every 8-15 seconds
             'gestures': [
                 # (gesture_type, duration, weight)
                 (GestureType.NOD, 1.2, 3),        # Most common - gentle acknowledgment
                 (GestureType.LEAN, 1.5, 2),        # Lean in briefly
                 (GestureType.BREATHE, 4.0, 2),     # Start breathing cycle
-                (GestureType.SWEEP, 2.5, 2),       # V5: wide scan gesture
             ],
         },
         'engage': {
-            'interval_range': (8, 16),    # V5: slightly more frequent (was 10-20)
+            'interval_range': (10, 20),    # Slightly less frequent - more settled
             'gestures': [
                 (GestureType.NOD, 1.0, 2),
                 (GestureType.LEAN, 1.8, 2),
                 (GestureType.SWAY, 3.0, 3),        # Relaxed lateral movement
                 (GestureType.ORBIT, 4.0, 2),        # Slow circle
                 (GestureType.BREATHE, 5.0, 3),      # Deeper breathing
-                (GestureType.SWEEP, 3.0, 2),        # V5: wide scan
-                (GestureType.FOCUS, 1.5, 2),        # V5: spotlight narrowing
             ],
         },
         'bond': {
-            'interval_range': (12, 25),    # V5: slightly more frequent (was 15-30)
+            'interval_range': (15, 30),    # Infrequent - very settled
             'gestures': [
                 (GestureType.SWAY, 4.0, 3),        # Gentle sway
                 (GestureType.ORBIT, 5.0, 2),        # Slow orbit
                 (GestureType.BREATHE, 6.0, 3),      # Deep breathing
                 (GestureType.SETTLE, 3.0, 2),       # Settle in closer
                 (GestureType.NOD, 1.0, 1),           # Occasional nod
-                (GestureType.FOCUS, 2.0, 2),         # V5: focused spotlight
-                (GestureType.SWEEP, 3.5, 1),         # V5: occasional wide scan
             ],
         },
     }
     
     # Amplitude settings for engaged gestures (in cm)
-    # V5: Added falloff shape modifiers (scale_x/y/z, rotation) to existing gestures
     ENGAGED_GESTURE_AMPLITUDES = {
         GestureType.NOD:    {'y': 12},                  # Small Y bob
-        GestureType.LEAN:   {'z': 15, 'scale_z': 1.5},  # V5: Forward Z shift + depth stretch
-        GestureType.SWAY:   {'x': 18, 'scale_x': 1.8},  # V5: Lateral X + horizontal stretch
-        GestureType.ORBIT:  {'x': 15, 'y': 8, 'rotation': 0.4},  # V5: XY circle + rotation
-        GestureType.SETTLE: {'z': -8, 'radius': -10, 'scale_x': 0.7, 'scale_z': 0.7},  # V5: focused spot
-        GestureType.SWEEP:  {'x': 25, 'scale_x': 2.5},  # V5: wide X scan with stretched falloff
-        GestureType.FOCUS:  {'scale_x': 0.5, 'scale_z': 0.5, 'brightness_boost': 20},  # V5: spotlight narrow
+        GestureType.LEAN:   {'z': 15},                  # Forward Z shift
+        GestureType.SWAY:   {'x': 18},                  # Lateral X oscillation
+        GestureType.ORBIT:  {'x': 15, 'y': 8},          # XY circle
+        GestureType.SETTLE: {'z': -8, 'radius': -10},   # Tighten in
     }
     
     # Breathing overlay settings
@@ -1128,23 +1086,6 @@ class BehaviorSystem:
         'brightness_depth': 0.12,  # ±12% brightness modulation at full depth
         'radius_depth': 0.06,      # ±6% falloff radius modulation
         'phase_rate': 1.0472,      # ~2π/6 = one cycle per 6 seconds
-        # V5.1: Falloff shape breathing — scale X/Z oscillate with offset phases
-        'scale_x_depth': 0.15,     # ±15% X scale modulation at full depth
-        'scale_z_depth': 0.10,     # ±10% Z scale modulation at full depth
-        'scale_phase_offset': 1.2, # X leads Z by ~1.2 rad for organic asymmetry
-    }
-
-    # V5.1: Ambient falloff oscillation — runs in ALL modes for a living feel
-    # Subtle continuous shape breathing even when idle / no gestures active
-    AMBIENT_FALLOFF_CONFIG = {
-        'x_period': 11.0,          # Seconds per X scale cycle (slow, organic)
-        'z_period': 8.5,           # Seconds per Z scale cycle (different to avoid sync)
-        'x_depth_idle': 0.08,      # ±8% X scale in IDLE/FLOW
-        'z_depth_idle': 0.06,      # ±6% Z scale in IDLE/FLOW
-        'x_depth_engaged': 0.12,   # ±12% X scale in ENGAGED/CROWD
-        'z_depth_engaged': 0.10,   # ±10% Z scale in ENGAGED/CROWD
-        'rotation_period': 15.0,   # Seconds per slow rotation wobble
-        'rotation_depth': 0.08,    # ±0.08 radians (~4.5°) subtle wobble
     }
 
     def _update_engaged_gestures(self, dt: float, active_count: int):
@@ -1305,9 +1246,6 @@ class BehaviorSystem:
         is active. Uses the gesture's base target (person position at trigger time)
         and applies the appropriate animation curve.
         
-        V5: Also computes falloff shape parameters (scale_x/y/z, rotation)
-        stored in self.state for pickup by calculate_parameters().
-        
         Returns:
             Animated target position, or None if gesture shouldn't override position.
         """
@@ -1329,18 +1267,6 @@ class BehaviorSystem:
         base = self.state.gesture_target.copy()
         gesture = self.state.gesture
         amps = self.ENGAGED_GESTURE_AMPLITUDES.get(gesture, {})
-        
-        # V5: Compute falloff shape modifiers from gesture amplitudes
-        # These are picked up by calculate_parameters() and sent to the controller
-        gesture_scale_x = 1.0 + (amps.get('scale_x', 1.0) - 1.0) * wave
-        gesture_scale_y = 1.0 + (amps.get('scale_y', 1.0) - 1.0) * wave
-        gesture_scale_z = 1.0 + (amps.get('scale_z', 1.0) - 1.0) * wave
-        gesture_rotation = amps.get('rotation', 0.0) * wave
-        
-        # Store for pickup by calculate_parameters  
-        self.state.gesture_falloff_scale = (gesture_scale_x, gesture_scale_y, gesture_scale_z)
-        self.state.gesture_falloff_rotation = gesture_rotation
-        self.state.gesture_brightness_boost = amps.get('brightness_boost', 0) * wave
         
         if gesture == GestureType.NOD:
             # Small Y bob — up then back down
@@ -1365,17 +1291,6 @@ class BehaviorSystem:
             fade = math.sin(t * math.pi)  # Fade in/out
             base[0] += amps.get('x', 15) * math.cos(angle) * fade
             base[1] += amps.get('y', 8) * math.sin(angle) * fade
-        
-        elif gesture == GestureType.SWEEP:
-            # V5: Wide X scan — slow translation with stretched falloff
-            # Smooth left-to-right sweep (half cycle to avoid returning)
-            sweep_wave = math.sin(t * math.pi)  # Bell shape
-            base[0] += amps.get('x', 25) * (math.sin(t * math.pi * 2) * 0.5) * sweep_wave
-        
-        elif gesture == GestureType.FOCUS:
-            # V5: Spotlight narrowing — no position change, just falloff contraction
-            # Position stays at target; brightness and shape handled via state vars
-            pass
         
         return base
     
@@ -1407,83 +1322,16 @@ class BehaviorSystem:
         radius_mod = 1.0 + wave * self.BREATHE_CONFIG['radius_depth'] * depth
         result['falloff_radius'] = result.get('falloff_radius', 50) * radius_mod
         
-        # V5.1: Falloff scale breathing — X and Z oscillate with phase offset
-        # Creates an organic shape-shifting effect during engagement
-        cfg = self.BREATHE_CONFIG
-        phase_offset = cfg.get('scale_phase_offset', 1.2)
-        wave_x = math.sin(self.state.engaged_breathe_phase + phase_offset)
-        wave_z = math.sin(self.state.engaged_breathe_phase - phase_offset * 0.5)
-        
-        scale_x_mod = 1.0 + wave_x * cfg.get('scale_x_depth', 0.15) * depth
-        scale_z_mod = 1.0 + wave_z * cfg.get('scale_z_depth', 0.10) * depth
-        
-        result['falloff_scale_x'] = result.get('falloff_scale_x', 1.0) * scale_x_mod
-        result['falloff_scale_z'] = result.get('falloff_scale_z', 1.0) * scale_z_mod
-        
         return result
 
-    def _apply_ambient_falloff(self, params: Dict, dt: float):
-        """
-        V5.1: Apply continuous ambient falloff shape oscillation.
-        
-        Runs in ALL modes to give the light a living, breathing quality
-        even when no gestures are active. Uses slow, incommensurate
-        periods on X/Z/rotation so the shape never exactly repeats.
-        
-        Modifies params dict in-place.
-        """
-        cfg = self.AMBIENT_FALLOFF_CONFIG
-        two_pi = math.pi * 2
-        
-        # Advance ambient phases
-        self.state.ambient_falloff_phase_x += two_pi * dt / cfg['x_period']
-        self.state.ambient_falloff_phase_z += two_pi * dt / cfg['z_period']
-        self.state.ambient_falloff_phase_rot += two_pi * dt / cfg['rotation_period']
-        
-        # Wrap phases to avoid float overflow over long runtime
-        if self.state.ambient_falloff_phase_x > two_pi:
-            self.state.ambient_falloff_phase_x -= two_pi
-        if self.state.ambient_falloff_phase_z > two_pi:
-            self.state.ambient_falloff_phase_z -= two_pi
-        if self.state.ambient_falloff_phase_rot > two_pi:
-            self.state.ambient_falloff_phase_rot -= two_pi
-        
-        # Select depth based on mode
-        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
-            x_depth = cfg['x_depth_engaged']
-            z_depth = cfg['z_depth_engaged']
-        else:
-            x_depth = cfg['x_depth_idle']
-            z_depth = cfg['z_depth_idle']
-        
-        # Compute oscillations
-        wave_x = math.sin(self.state.ambient_falloff_phase_x)
-        wave_z = math.sin(self.state.ambient_falloff_phase_z)
-        wave_rot = math.sin(self.state.ambient_falloff_phase_rot)
-        
-        # Multiply onto existing falloff scale (stacks with gesture shapes)
-        params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * (1.0 + wave_x * x_depth)
-        params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * (1.0 + wave_z * z_depth)
-        
-        # Add subtle rotation wobble
-        params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + wave_rot * cfg['rotation_depth']
-
-    def trigger_entry_pulse(self, reentry=False):
+    def trigger_entry_pulse(self):
         """
         Trigger the entry acknowledgment pulse.
         This creates a visible brightness surge when someone enters the active zone.
-        V5: If reentry=True, use smaller REENTRY_PULSE settings.
         """
         self.state.entry_pulse_active = True
         self.state.entry_pulse_start = time.time()
-        if reentry:
-            self.state.entry_pulse_duration = self.REENTRY_PULSE_DURATION
-            # Store which boost to use — _update_entry_pulse reads ENTRY_PULSE_BRIGHTNESS_BOOST
-            # but calculate_parameters() will use this override
-            self._active_pulse_boost = self.REENTRY_PULSE_BRIGHTNESS_BOOST
-        else:
-            self.state.entry_pulse_duration = self.ENTRY_PULSE_DURATION
-            self._active_pulse_boost = self.ENTRY_PULSE_BRIGHTNESS_BOOST
+        self.state.entry_pulse_duration = self.ENTRY_PULSE_DURATION
     
     def _update_entry_pulse(self, now: float) -> float:
         """
@@ -1524,10 +1372,8 @@ class BehaviorSystem:
         
         # Entrance gesture and pulse for active zone
         if is_active_zone and self.meta.entrance_flash_enabled:
-            # V5: Use re-entry pulse if already engaged/crowd with existing people
-            already_engaged = (self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD) 
-                              and len(self.active_zone_people) > 0)
-            self.trigger_entry_pulse(reentry=already_engaged)
+            # ALWAYS trigger the entry pulse for visibility
+            self.trigger_entry_pulse()
             
             # Choose entrance gesture based on context
             if len(self.known_people) == 1:
@@ -1769,8 +1615,6 @@ class BehaviorSystem:
         - Movement speed (slower = more intimate)
         - Wander interval (longer pauses = more focused)
         
-        V5: Stronger phase bonuses, phase transition pulses, 
-        and falloff shape modulation per phase.
         All effects are scaled by meta.dwell_influence (0=none, 1=normal, 2=double)
         """
         if not self.meta.dwell_rewards_enabled:
@@ -1784,7 +1628,6 @@ class BehaviorSystem:
         stats = self.get_active_zone_stats()
         if stats['count'] == 0:
             self.state.current_dwell_bonus = 0
-            self.state.last_dwell_phase = 'none'
             return params
         
         phase = stats['primary_phase']
@@ -1793,60 +1636,50 @@ class BehaviorSystem:
         
         result = dict(params)
         
-        # --- V5: Phase transition detection & pulse ---
-        if phase != self.state.last_dwell_phase and self.state.last_dwell_phase != 'none':
-            # Phase just changed — fire a small transition pulse
-            now = time.time()
-            self.state.entry_pulse_start = now
-            self.state.entry_pulse_active = True
-            self.state.entry_pulse_duration = self.PHASE_PULSE_DURATION
-            self._active_pulse_boost = self.PHASE_PULSE_BRIGHTNESS_BOOST
-        self.state.last_dwell_phase = phase
-        
         # Phase-based adjustments (all scaled by influence)
-        # V5: Stronger bonuses — greet +15%, engage +25%, bond +35%
         if phase == 'notice':  # 0-3s
-            # Just noticed - rush to meet them!
-            speed_boost = 1.0 + 1.5 * influence  # 2.5x at influence=1 (was 1.2x)
-            result['move_speed'] = result.get('move_speed', 60) * speed_boost
+            # Just noticed - quick acknowledgment
+            speed_boost = 1.0 + 0.2 * influence  # 1.2 at influence=1
+            result['move_speed'] = result.get('move_speed', 25) * speed_boost
             self.state.current_dwell_bonus = 0
             
         elif phase == 'greet':  # 3-10s
-            # Greeting - settling in  (V5: +15% base brightness via stronger bonus)
-            brightness_add = 8 * influence    # was 5
+            # Greeting - settling in
+            brightness_add = 5 * influence
             interval_add = 1 * influence
-            result['brightness_max'] = result.get('brightness_max', 55) + brightness_add
+            result['brightness_max'] = result.get('brightness_max', 30) + brightness_add
             result['wander_interval'] = result.get('wander_interval', 4.0) + interval_add
-            self.state.current_dwell_bonus = 8 * influence
+            self.state.current_dwell_bonus = 5 * influence
             
         elif phase == 'engage':  # 10-30s
-            # Active engagement  (V5: stronger ramp, up to +20)
-            base_bonus = min(20, int((dwell_time - 10) / 4) * 3)  # +3 per 4s, max +20
+            # Active engagement - deeper connection
+            base_bonus = min(10, int((dwell_time - 10) / 5) * 2)  # +2 per 5s, max +10
             bonus = base_bonus * influence
-            result['brightness_max'] = result.get('brightness_max', 55) + bonus
-            result['brightness_min'] = result.get('brightness_min', 12) + bonus * 0.5
-            speed_mult = 1.0 - 0.25 * influence  # 0.75 at influence=1
-            result['move_speed'] = result.get('move_speed', 40) * max(0.4, speed_mult)
-            result['wander_interval'] = result.get('wander_interval', 4.0) + 2.5 * influence
+            result['brightness_max'] = result.get('brightness_max', 30) + bonus
+            result['brightness_min'] = result.get('brightness_min', 8) + bonus * 0.5
+            speed_mult = 1.0 - 0.2 * influence  # 0.8 at influence=1
+            result['move_speed'] = result.get('move_speed', 25) * max(0.4, speed_mult)
+            result['wander_interval'] = result.get('wander_interval', 4.0) + 2 * influence
             self.state.current_dwell_bonus = bonus
             
         elif phase == 'bond':  # 30s+
-            # Deep bond - maximum intimacy  (V5: +25 brightness)
-            bonus = 25 * influence    # was 15
-            result['brightness_max'] = result.get('brightness_max', 55) + bonus
-            result['brightness_min'] = result.get('brightness_min', 12) + 12 * influence
+            # Deep bond - maximum intimacy
+            bonus = 15 * influence
+            result['brightness_max'] = result.get('brightness_max', 30) + bonus
+            result['brightness_min'] = result.get('brightness_min', 8) + 8 * influence
             speed_mult = 1.0 - 0.4 * influence  # 0.6 at influence=1
-            result['move_speed'] = result.get('move_speed', 40) * max(0.3, speed_mult)
+            result['move_speed'] = result.get('move_speed', 25) * max(0.3, speed_mult)
             result['wander_interval'] = result.get('wander_interval', 4.0) + 4 * influence
             pulse_mult = 1.0 + 0.3 * influence  # 1.3 at influence=1
             result['pulse_speed'] = result.get('pulse_speed', 2500) * pulse_mult
-            self.state.current_dwell_bonus = 25
+            self.state.current_dwell_bonus = bonus
+            self.state.current_dwell_bonus = 15
         
         # Multi-person adjustments
         if count >= 2:
             # With 2+ people, be slightly more energetic
-            result['move_speed'] = result.get('move_speed', 40) * (1 + 0.1 * min(count, 4))
-            result['brightness_max'] = result.get('brightness_max', 55) * (1 + 0.05 * count)
+            result['move_speed'] = result.get('move_speed', 25) * (1 + 0.1 * min(count, 4))
+            result['brightness_max'] = result.get('brightness_max', 30) * (1 + 0.05 * count)
             result['wander_interval'] = result.get('wander_interval', 4.0) * 0.8  # Move between people
         
         return result
@@ -3132,7 +2965,7 @@ class BehaviorSystem:
     
     def calculate_parameters(self, active_count: int, passive_count: int,
                             current_pos: Tuple[float, float, float],
-                            flow_balance: float = 0.0, dt: float = 0.016) -> Dict:
+                            flow_balance: float = 0.0) -> Dict:
         """Calculate final light parameters based on all factors"""
         now = time.time()
         
@@ -3181,31 +3014,13 @@ class BehaviorSystem:
             self.current_wander_box['min_x'] = self.base_wander_box['min_x'] + flow_bias
             self.current_wander_box['max_x'] = self.base_wander_box['max_x'] + flow_bias
         
-        # --- V5: Emit falloff shape params from gesture state ---
-        params['falloff_scale_x'] = self.state.gesture_falloff_scale[0]
-        params['falloff_scale_y'] = self.state.gesture_falloff_scale[1]
-        params['falloff_scale_z'] = self.state.gesture_falloff_scale[2]
-        params['falloff_rotation'] = self.state.gesture_falloff_rotation
-        
-        # --- V5.1: Apply ambient falloff oscillation (always running, all modes) ---
-        self._apply_ambient_falloff(params, dt)
-        # Add gesture brightness boost on top of current brightness
-        if self.state.gesture_brightness_boost > 0:
-            params['brightness_max'] = params.get('brightness_max', 30) + self.state.gesture_brightness_boost
-        
         # Apply entry pulse effect (brightness boost when someone enters)
-        # V5: Use _active_pulse_boost which varies per entry/re-entry/phase
         entry_pulse_intensity = self._update_entry_pulse(now)
-        pulse_boost = getattr(self, '_active_pulse_boost', self.ENTRY_PULSE_BRIGHTNESS_BOOST)
         if entry_pulse_intensity > 0:
-            params['brightness_max'] = params.get('brightness_max', 55) + pulse_boost * entry_pulse_intensity
-            params['brightness_min'] = params.get('brightness_min', 12) + pulse_boost * 0.5 * entry_pulse_intensity
+            params['brightness_max'] = params.get('brightness_max', 30) + self.ENTRY_PULSE_BRIGHTNESS_BOOST * entry_pulse_intensity
+            params['brightness_min'] = params.get('brightness_min', 8) + self.ENTRY_PULSE_BRIGHTNESS_BOOST * 0.5 * entry_pulse_intensity
             # Also tighten falloff for more focused effect
             params['falloff_radius'] = params.get('falloff_radius', 50) * (1.0 - 0.3 * entry_pulse_intensity)
-            # V5: Contract falloff shape during entry pulse for focused beam
-            pulse_contract = 1.0 - 0.4 * entry_pulse_intensity  # squeeze to 60%
-            params['falloff_scale_x'] *= pulse_contract
-            params['falloff_scale_z'] *= pulse_contract
         
         # Apply engaged breathing overlay (subtle brightness/radius wave)
         params = self._apply_engaged_breathing(params)
@@ -3231,12 +3046,6 @@ class BehaviorSystem:
             params['falloff_radius'] = base_radius + (self.bloom_radius - base_radius) * self.state.bloom_progress
             # Also boost brightness during bloom
             params['brightness_max'] = params.get('brightness_max', 30) * (1 + 0.5 * self.state.bloom_progress)
-            # V5: Neutralize falloff shape during bloom (uniform spread)
-            bp = self.state.bloom_progress
-            params['falloff_scale_x'] = params['falloff_scale_x'] * (1 - bp) + 1.0 * bp
-            params['falloff_scale_y'] = params['falloff_scale_y'] * (1 - bp) + 1.0 * bp
-            params['falloff_scale_z'] = params['falloff_scale_z'] * (1 - bp) + 1.0 * bp
-            params['falloff_rotation'] = params['falloff_rotation'] * (1 - bp)
         
         # Store proximity info in params for display/debugging
         params['proximity_factor'] = self.state.proximity_factor
@@ -3266,10 +3075,6 @@ class BehaviorSystem:
                 key = ('engaged', 'sway')
             elif self.state.gesture == GestureType.ORBIT:
                 key = ('engaged', 'orbit')
-            elif self.state.gesture == GestureType.SWEEP:
-                key = ('engaged', 'sweep')
-            elif self.state.gesture == GestureType.FOCUS:
-                key = ('engaged', 'focus')
             elif self.state.gesture in (GestureType.BREATHE, GestureType.SETTLE):
                 key = ('engaged', 'breathing')
             else:
@@ -3429,7 +3234,7 @@ class BehaviorSystem:
         
         # Calculate parameters
         params = self.calculate_parameters(
-            active_count, passive_count, current_pos, flow_balance, dt=dt
+            active_count, passive_count, current_pos, flow_balance
         )
         
         # Update status text periodically (every 8 seconds, using a proper interval check)
@@ -3527,13 +3332,8 @@ class BehaviorSystem:
             # Return to base box (possibly with flow bias applied)
             self.target_wander_box = dict(self.current_wander_box)
         
-        # V5.1: Use faster lerp during first 3s of engagement (notice phase)
-        # so the box snaps to the person quickly on entry
-        speed = self.wander_box_lerp_speed
-        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD) and self.state.mode_duration < 3.0:
-            speed = 8.0  # Much faster initial snap (vs normal 3.0)
-        
-        lerp_factor = 1.0 - math.exp(-speed * dt)
+        # Lerp each dimension toward target
+        lerp_factor = 1.0 - math.exp(-self.wander_box_lerp_speed * dt)
         
         for key in self.animated_wander_box:
             current = self.animated_wander_box[key]

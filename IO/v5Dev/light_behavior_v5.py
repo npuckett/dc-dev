@@ -549,6 +549,11 @@ class BehaviorState:
     last_engaged_gesture_time: float = 0.0     # When last engaged gesture was triggered
     engaged_gesture_count: int = 0             # How many engaged gestures this session
     
+    # V5.1: Ambient falloff oscillation phases (always running)
+    ambient_falloff_phase_x: float = 0.0       # Phase for X scale oscillation
+    ambient_falloff_phase_z: float = 0.0       # Phase for Z scale oscillation
+    ambient_falloff_phase_rot: float = 0.0     # Phase for rotation wobble
+    
     # V5: Gesture-driven falloff shape (set by _compute_engaged_gesture_position)
     gesture_falloff_scale: Tuple = (1.0, 1.0, 1.0)   # (sx, sy, sz) from current gesture
     gesture_falloff_rotation: float = 0.0              # rotation from current gesture
@@ -591,13 +596,13 @@ class BehaviorSystem:
             'follow_smoothing': 0.0,  # Not following
         },
         BehaviorMode.ENGAGED: {
-            'move_speed': 40,           # V5: faster response (was 25)
+            'move_speed': 60,           # V5.1: much faster initial response (was 40)
             'wander_interval': 4.0,     # Longer pauses between movements
             'brightness_min': 12,       # V5: brighter minimum (was 8)
             'brightness_max': 55,       # V5: much brighter (was 30)
             'pulse_speed': 2500,
             'falloff_radius': 50,
-            'follow_smoothing': 0.06,   # V5: faster tracking (was 0.03)
+            'follow_smoothing': 0.08,   # V5.1: faster tracking (was 0.06)
         },
         BehaviorMode.CROWD: {
             'move_speed': 60,
@@ -1123,6 +1128,23 @@ class BehaviorSystem:
         'brightness_depth': 0.12,  # ±12% brightness modulation at full depth
         'radius_depth': 0.06,      # ±6% falloff radius modulation
         'phase_rate': 1.0472,      # ~2π/6 = one cycle per 6 seconds
+        # V5.1: Falloff shape breathing — scale X/Z oscillate with offset phases
+        'scale_x_depth': 0.15,     # ±15% X scale modulation at full depth
+        'scale_z_depth': 0.10,     # ±10% Z scale modulation at full depth
+        'scale_phase_offset': 1.2, # X leads Z by ~1.2 rad for organic asymmetry
+    }
+
+    # V5.1: Ambient falloff oscillation — runs in ALL modes for a living feel
+    # Subtle continuous shape breathing even when idle / no gestures active
+    AMBIENT_FALLOFF_CONFIG = {
+        'x_period': 11.0,          # Seconds per X scale cycle (slow, organic)
+        'z_period': 8.5,           # Seconds per Z scale cycle (different to avoid sync)
+        'x_depth_idle': 0.08,      # ±8% X scale in IDLE/FLOW
+        'z_depth_idle': 0.06,      # ±6% Z scale in IDLE/FLOW
+        'x_depth_engaged': 0.12,   # ±12% X scale in ENGAGED/CROWD
+        'z_depth_engaged': 0.10,   # ±10% Z scale in ENGAGED/CROWD
+        'rotation_period': 15.0,   # Seconds per slow rotation wobble
+        'rotation_depth': 0.08,    # ±0.08 radians (~4.5°) subtle wobble
     }
 
     def _update_engaged_gestures(self, dt: float, active_count: int):
@@ -1385,7 +1407,66 @@ class BehaviorSystem:
         radius_mod = 1.0 + wave * self.BREATHE_CONFIG['radius_depth'] * depth
         result['falloff_radius'] = result.get('falloff_radius', 50) * radius_mod
         
+        # V5.1: Falloff scale breathing — X and Z oscillate with phase offset
+        # Creates an organic shape-shifting effect during engagement
+        cfg = self.BREATHE_CONFIG
+        phase_offset = cfg.get('scale_phase_offset', 1.2)
+        wave_x = math.sin(self.state.engaged_breathe_phase + phase_offset)
+        wave_z = math.sin(self.state.engaged_breathe_phase - phase_offset * 0.5)
+        
+        scale_x_mod = 1.0 + wave_x * cfg.get('scale_x_depth', 0.15) * depth
+        scale_z_mod = 1.0 + wave_z * cfg.get('scale_z_depth', 0.10) * depth
+        
+        result['falloff_scale_x'] = result.get('falloff_scale_x', 1.0) * scale_x_mod
+        result['falloff_scale_z'] = result.get('falloff_scale_z', 1.0) * scale_z_mod
+        
         return result
+
+    def _apply_ambient_falloff(self, params: Dict, dt: float):
+        """
+        V5.1: Apply continuous ambient falloff shape oscillation.
+        
+        Runs in ALL modes to give the light a living, breathing quality
+        even when no gestures are active. Uses slow, incommensurate
+        periods on X/Z/rotation so the shape never exactly repeats.
+        
+        Modifies params dict in-place.
+        """
+        cfg = self.AMBIENT_FALLOFF_CONFIG
+        two_pi = math.pi * 2
+        
+        # Advance ambient phases
+        self.state.ambient_falloff_phase_x += two_pi * dt / cfg['x_period']
+        self.state.ambient_falloff_phase_z += two_pi * dt / cfg['z_period']
+        self.state.ambient_falloff_phase_rot += two_pi * dt / cfg['rotation_period']
+        
+        # Wrap phases to avoid float overflow over long runtime
+        if self.state.ambient_falloff_phase_x > two_pi:
+            self.state.ambient_falloff_phase_x -= two_pi
+        if self.state.ambient_falloff_phase_z > two_pi:
+            self.state.ambient_falloff_phase_z -= two_pi
+        if self.state.ambient_falloff_phase_rot > two_pi:
+            self.state.ambient_falloff_phase_rot -= two_pi
+        
+        # Select depth based on mode
+        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+            x_depth = cfg['x_depth_engaged']
+            z_depth = cfg['z_depth_engaged']
+        else:
+            x_depth = cfg['x_depth_idle']
+            z_depth = cfg['z_depth_idle']
+        
+        # Compute oscillations
+        wave_x = math.sin(self.state.ambient_falloff_phase_x)
+        wave_z = math.sin(self.state.ambient_falloff_phase_z)
+        wave_rot = math.sin(self.state.ambient_falloff_phase_rot)
+        
+        # Multiply onto existing falloff scale (stacks with gesture shapes)
+        params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * (1.0 + wave_x * x_depth)
+        params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * (1.0 + wave_z * z_depth)
+        
+        # Add subtle rotation wobble
+        params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + wave_rot * cfg['rotation_depth']
 
     def trigger_entry_pulse(self, reentry=False):
         """
@@ -1725,9 +1806,9 @@ class BehaviorSystem:
         # Phase-based adjustments (all scaled by influence)
         # V5: Stronger bonuses — greet +15%, engage +25%, bond +35%
         if phase == 'notice':  # 0-3s
-            # Just noticed - quick acknowledgment
-            speed_boost = 1.0 + 0.2 * influence  # 1.2 at influence=1
-            result['move_speed'] = result.get('move_speed', 25) * speed_boost
+            # Just noticed - rush to meet them!
+            speed_boost = 1.0 + 1.5 * influence  # 2.5x at influence=1 (was 1.2x)
+            result['move_speed'] = result.get('move_speed', 60) * speed_boost
             self.state.current_dwell_bonus = 0
             
         elif phase == 'greet':  # 3-10s
@@ -3051,7 +3132,7 @@ class BehaviorSystem:
     
     def calculate_parameters(self, active_count: int, passive_count: int,
                             current_pos: Tuple[float, float, float],
-                            flow_balance: float = 0.0) -> Dict:
+                            flow_balance: float = 0.0, dt: float = 0.016) -> Dict:
         """Calculate final light parameters based on all factors"""
         now = time.time()
         
@@ -3105,6 +3186,9 @@ class BehaviorSystem:
         params['falloff_scale_y'] = self.state.gesture_falloff_scale[1]
         params['falloff_scale_z'] = self.state.gesture_falloff_scale[2]
         params['falloff_rotation'] = self.state.gesture_falloff_rotation
+        
+        # --- V5.1: Apply ambient falloff oscillation (always running, all modes) ---
+        self._apply_ambient_falloff(params, dt)
         # Add gesture brightness boost on top of current brightness
         if self.state.gesture_brightness_boost > 0:
             params['brightness_max'] = params.get('brightness_max', 30) + self.state.gesture_brightness_boost
@@ -3345,7 +3429,7 @@ class BehaviorSystem:
         
         # Calculate parameters
         params = self.calculate_parameters(
-            active_count, passive_count, current_pos, flow_balance
+            active_count, passive_count, current_pos, flow_balance, dt=dt
         )
         
         # Update status text periodically (every 8 seconds, using a proper interval check)
@@ -3443,8 +3527,13 @@ class BehaviorSystem:
             # Return to base box (possibly with flow bias applied)
             self.target_wander_box = dict(self.current_wander_box)
         
-        # Lerp each dimension toward target
-        lerp_factor = 1.0 - math.exp(-self.wander_box_lerp_speed * dt)
+        # V5.1: Use faster lerp during first 3s of engagement (notice phase)
+        # so the box snaps to the person quickly on entry
+        speed = self.wander_box_lerp_speed
+        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD) and self.state.mode_duration < 3.0:
+            speed = 8.0  # Much faster initial snap (vs normal 3.0)
+        
+        lerp_factor = 1.0 - math.exp(-speed * dt)
         
         for key in self.animated_wander_box:
             current = self.animated_wander_box[key]
