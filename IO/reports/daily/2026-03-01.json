@@ -1,0 +1,514 @@
+{
+  "date": "2026-03-01",
+  "generated_at": "2026-03-02T00:01:21.125891",
+  "summary": {
+    "total_unique_people": 7905,
+    "total_active_zone_visits": 3520,
+    "total_passive_zone_count": 202069,
+    "overall_avg_speed": 11674.5
+  },
+  "peak_times": {
+    "peak_hour": 16,
+    "peak_hour_count": 843,
+    "quietest_hour": 4,
+    "quietest_hour_count": 11
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.15
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 166,
+      "active_count": 37,
+      "passive_count": 3947,
+      "avg_speed": 10644.8,
+      "flow_ltr": 1756,
+      "flow_rtl": 1563
+    },
+    {
+      "hour": 1,
+      "total_people": 62,
+      "active_count": 0,
+      "passive_count": 1249,
+      "avg_speed": 12683.1,
+      "flow_ltr": 731,
+      "flow_rtl": 314
+    },
+    {
+      "hour": 2,
+      "total_people": 45,
+      "active_count": 0,
+      "passive_count": 1003,
+      "avg_speed": 12297.3,
+      "flow_ltr": 476,
+      "flow_rtl": 339
+    },
+    {
+      "hour": 3,
+      "total_people": 14,
+      "active_count": 0,
+      "passive_count": 278,
+      "avg_speed": 9779.7,
+      "flow_ltr": 102,
+      "flow_rtl": 93
+    },
+    {
+      "hour": 4,
+      "total_people": 11,
+      "active_count": 0,
+      "passive_count": 285,
+      "avg_speed": 12809.3,
+      "flow_ltr": 240,
+      "flow_rtl": 1
+    },
+    {
+      "hour": 5,
+      "total_people": 28,
+      "active_count": 0,
+      "passive_count": 625,
+      "avg_speed": 12243.6,
+      "flow_ltr": 426,
+      "flow_rtl": 82
+    },
+    {
+      "hour": 6,
+      "total_people": 55,
+      "active_count": 0,
+      "passive_count": 1371,
+      "avg_speed": 11216.9,
+      "flow_ltr": 860,
+      "flow_rtl": 297
+    },
+    {
+      "hour": 7,
+      "total_people": 135,
+      "active_count": 0,
+      "passive_count": 4326,
+      "avg_speed": 11582.7,
+      "flow_ltr": 2500,
+      "flow_rtl": 1300
+    },
+    {
+      "hour": 8,
+      "total_people": 154,
+      "active_count": 48,
+      "passive_count": 4059,
+      "avg_speed": 13385.6,
+      "flow_ltr": 2402,
+      "flow_rtl": 1198
+    },
+    {
+      "hour": 9,
+      "total_people": 320,
+      "active_count": 0,
+      "passive_count": 8167,
+      "avg_speed": 11426.9,
+      "flow_ltr": 4524,
+      "flow_rtl": 2602
+    },
+    {
+      "hour": 10,
+      "total_people": 298,
+      "active_count": 184,
+      "passive_count": 7181,
+      "avg_speed": 12610.6,
+      "flow_ltr": 4208,
+      "flow_rtl": 2117
+    },
+    {
+      "hour": 11,
+      "total_people": 533,
+      "active_count": 21,
+      "passive_count": 12554,
+      "avg_speed": 10149.4,
+      "flow_ltr": 6676,
+      "flow_rtl": 3872
+    },
+    {
+      "hour": 12,
+      "total_people": 622,
+      "active_count": 41,
+      "passive_count": 14879,
+      "avg_speed": 11510.0,
+      "flow_ltr": 6026,
+      "flow_rtl": 6744
+    },
+    {
+      "hour": 13,
+      "total_people": 652,
+      "active_count": 122,
+      "passive_count": 18355,
+      "avg_speed": 10461.1,
+      "flow_ltr": 7337,
+      "flow_rtl": 8188
+    },
+    {
+      "hour": 14,
+      "total_people": 619,
+      "active_count": 180,
+      "passive_count": 15710,
+      "avg_speed": 11631.5,
+      "flow_ltr": 8676,
+      "flow_rtl": 4934
+    },
+    {
+      "hour": 15,
+      "total_people": 686,
+      "active_count": 1134,
+      "passive_count": 19036,
+      "avg_speed": 9789.3,
+      "flow_ltr": 9518,
+      "flow_rtl": 6304
+    },
+    {
+      "hour": 16,
+      "total_people": 843,
+      "active_count": 142,
+      "passive_count": 21213,
+      "avg_speed": 12060.8,
+      "flow_ltr": 12564,
+      "flow_rtl": 5894
+    },
+    {
+      "hour": 17,
+      "total_people": 789,
+      "active_count": 59,
+      "passive_count": 21014,
+      "avg_speed": 10845.7,
+      "flow_ltr": 9222,
+      "flow_rtl": 9205
+    },
+    {
+      "hour": 18,
+      "total_people": 612,
+      "active_count": 659,
+      "passive_count": 15977,
+      "avg_speed": 11294.2,
+      "flow_ltr": 8378,
+      "flow_rtl": 5007
+    },
+    {
+      "hour": 19,
+      "total_people": 376,
+      "active_count": 67,
+      "passive_count": 9775,
+      "avg_speed": 11824.8,
+      "flow_ltr": 4312,
+      "flow_rtl": 3939
+    },
+    {
+      "hour": 20,
+      "total_people": 260,
+      "active_count": 0,
+      "passive_count": 5315,
+      "avg_speed": 11479.6,
+      "flow_ltr": 2553,
+      "flow_rtl": 1949
+    },
+    {
+      "hour": 21,
+      "total_people": 261,
+      "active_count": 814,
+      "passive_count": 6094,
+      "avg_speed": 11803.6,
+      "flow_ltr": 1933,
+      "flow_rtl": 3170
+    },
+    {
+      "hour": 22,
+      "total_people": 219,
+      "active_count": 4,
+      "passive_count": 5525,
+      "avg_speed": 14249.1,
+      "flow_ltr": 2687,
+      "flow_rtl": 1992
+    },
+    {
+      "hour": 23,
+      "total_people": 144,
+      "active_count": 8,
+      "passive_count": 4131,
+      "avg_speed": 12408.3,
+      "flow_ltr": 1524,
+      "flow_rtl": 2016
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "crowd": 0.003,
+      "engaged": 0.044,
+      "flow": 0.241,
+      "idle": 0.712
+    },
+    "position_entropy": 0.125
+  },
+  "auto_tuning": {
+    "total_adjustments": 14743,
+    "param_journeys": {
+      "responsiveness": {
+        "start": 0.396,
+        "end": 0.405,
+        "min": 0.372,
+        "max": 0.68,
+        "net_change": 0.008,
+        "total_movement": 30.802,
+        "direction": "stable"
+      },
+      "energy": {
+        "start": 0.308,
+        "end": 0.301,
+        "min": 0.3,
+        "max": 0.641,
+        "net_change": -0.007,
+        "total_movement": 30.512,
+        "direction": "stable"
+      },
+      "attention_span": {
+        "start": 0.605,
+        "end": 0.618,
+        "min": 0.382,
+        "max": 0.626,
+        "net_change": 0.013,
+        "total_movement": 32.605,
+        "direction": "up"
+      },
+      "sociability": {
+        "start": 0.356,
+        "end": 0.348,
+        "min": 0.323,
+        "max": 0.669,
+        "net_change": -0.008,
+        "total_movement": 31.066,
+        "direction": "stable"
+      },
+      "exploration": {
+        "start": 0.738,
+        "end": 0.799,
+        "min": 0.351,
+        "max": 0.877,
+        "net_change": 0.061,
+        "total_movement": 50.226,
+        "direction": "up"
+      },
+      "memory": {
+        "start": 0.089,
+        "end": 0.075,
+        "min": 0.057,
+        "max": 0.238,
+        "net_change": -0.013,
+        "total_movement": 48.86,
+        "direction": "down"
+      },
+      "brightness_global": {
+        "start": 0.809,
+        "end": 0.827,
+        "min": 0.688,
+        "max": 1.69,
+        "net_change": 0.018,
+        "total_movement": 41.742,
+        "direction": "up"
+      },
+      "speed_global": {
+        "start": 0.504,
+        "end": 0.52,
+        "min": 0.448,
+        "max": 0.983,
+        "net_change": 0.017,
+        "total_movement": 36.431,
+        "direction": "up"
+      },
+      "pulse_global": {
+        "start": 0.602,
+        "end": 0.619,
+        "min": 0.515,
+        "max": 1.149,
+        "net_change": 0.018,
+        "total_movement": 35.406,
+        "direction": "up"
+      },
+      "follow_speed_global": {
+        "start": 0.691,
+        "end": 0.705,
+        "min": 0.661,
+        "max": 0.819,
+        "net_change": 0.015,
+        "total_movement": 33.76,
+        "direction": "up"
+      },
+      "dwell_influence": {
+        "start": 0.269,
+        "end": 0.215,
+        "min": 0.201,
+        "max": 0.683,
+        "net_change": -0.054,
+        "total_movement": 47.772,
+        "direction": "down"
+      },
+      "idle_trend_weight": {
+        "start": 0.972,
+        "end": 0.995,
+        "min": 0.77,
+        "max": 1.001,
+        "net_change": 0.023,
+        "total_movement": 53.884,
+        "direction": "up"
+      }
+    },
+    "hourly_activity": {
+      "0": {
+        "adjustments": 634,
+        "avg_short_activity": 0.059,
+        "avg_energy": 0.26,
+        "avg_aggression": 0.094
+      },
+      "1": {
+        "adjustments": 502,
+        "avg_short_activity": 0.031,
+        "avg_energy": 0.214,
+        "avg_aggression": 0.2
+      },
+      "2": {
+        "adjustments": 374,
+        "avg_short_activity": 0.027,
+        "avg_energy": 0.216,
+        "avg_aggression": 0.2
+      },
+      "3": {
+        "adjustments": 279,
+        "avg_short_activity": 0.013,
+        "avg_energy": 0.176,
+        "avg_aggression": 0.2
+      },
+      "4": {
+        "adjustments": 200,
+        "avg_short_activity": 0.016,
+        "avg_energy": 0.189,
+        "avg_aggression": 0.113
+      },
+      "5": {
+        "adjustments": 372,
+        "avg_short_activity": 0.017,
+        "avg_energy": 0.2,
+        "avg_aggression": 0.129
+      },
+      "6": {
+        "adjustments": 575,
+        "avg_short_activity": 0.024,
+        "avg_energy": 0.212,
+        "avg_aggression": 0.065
+      },
+      "7": {
+        "adjustments": 677,
+        "avg_short_activity": 0.062,
+        "avg_energy": 0.275,
+        "avg_aggression": 0.04
+      },
+      "8": {
+        "adjustments": 693,
+        "avg_short_activity": 0.06,
+        "avg_energy": 0.28,
+        "avg_aggression": 0.029
+      },
+      "9": {
+        "adjustments": 706,
+        "avg_short_activity": 0.105,
+        "avg_energy": 0.328,
+        "avg_aggression": 0.05
+      },
+      "10": {
+        "adjustments": 707,
+        "avg_short_activity": 0.096,
+        "avg_energy": 0.337,
+        "avg_aggression": 0.018
+      },
+      "11": {
+        "adjustments": 699,
+        "avg_short_activity": 0.149,
+        "avg_energy": 0.376,
+        "avg_aggression": 0.049
+      },
+      "12": {
+        "adjustments": 710,
+        "avg_short_activity": 0.17,
+        "avg_energy": 0.411,
+        "avg_aggression": 0.039
+      },
+      "13": {
+        "adjustments": 698,
+        "avg_short_activity": 0.197,
+        "avg_energy": 0.429,
+        "avg_aggression": 0.036
+      },
+      "14": {
+        "adjustments": 693,
+        "avg_short_activity": 0.18,
+        "avg_energy": 0.417,
+        "avg_aggression": 0.042
+      },
+      "15": {
+        "adjustments": 706,
+        "avg_short_activity": 0.206,
+        "avg_energy": 0.442,
+        "avg_aggression": 0.035
+      },
+      "16": {
+        "adjustments": 707,
+        "avg_short_activity": 0.228,
+        "avg_energy": 0.457,
+        "avg_aggression": 0.05
+      },
+      "17": {
+        "adjustments": 707,
+        "avg_short_activity": 0.221,
+        "avg_energy": 0.446,
+        "avg_aggression": 0.037
+      },
+      "18": {
+        "adjustments": 699,
+        "avg_short_activity": 0.187,
+        "avg_energy": 0.421,
+        "avg_aggression": 0.047
+      },
+      "19": {
+        "adjustments": 710,
+        "avg_short_activity": 0.123,
+        "avg_energy": 0.357,
+        "avg_aggression": 0.053
+      },
+      "20": {
+        "adjustments": 701,
+        "avg_short_activity": 0.077,
+        "avg_energy": 0.308,
+        "avg_aggression": 0.05
+      },
+      "21": {
+        "adjustments": 650,
+        "avg_short_activity": 0.093,
+        "avg_energy": 0.306,
+        "avg_aggression": 0.063
+      },
+      "22": {
+        "adjustments": 699,
+        "avg_short_activity": 0.079,
+        "avg_energy": 0.3,
+        "avg_aggression": 0.039
+      },
+      "23": {
+        "adjustments": 645,
+        "avg_short_activity": 0.067,
+        "avg_energy": 0.268,
+        "avg_aggression": 0.04
+      }
+    },
+    "most_tuned_params": [
+      "idle_trend_weight",
+      "exploration",
+      "memory",
+      "dwell_influence",
+      "brightness_global"
+    ],
+    "strategy_summary": "Idle Trend Weight increased 0.97 \u2192 0.99 (range 0.77\u20131.00); Exploration increased 0.74 \u2192 0.80 (range 0.35\u20130.88); Memory decreased 0.09 \u2192 0.07 (range 0.06\u20130.24); Dwell Influence decreased 0.27 \u2192 0.21 (range 0.20\u20130.68); Brightness Global increased 0.81 \u2192 0.83 (range 0.69\u20131.69)"
+  }
+}

@@ -1,0 +1,514 @@
+{
+  "date": "2026-02-28",
+  "generated_at": "2026-03-01T00:01:33.750186",
+  "summary": {
+    "total_unique_people": 10982,
+    "total_active_zone_visits": 5564,
+    "total_passive_zone_count": 275293,
+    "overall_avg_speed": 9394.8
+  },
+  "peak_times": {
+    "peak_hour": 16,
+    "peak_hour_count": 1080,
+    "quietest_hour": 3,
+    "quietest_hour_count": 22
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.12
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 233,
+      "active_count": 5,
+      "passive_count": 5633,
+      "avg_speed": 8512.0,
+      "flow_ltr": 2783,
+      "flow_rtl": 1738
+    },
+    {
+      "hour": 1,
+      "total_people": 101,
+      "active_count": 5,
+      "passive_count": 2132,
+      "avg_speed": 9045.1,
+      "flow_ltr": 898,
+      "flow_rtl": 631
+    },
+    {
+      "hour": 2,
+      "total_people": 80,
+      "active_count": 209,
+      "passive_count": 1803,
+      "avg_speed": 7065.9,
+      "flow_ltr": 857,
+      "flow_rtl": 354
+    },
+    {
+      "hour": 3,
+      "total_people": 22,
+      "active_count": 0,
+      "passive_count": 325,
+      "avg_speed": 4877.3,
+      "flow_ltr": 17,
+      "flow_rtl": 48
+    },
+    {
+      "hour": 4,
+      "total_people": 22,
+      "active_count": 0,
+      "passive_count": 397,
+      "avg_speed": 8027.9,
+      "flow_ltr": 262,
+      "flow_rtl": 7
+    },
+    {
+      "hour": 5,
+      "total_people": 33,
+      "active_count": 0,
+      "passive_count": 771,
+      "avg_speed": 11234.0,
+      "flow_ltr": 556,
+      "flow_rtl": 107
+    },
+    {
+      "hour": 6,
+      "total_people": 80,
+      "active_count": 0,
+      "passive_count": 1981,
+      "avg_speed": 10073.3,
+      "flow_ltr": 1049,
+      "flow_rtl": 582
+    },
+    {
+      "hour": 7,
+      "total_people": 89,
+      "active_count": 3,
+      "passive_count": 2396,
+      "avg_speed": 11461.4,
+      "flow_ltr": 967,
+      "flow_rtl": 1185
+    },
+    {
+      "hour": 8,
+      "total_people": 247,
+      "active_count": 70,
+      "passive_count": 6041,
+      "avg_speed": 10573.1,
+      "flow_ltr": 3696,
+      "flow_rtl": 1524
+    },
+    {
+      "hour": 9,
+      "total_people": 307,
+      "active_count": 11,
+      "passive_count": 8184,
+      "avg_speed": 10273.8,
+      "flow_ltr": 2927,
+      "flow_rtl": 4159
+    },
+    {
+      "hour": 10,
+      "total_people": 530,
+      "active_count": 113,
+      "passive_count": 12733,
+      "avg_speed": 8839.9,
+      "flow_ltr": 5716,
+      "flow_rtl": 5267
+    },
+    {
+      "hour": 11,
+      "total_people": 768,
+      "active_count": 37,
+      "passive_count": 20358,
+      "avg_speed": 8069.4,
+      "flow_ltr": 7271,
+      "flow_rtl": 9497
+    },
+    {
+      "hour": 12,
+      "total_people": 776,
+      "active_count": 215,
+      "passive_count": 21802,
+      "avg_speed": 9076.9,
+      "flow_ltr": 7512,
+      "flow_rtl": 10583
+    },
+    {
+      "hour": 13,
+      "total_people": 769,
+      "active_count": 96,
+      "passive_count": 20552,
+      "avg_speed": 9258.4,
+      "flow_ltr": 7965,
+      "flow_rtl": 9749
+    },
+    {
+      "hour": 14,
+      "total_people": 712,
+      "active_count": 330,
+      "passive_count": 17677,
+      "avg_speed": 10238.2,
+      "flow_ltr": 9142,
+      "flow_rtl": 5983
+    },
+    {
+      "hour": 15,
+      "total_people": 819,
+      "active_count": 71,
+      "passive_count": 19898,
+      "avg_speed": 9958.1,
+      "flow_ltr": 10933,
+      "flow_rtl": 6402
+    },
+    {
+      "hour": 16,
+      "total_people": 1080,
+      "active_count": 769,
+      "passive_count": 27099,
+      "avg_speed": 9507.6,
+      "flow_ltr": 15906,
+      "flow_rtl": 7833
+    },
+    {
+      "hour": 17,
+      "total_people": 899,
+      "active_count": 46,
+      "passive_count": 21371,
+      "avg_speed": 10084.1,
+      "flow_ltr": 11184,
+      "flow_rtl": 7372
+    },
+    {
+      "hour": 18,
+      "total_people": 836,
+      "active_count": 142,
+      "passive_count": 20894,
+      "avg_speed": 9598.6,
+      "flow_ltr": 11244,
+      "flow_rtl": 6456
+    },
+    {
+      "hour": 19,
+      "total_people": 642,
+      "active_count": 143,
+      "passive_count": 16041,
+      "avg_speed": 9711.3,
+      "flow_ltr": 7565,
+      "flow_rtl": 5739
+    },
+    {
+      "hour": 20,
+      "total_people": 378,
+      "active_count": 75,
+      "passive_count": 10097,
+      "avg_speed": 9305.2,
+      "flow_ltr": 5286,
+      "flow_rtl": 3103
+    },
+    {
+      "hour": 21,
+      "total_people": 653,
+      "active_count": 46,
+      "passive_count": 15095,
+      "avg_speed": 9979.7,
+      "flow_ltr": 7602,
+      "flow_rtl": 5172
+    },
+    {
+      "hour": 22,
+      "total_people": 701,
+      "active_count": 3178,
+      "passive_count": 17164,
+      "avg_speed": 8565.8,
+      "flow_ltr": 6540,
+      "flow_rtl": 7684
+    },
+    {
+      "hour": 23,
+      "total_people": 216,
+      "active_count": 0,
+      "passive_count": 4849,
+      "avg_speed": 12138.5,
+      "flow_ltr": 2695,
+      "flow_rtl": 1534
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "crowd": 0.002,
+      "engaged": 0.058,
+      "flow": 0.328,
+      "idle": 0.612
+    },
+    "position_entropy": 0.134
+  },
+  "auto_tuning": {
+    "total_adjustments": 15818,
+    "param_journeys": {
+      "responsiveness": {
+        "start": 0.411,
+        "end": 0.396,
+        "min": 0.373,
+        "max": 0.71,
+        "net_change": -0.015,
+        "total_movement": 34.438,
+        "direction": "down"
+      },
+      "energy": {
+        "start": 0.33,
+        "end": 0.308,
+        "min": 0.3,
+        "max": 0.653,
+        "net_change": -0.022,
+        "total_movement": 31.852,
+        "direction": "down"
+      },
+      "attention_span": {
+        "start": 0.586,
+        "end": 0.605,
+        "min": 0.359,
+        "max": 0.64,
+        "net_change": 0.019,
+        "total_movement": 35.636,
+        "direction": "up"
+      },
+      "sociability": {
+        "start": 0.375,
+        "end": 0.356,
+        "min": 0.323,
+        "max": 0.679,
+        "net_change": -0.02,
+        "total_movement": 34.87,
+        "direction": "down"
+      },
+      "exploration": {
+        "start": 0.726,
+        "end": 0.738,
+        "min": 0.339,
+        "max": 0.877,
+        "net_change": 0.013,
+        "total_movement": 52.111,
+        "direction": "up"
+      },
+      "memory": {
+        "start": 0.114,
+        "end": 0.089,
+        "min": 0.056,
+        "max": 0.283,
+        "net_change": -0.026,
+        "total_movement": 52.317,
+        "direction": "down"
+      },
+      "brightness_global": {
+        "start": 0.816,
+        "end": 0.809,
+        "min": 0.686,
+        "max": 1.741,
+        "net_change": -0.007,
+        "total_movement": 46.632,
+        "direction": "stable"
+      },
+      "speed_global": {
+        "start": 0.513,
+        "end": 0.504,
+        "min": 0.433,
+        "max": 1.047,
+        "net_change": -0.009,
+        "total_movement": 40.836,
+        "direction": "stable"
+      },
+      "pulse_global": {
+        "start": 0.615,
+        "end": 0.602,
+        "min": 0.474,
+        "max": 1.169,
+        "net_change": -0.013,
+        "total_movement": 41.399,
+        "direction": "down"
+      },
+      "follow_speed_global": {
+        "start": 0.695,
+        "end": 0.691,
+        "min": 0.663,
+        "max": 0.896,
+        "net_change": -0.004,
+        "total_movement": 37.279,
+        "direction": "stable"
+      },
+      "dwell_influence": {
+        "start": 0.338,
+        "end": 0.269,
+        "min": 0.17,
+        "max": 0.679,
+        "net_change": -0.068,
+        "total_movement": 48.345,
+        "direction": "down"
+      },
+      "idle_trend_weight": {
+        "start": 0.929,
+        "end": 0.972,
+        "min": 0.729,
+        "max": 1.0,
+        "net_change": 0.043,
+        "total_movement": 56.548,
+        "direction": "up"
+      }
+    },
+    "hourly_activity": {
+      "0": {
+        "adjustments": 707,
+        "avg_short_activity": 0.078,
+        "avg_energy": 0.288,
+        "avg_aggression": 0.057
+      },
+      "1": {
+        "adjustments": 667,
+        "avg_short_activity": 0.034,
+        "avg_energy": 0.225,
+        "avg_aggression": 0.102
+      },
+      "2": {
+        "adjustments": 689,
+        "avg_short_activity": 0.03,
+        "avg_energy": 0.201,
+        "avg_aggression": 0.097
+      },
+      "3": {
+        "adjustments": 475,
+        "avg_short_activity": 0.009,
+        "avg_energy": 0.16,
+        "avg_aggression": 0.099
+      },
+      "4": {
+        "adjustments": 362,
+        "avg_short_activity": 0.012,
+        "avg_energy": 0.175,
+        "avg_aggression": 0.2
+      },
+      "5": {
+        "adjustments": 408,
+        "avg_short_activity": 0.018,
+        "avg_energy": 0.191,
+        "avg_aggression": 0.165
+      },
+      "6": {
+        "adjustments": 618,
+        "avg_short_activity": 0.034,
+        "avg_energy": 0.226,
+        "avg_aggression": 0.053
+      },
+      "7": {
+        "adjustments": 615,
+        "avg_short_activity": 0.038,
+        "avg_energy": 0.238,
+        "avg_aggression": 0.216
+      },
+      "8": {
+        "adjustments": 694,
+        "avg_short_activity": 0.082,
+        "avg_energy": 0.304,
+        "avg_aggression": 0.06
+      },
+      "9": {
+        "adjustments": 709,
+        "avg_short_activity": 0.106,
+        "avg_energy": 0.335,
+        "avg_aggression": 0.032
+      },
+      "10": {
+        "adjustments": 713,
+        "avg_short_activity": 0.151,
+        "avg_energy": 0.378,
+        "avg_aggression": 0.042
+      },
+      "11": {
+        "adjustments": 705,
+        "avg_short_activity": 0.205,
+        "avg_energy": 0.434,
+        "avg_aggression": 0.051
+      },
+      "12": {
+        "adjustments": 709,
+        "avg_short_activity": 0.232,
+        "avg_energy": 0.46,
+        "avg_aggression": 0.029
+      },
+      "13": {
+        "adjustments": 706,
+        "avg_short_activity": 0.211,
+        "avg_energy": 0.448,
+        "avg_aggression": 0.017
+      },
+      "14": {
+        "adjustments": 699,
+        "avg_short_activity": 0.197,
+        "avg_energy": 0.43,
+        "avg_aggression": 0.03
+      },
+      "15": {
+        "adjustments": 706,
+        "avg_short_activity": 0.213,
+        "avg_energy": 0.443,
+        "avg_aggression": 0.032
+      },
+      "16": {
+        "adjustments": 700,
+        "avg_short_activity": 0.259,
+        "avg_energy": 0.476,
+        "avg_aggression": 0.045
+      },
+      "17": {
+        "adjustments": 701,
+        "avg_short_activity": 0.226,
+        "avg_energy": 0.46,
+        "avg_aggression": 0.035
+      },
+      "18": {
+        "adjustments": 700,
+        "avg_short_activity": 0.226,
+        "avg_energy": 0.457,
+        "avg_aggression": 0.031
+      },
+      "19": {
+        "adjustments": 709,
+        "avg_short_activity": 0.177,
+        "avg_energy": 0.41,
+        "avg_aggression": 0.03
+      },
+      "20": {
+        "adjustments": 704,
+        "avg_short_activity": 0.133,
+        "avg_energy": 0.357,
+        "avg_aggression": 0.048
+      },
+      "21": {
+        "adjustments": 711,
+        "avg_short_activity": 0.169,
+        "avg_energy": 0.399,
+        "avg_aggression": 0.035
+      },
+      "22": {
+        "adjustments": 709,
+        "avg_short_activity": 0.186,
+        "avg_energy": 0.406,
+        "avg_aggression": 0.031
+      },
+      "23": {
+        "adjustments": 702,
+        "avg_short_activity": 0.093,
+        "avg_energy": 0.323,
+        "avg_aggression": 0.086
+      }
+    },
+    "most_tuned_params": [
+      "idle_trend_weight",
+      "memory",
+      "exploration",
+      "dwell_influence",
+      "brightness_global"
+    ],
+    "strategy_summary": "Idle Trend Weight increased 0.93 \u2192 0.97 (range 0.73\u20131.00); Memory decreased 0.11 \u2192 0.09 (range 0.06\u20130.28); Exploration increased 0.73 \u2192 0.74 (range 0.34\u20130.88); Dwell Influence decreased 0.34 \u2192 0.27 (range 0.17\u20130.68); Brightness Global explored around 0.81 (range 0.69\u20131.74)"
+  }
+}

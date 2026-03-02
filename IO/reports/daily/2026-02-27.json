@@ -1,0 +1,514 @@
+{
+  "date": "2026-02-27",
+  "generated_at": "2026-02-28T00:01:18.118187",
+  "summary": {
+    "total_unique_people": 14027,
+    "total_active_zone_visits": 3988,
+    "total_passive_zone_count": 363183,
+    "overall_avg_speed": 7211.2
+  },
+  "peak_times": {
+    "peak_hour": 16,
+    "peak_hour_count": 1780,
+    "quietest_hour": 2,
+    "quietest_hour_count": 9
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.23
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 72,
+      "active_count": 0,
+      "passive_count": 1631,
+      "avg_speed": 6037.4,
+      "flow_ltr": 513,
+      "flow_rtl": 843
+    },
+    {
+      "hour": 1,
+      "total_people": 72,
+      "active_count": 0,
+      "passive_count": 979,
+      "avg_speed": 3013.4,
+      "flow_ltr": 582,
+      "flow_rtl": 271
+    },
+    {
+      "hour": 2,
+      "total_people": 9,
+      "active_count": 0,
+      "passive_count": 197,
+      "avg_speed": 6052.5,
+      "flow_ltr": 65,
+      "flow_rtl": 88
+    },
+    {
+      "hour": 3,
+      "total_people": 14,
+      "active_count": 0,
+      "passive_count": 373,
+      "avg_speed": 5923.3,
+      "flow_ltr": 80,
+      "flow_rtl": 181
+    },
+    {
+      "hour": 4,
+      "total_people": 19,
+      "active_count": 143,
+      "passive_count": 592,
+      "avg_speed": 5298.3,
+      "flow_ltr": 208,
+      "flow_rtl": 213
+    },
+    {
+      "hour": 5,
+      "total_people": 78,
+      "active_count": 0,
+      "passive_count": 1692,
+      "avg_speed": 5792.6,
+      "flow_ltr": 891,
+      "flow_rtl": 321
+    },
+    {
+      "hour": 6,
+      "total_people": 148,
+      "active_count": 0,
+      "passive_count": 3825,
+      "avg_speed": 6902.7,
+      "flow_ltr": 1276,
+      "flow_rtl": 1979
+    },
+    {
+      "hour": 7,
+      "total_people": 385,
+      "active_count": 15,
+      "passive_count": 10005,
+      "avg_speed": 7273.1,
+      "flow_ltr": 4077,
+      "flow_rtl": 4821
+    },
+    {
+      "hour": 8,
+      "total_people": 865,
+      "active_count": 243,
+      "passive_count": 23498,
+      "avg_speed": 6836.6,
+      "flow_ltr": 7033,
+      "flow_rtl": 13785
+    },
+    {
+      "hour": 9,
+      "total_people": 704,
+      "active_count": 459,
+      "passive_count": 20095,
+      "avg_speed": 6970.0,
+      "flow_ltr": 7014,
+      "flow_rtl": 10169
+    },
+    {
+      "hour": 10,
+      "total_people": 470,
+      "active_count": 145,
+      "passive_count": 13675,
+      "avg_speed": 6723.1,
+      "flow_ltr": 5551,
+      "flow_rtl": 5626
+    },
+    {
+      "hour": 11,
+      "total_people": 733,
+      "active_count": 9,
+      "passive_count": 17929,
+      "avg_speed": 6652.6,
+      "flow_ltr": 9003,
+      "flow_rtl": 6408
+    },
+    {
+      "hour": 12,
+      "total_people": 873,
+      "active_count": 45,
+      "passive_count": 23602,
+      "avg_speed": 7302.2,
+      "flow_ltr": 12335,
+      "flow_rtl": 8014
+    },
+    {
+      "hour": 13,
+      "total_people": 740,
+      "active_count": 181,
+      "passive_count": 18545,
+      "avg_speed": 7554.6,
+      "flow_ltr": 9443,
+      "flow_rtl": 6730
+    },
+    {
+      "hour": 14,
+      "total_people": 736,
+      "active_count": 497,
+      "passive_count": 19071,
+      "avg_speed": 8138.4,
+      "flow_ltr": 10432,
+      "flow_rtl": 6132
+    },
+    {
+      "hour": 15,
+      "total_people": 1278,
+      "active_count": 148,
+      "passive_count": 32866,
+      "avg_speed": 7750.1,
+      "flow_ltr": 19273,
+      "flow_rtl": 8805
+    },
+    {
+      "hour": 16,
+      "total_people": 1780,
+      "active_count": 366,
+      "passive_count": 45473,
+      "avg_speed": 7513.1,
+      "flow_ltr": 29928,
+      "flow_rtl": 9369
+    },
+    {
+      "hour": 17,
+      "total_people": 1610,
+      "active_count": 378,
+      "passive_count": 41064,
+      "avg_speed": 8021.0,
+      "flow_ltr": 24193,
+      "flow_rtl": 11358
+    },
+    {
+      "hour": 18,
+      "total_people": 972,
+      "active_count": 142,
+      "passive_count": 25393,
+      "avg_speed": 8773.3,
+      "flow_ltr": 13489,
+      "flow_rtl": 7970
+    },
+    {
+      "hour": 19,
+      "total_people": 556,
+      "active_count": 30,
+      "passive_count": 13631,
+      "avg_speed": 9302.6,
+      "flow_ltr": 6450,
+      "flow_rtl": 4876
+    },
+    {
+      "hour": 20,
+      "total_people": 500,
+      "active_count": 59,
+      "passive_count": 12847,
+      "avg_speed": 9276.3,
+      "flow_ltr": 7000,
+      "flow_rtl": 3434
+    },
+    {
+      "hour": 21,
+      "total_people": 566,
+      "active_count": 794,
+      "passive_count": 14931,
+      "avg_speed": 8344.9,
+      "flow_ltr": 8780,
+      "flow_rtl": 3322
+    },
+    {
+      "hour": 22,
+      "total_people": 521,
+      "active_count": 313,
+      "passive_count": 13168,
+      "avg_speed": 8548.0,
+      "flow_ltr": 8332,
+      "flow_rtl": 2379
+    },
+    {
+      "hour": 23,
+      "total_people": 328,
+      "active_count": 21,
+      "passive_count": 8101,
+      "avg_speed": 9069.2,
+      "flow_ltr": 4276,
+      "flow_rtl": 2112
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "crowd": 0.001,
+      "engaged": 0.093,
+      "flow": 0.407,
+      "idle": 0.499
+    },
+    "position_entropy": 0.134
+  },
+  "auto_tuning": {
+    "total_adjustments": 14993,
+    "param_journeys": {
+      "responsiveness": {
+        "start": 0.421,
+        "end": 0.411,
+        "min": 0.372,
+        "max": 0.655,
+        "net_change": -0.009,
+        "total_movement": 31.879,
+        "direction": "stable"
+      },
+      "energy": {
+        "start": 0.307,
+        "end": 0.33,
+        "min": 0.3,
+        "max": 0.627,
+        "net_change": 0.023,
+        "total_movement": 29.932,
+        "direction": "up"
+      },
+      "attention_span": {
+        "start": 0.591,
+        "end": 0.586,
+        "min": 0.402,
+        "max": 0.627,
+        "net_change": -0.005,
+        "total_movement": 33.18,
+        "direction": "stable"
+      },
+      "sociability": {
+        "start": 0.367,
+        "end": 0.375,
+        "min": 0.322,
+        "max": 0.664,
+        "net_change": 0.009,
+        "total_movement": 31.439,
+        "direction": "stable"
+      },
+      "exploration": {
+        "start": 0.763,
+        "end": 0.726,
+        "min": 0.34,
+        "max": 0.87,
+        "net_change": -0.038,
+        "total_movement": 44.735,
+        "direction": "down"
+      },
+      "memory": {
+        "start": 0.098,
+        "end": 0.114,
+        "min": 0.056,
+        "max": 0.361,
+        "net_change": 0.016,
+        "total_movement": 53.676,
+        "direction": "up"
+      },
+      "brightness_global": {
+        "start": 0.811,
+        "end": 0.816,
+        "min": 0.781,
+        "max": 1.608,
+        "net_change": 0.006,
+        "total_movement": 44.188,
+        "direction": "stable"
+      },
+      "speed_global": {
+        "start": 0.497,
+        "end": 0.513,
+        "min": 0.407,
+        "max": 0.949,
+        "net_change": 0.015,
+        "total_movement": 37.443,
+        "direction": "up"
+      },
+      "pulse_global": {
+        "start": 0.597,
+        "end": 0.615,
+        "min": 0.548,
+        "max": 1.091,
+        "net_change": 0.018,
+        "total_movement": 37.444,
+        "direction": "up"
+      },
+      "follow_speed_global": {
+        "start": 0.708,
+        "end": 0.695,
+        "min": 0.661,
+        "max": 0.836,
+        "net_change": -0.012,
+        "total_movement": 35.174,
+        "direction": "down"
+      },
+      "dwell_influence": {
+        "start": 0.253,
+        "end": 0.338,
+        "min": 0.198,
+        "max": 0.677,
+        "net_change": 0.085,
+        "total_movement": 43.578,
+        "direction": "up"
+      },
+      "idle_trend_weight": {
+        "start": 0.963,
+        "end": 0.929,
+        "min": 0.686,
+        "max": 1.001,
+        "net_change": -0.034,
+        "total_movement": 54.635,
+        "direction": "down"
+      }
+    },
+    "hourly_activity": {
+      "0": {
+        "adjustments": 525,
+        "avg_short_activity": 0.033,
+        "avg_energy": 0.233,
+        "avg_aggression": 0.163
+      },
+      "1": {
+        "adjustments": 293,
+        "avg_short_activity": 0.034,
+        "avg_energy": 0.228,
+        "avg_aggression": 0.042
+      },
+      "2": {
+        "adjustments": 199,
+        "avg_short_activity": 0.012,
+        "avg_energy": 0.176,
+        "avg_aggression": 0.065
+      },
+      "3": {
+        "adjustments": 393,
+        "avg_short_activity": 0.01,
+        "avg_energy": 0.17,
+        "avg_aggression": 0.185
+      },
+      "4": {
+        "adjustments": 415,
+        "avg_short_activity": 0.018,
+        "avg_energy": 0.189,
+        "avg_aggression": 0.115
+      },
+      "5": {
+        "adjustments": 670,
+        "avg_short_activity": 0.027,
+        "avg_energy": 0.209,
+        "avg_aggression": 0.126
+      },
+      "6": {
+        "adjustments": 690,
+        "avg_short_activity": 0.055,
+        "avg_energy": 0.269,
+        "avg_aggression": 0.066
+      },
+      "7": {
+        "adjustments": 715,
+        "avg_short_activity": 0.119,
+        "avg_energy": 0.349,
+        "avg_aggression": 0.052
+      },
+      "8": {
+        "adjustments": 691,
+        "avg_short_activity": 0.234,
+        "avg_energy": 0.454,
+        "avg_aggression": 0.018
+      },
+      "9": {
+        "adjustments": 682,
+        "avg_short_activity": 0.216,
+        "avg_energy": 0.456,
+        "avg_aggression": 0.02
+      },
+      "10": {
+        "adjustments": 713,
+        "avg_short_activity": 0.161,
+        "avg_energy": 0.405,
+        "avg_aggression": 0.037
+      },
+      "11": {
+        "adjustments": 713,
+        "avg_short_activity": 0.192,
+        "avg_energy": 0.426,
+        "avg_aggression": 0.027
+      },
+      "12": {
+        "adjustments": 708,
+        "avg_short_activity": 0.241,
+        "avg_energy": 0.467,
+        "avg_aggression": 0.033
+      },
+      "13": {
+        "adjustments": 709,
+        "avg_short_activity": 0.209,
+        "avg_energy": 0.448,
+        "avg_aggression": 0.026
+      },
+      "14": {
+        "adjustments": 710,
+        "avg_short_activity": 0.209,
+        "avg_energy": 0.436,
+        "avg_aggression": 0.028
+      },
+      "15": {
+        "adjustments": 672,
+        "avg_short_activity": 0.299,
+        "avg_energy": 0.502,
+        "avg_aggression": 0.031
+      },
+      "16": {
+        "adjustments": 636,
+        "avg_short_activity": 0.359,
+        "avg_energy": 0.547,
+        "avg_aggression": 0.036
+      },
+      "17": {
+        "adjustments": 630,
+        "avg_short_activity": 0.349,
+        "avg_energy": 0.549,
+        "avg_aggression": 0.022
+      },
+      "18": {
+        "adjustments": 685,
+        "avg_short_activity": 0.257,
+        "avg_energy": 0.483,
+        "avg_aggression": 0.024
+      },
+      "19": {
+        "adjustments": 706,
+        "avg_short_activity": 0.162,
+        "avg_energy": 0.408,
+        "avg_aggression": 0.018
+      },
+      "20": {
+        "adjustments": 712,
+        "avg_short_activity": 0.157,
+        "avg_energy": 0.394,
+        "avg_aggression": 0.024
+      },
+      "21": {
+        "adjustments": 713,
+        "avg_short_activity": 0.179,
+        "avg_energy": 0.405,
+        "avg_aggression": 0.025
+      },
+      "22": {
+        "adjustments": 712,
+        "avg_short_activity": 0.156,
+        "avg_energy": 0.387,
+        "avg_aggression": 0.02
+      },
+      "23": {
+        "adjustments": 701,
+        "avg_short_activity": 0.106,
+        "avg_energy": 0.333,
+        "avg_aggression": 0.062
+      }
+    },
+    "most_tuned_params": [
+      "idle_trend_weight",
+      "memory",
+      "exploration",
+      "brightness_global",
+      "dwell_influence"
+    ],
+    "strategy_summary": "Idle Trend Weight decreased 0.96 \u2192 0.93 (range 0.69\u20131.00); Memory increased 0.10 \u2192 0.11 (range 0.06\u20130.36); Exploration decreased 0.76 \u2192 0.73 (range 0.34\u20130.87); Brightness Global explored around 0.82 (range 0.78\u20131.61); Dwell Influence increased 0.25 \u2192 0.34 (range 0.20\u20130.68)"
+  }
+}

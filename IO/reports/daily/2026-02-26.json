@@ -1,0 +1,513 @@
+{
+  "date": "2026-02-26",
+  "generated_at": "2026-02-27T00:01:33.779741",
+  "summary": {
+    "total_unique_people": 16602,
+    "total_active_zone_visits": 4217,
+    "total_passive_zone_count": 437110,
+    "overall_avg_speed": 3124.6
+  },
+  "peak_times": {
+    "peak_hour": 16,
+    "peak_hour_count": 2556,
+    "quietest_hour": 1,
+    "quietest_hour_count": 2
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.23
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 64,
+      "active_count": 13,
+      "passive_count": 1600,
+      "avg_speed": 957.5,
+      "flow_ltr": 840,
+      "flow_rtl": 493
+    },
+    {
+      "hour": 1,
+      "total_people": 2,
+      "active_count": 0,
+      "passive_count": 82,
+      "avg_speed": 1758.9,
+      "flow_ltr": 0,
+      "flow_rtl": 77
+    },
+    {
+      "hour": 2,
+      "total_people": 13,
+      "active_count": 0,
+      "passive_count": 291,
+      "avg_speed": 625.8,
+      "flow_ltr": 268,
+      "flow_rtl": 4
+    },
+    {
+      "hour": 3,
+      "total_people": 8,
+      "active_count": 0,
+      "passive_count": 306,
+      "avg_speed": 796.9,
+      "flow_ltr": 151,
+      "flow_rtl": 118
+    },
+    {
+      "hour": 4,
+      "total_people": 8,
+      "active_count": 0,
+      "passive_count": 147,
+      "avg_speed": 1083.9,
+      "flow_ltr": 0,
+      "flow_rtl": 119
+    },
+    {
+      "hour": 5,
+      "total_people": 82,
+      "active_count": 0,
+      "passive_count": 1913,
+      "avg_speed": 1049.4,
+      "flow_ltr": 828,
+      "flow_rtl": 773
+    },
+    {
+      "hour": 6,
+      "total_people": 173,
+      "active_count": 0,
+      "passive_count": 4550,
+      "avg_speed": 1025.7,
+      "flow_ltr": 1698,
+      "flow_rtl": 2135
+    },
+    {
+      "hour": 7,
+      "total_people": 495,
+      "active_count": 49,
+      "passive_count": 14932,
+      "avg_speed": 1182.0,
+      "flow_ltr": 3979,
+      "flow_rtl": 9151
+    },
+    {
+      "hour": 8,
+      "total_people": 1399,
+      "active_count": 296,
+      "passive_count": 40349,
+      "avg_speed": 1267.2,
+      "flow_ltr": 11435,
+      "flow_rtl": 24247
+    },
+    {
+      "hour": 9,
+      "total_people": 1086,
+      "active_count": 182,
+      "passive_count": 32047,
+      "avg_speed": 1563.2,
+      "flow_ltr": 10908,
+      "flow_rtl": 16682
+    },
+    {
+      "hour": 10,
+      "total_people": 626,
+      "active_count": 115,
+      "passive_count": 17114,
+      "avg_speed": 1738.6,
+      "flow_ltr": 7211,
+      "flow_rtl": 7359
+    },
+    {
+      "hour": 11,
+      "total_people": 746,
+      "active_count": 1267,
+      "passive_count": 20520,
+      "avg_speed": 1734.3,
+      "flow_ltr": 9320,
+      "flow_rtl": 7450
+    },
+    {
+      "hour": 12,
+      "total_people": 936,
+      "active_count": 351,
+      "passive_count": 23541,
+      "avg_speed": 2398.8,
+      "flow_ltr": 10822,
+      "flow_rtl": 9239
+    },
+    {
+      "hour": 13,
+      "total_people": 917,
+      "active_count": 139,
+      "passive_count": 23520,
+      "avg_speed": 2609.1,
+      "flow_ltr": 12393,
+      "flow_rtl": 7838
+    },
+    {
+      "hour": 14,
+      "total_people": 727,
+      "active_count": 108,
+      "passive_count": 19162,
+      "avg_speed": 3080.1,
+      "flow_ltr": 10192,
+      "flow_rtl": 6270
+    },
+    {
+      "hour": 15,
+      "total_people": 1400,
+      "active_count": 176,
+      "passive_count": 33634,
+      "avg_speed": 3259.9,
+      "flow_ltr": 22435,
+      "flow_rtl": 6634
+    },
+    {
+      "hour": 16,
+      "total_people": 2556,
+      "active_count": 317,
+      "passive_count": 63936,
+      "avg_speed": 3643.5,
+      "flow_ltr": 43054,
+      "flow_rtl": 11835
+    },
+    {
+      "hour": 17,
+      "total_people": 2366,
+      "active_count": 641,
+      "passive_count": 60843,
+      "avg_speed": 4444.4,
+      "flow_ltr": 37557,
+      "flow_rtl": 14754
+    },
+    {
+      "hour": 18,
+      "total_people": 1032,
+      "active_count": 162,
+      "passive_count": 26311,
+      "avg_speed": 5928.7,
+      "flow_ltr": 15944,
+      "flow_rtl": 6657
+    },
+    {
+      "hour": 19,
+      "total_people": 607,
+      "active_count": 241,
+      "passive_count": 16129,
+      "avg_speed": 6191.2,
+      "flow_ltr": 8803,
+      "flow_rtl": 4924
+    },
+    {
+      "hour": 20,
+      "total_people": 461,
+      "active_count": 75,
+      "passive_count": 12675,
+      "avg_speed": 7028.6,
+      "flow_ltr": 8056,
+      "flow_rtl": 2755
+    },
+    {
+      "hour": 21,
+      "total_people": 374,
+      "active_count": 19,
+      "passive_count": 9856,
+      "avg_speed": 7033.5,
+      "flow_ltr": 6094,
+      "flow_rtl": 2265
+    },
+    {
+      "hour": 22,
+      "total_people": 358,
+      "active_count": 66,
+      "passive_count": 9372,
+      "avg_speed": 6907.5,
+      "flow_ltr": 5657,
+      "flow_rtl": 2251
+    },
+    {
+      "hour": 23,
+      "total_people": 167,
+      "active_count": 0,
+      "passive_count": 4280,
+      "avg_speed": 7681.5,
+      "flow_ltr": 2568,
+      "flow_rtl": 1131
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "engaged": 0.107,
+      "flow": 0.414,
+      "idle": 0.479
+    },
+    "position_entropy": 0.148
+  },
+  "auto_tuning": {
+    "total_adjustments": 13961,
+    "param_journeys": {
+      "responsiveness": {
+        "start": 0.455,
+        "end": 0.421,
+        "min": 0.379,
+        "max": 0.695,
+        "net_change": -0.034,
+        "total_movement": 30.025,
+        "direction": "down"
+      },
+      "energy": {
+        "start": 0.323,
+        "end": 0.307,
+        "min": 0.3,
+        "max": 0.632,
+        "net_change": -0.015,
+        "total_movement": 29.17,
+        "direction": "down"
+      },
+      "attention_span": {
+        "start": 0.577,
+        "end": 0.591,
+        "min": 0.368,
+        "max": 0.627,
+        "net_change": 0.014,
+        "total_movement": 30.599,
+        "direction": "up"
+      },
+      "sociability": {
+        "start": 0.376,
+        "end": 0.367,
+        "min": 0.325,
+        "max": 0.657,
+        "net_change": -0.01,
+        "total_movement": 30.719,
+        "direction": "stable"
+      },
+      "exploration": {
+        "start": 0.761,
+        "end": 0.763,
+        "min": 0.325,
+        "max": 0.869,
+        "net_change": 0.002,
+        "total_movement": 43.573,
+        "direction": "stable"
+      },
+      "memory": {
+        "start": 0.095,
+        "end": 0.098,
+        "min": 0.057,
+        "max": 0.374,
+        "net_change": 0.003,
+        "total_movement": 47.68,
+        "direction": "stable"
+      },
+      "brightness_global": {
+        "start": 0.724,
+        "end": 0.811,
+        "min": 0.662,
+        "max": 1.618,
+        "net_change": 0.087,
+        "total_movement": 41.003,
+        "direction": "up"
+      },
+      "speed_global": {
+        "start": 0.451,
+        "end": 0.497,
+        "min": 0.421,
+        "max": 1.049,
+        "net_change": 0.047,
+        "total_movement": 36.19,
+        "direction": "up"
+      },
+      "pulse_global": {
+        "start": 0.529,
+        "end": 0.597,
+        "min": 0.501,
+        "max": 1.104,
+        "net_change": 0.068,
+        "total_movement": 37.186,
+        "direction": "up"
+      },
+      "follow_speed_global": {
+        "start": 0.747,
+        "end": 0.708,
+        "min": 0.662,
+        "max": 0.836,
+        "net_change": -0.039,
+        "total_movement": 32.236,
+        "direction": "down"
+      },
+      "dwell_influence": {
+        "start": 0.249,
+        "end": 0.253,
+        "min": 0.198,
+        "max": 0.71,
+        "net_change": 0.003,
+        "total_movement": 40.401,
+        "direction": "stable"
+      },
+      "idle_trend_weight": {
+        "start": 0.924,
+        "end": 0.963,
+        "min": 0.675,
+        "max": 0.998,
+        "net_change": 0.039,
+        "total_movement": 49.291,
+        "direction": "up"
+      }
+    },
+    "hourly_activity": {
+      "0": {
+        "adjustments": 640,
+        "avg_short_activity": 0.034,
+        "avg_energy": 0.228,
+        "avg_aggression": 0.045
+      },
+      "1": {
+        "adjustments": 79,
+        "avg_short_activity": 0.016,
+        "avg_energy": 0.183,
+        "avg_aggression": 0.173
+      },
+      "2": {
+        "adjustments": 104,
+        "avg_short_activity": 0.03,
+        "avg_energy": 0.2,
+        "avg_aggression": 0.2
+      },
+      "3": {
+        "adjustments": 128,
+        "avg_short_activity": 0.026,
+        "avg_energy": 0.2,
+        "avg_aggression": 0.2
+      },
+      "4": {
+        "adjustments": 122,
+        "avg_short_activity": 0.014,
+        "avg_energy": 0.189,
+        "avg_aggression": 0.2
+      },
+      "5": {
+        "adjustments": 560,
+        "avg_short_activity": 0.035,
+        "avg_energy": 0.227,
+        "avg_aggression": 0.2
+      },
+      "6": {
+        "adjustments": 710,
+        "avg_short_activity": 0.061,
+        "avg_energy": 0.283,
+        "avg_aggression": 0.098
+      },
+      "7": {
+        "adjustments": 712,
+        "avg_short_activity": 0.163,
+        "avg_energy": 0.386,
+        "avg_aggression": 0.054
+      },
+      "8": {
+        "adjustments": 648,
+        "avg_short_activity": 0.328,
+        "avg_energy": 0.518,
+        "avg_aggression": 0.016
+      },
+      "9": {
+        "adjustments": 663,
+        "avg_short_activity": 0.295,
+        "avg_energy": 0.516,
+        "avg_aggression": 0.026
+      },
+      "10": {
+        "adjustments": 706,
+        "avg_short_activity": 0.196,
+        "avg_energy": 0.438,
+        "avg_aggression": 0.049
+      },
+      "11": {
+        "adjustments": 703,
+        "avg_short_activity": 0.22,
+        "avg_energy": 0.444,
+        "avg_aggression": 0.043
+      },
+      "12": {
+        "adjustments": 702,
+        "avg_short_activity": 0.24,
+        "avg_energy": 0.472,
+        "avg_aggression": 0.035
+      },
+      "13": {
+        "adjustments": 704,
+        "avg_short_activity": 0.243,
+        "avg_energy": 0.465,
+        "avg_aggression": 0.02
+      },
+      "14": {
+        "adjustments": 710,
+        "avg_short_activity": 0.211,
+        "avg_energy": 0.451,
+        "avg_aggression": 0.019
+      },
+      "15": {
+        "adjustments": 672,
+        "avg_short_activity": 0.291,
+        "avg_energy": 0.493,
+        "avg_aggression": 0.029
+      },
+      "16": {
+        "adjustments": 599,
+        "avg_short_activity": 0.433,
+        "avg_energy": 0.592,
+        "avg_aggression": 0.026
+      },
+      "17": {
+        "adjustments": 594,
+        "avg_short_activity": 0.431,
+        "avg_energy": 0.609,
+        "avg_aggression": 0.023
+      },
+      "18": {
+        "adjustments": 682,
+        "avg_short_activity": 0.256,
+        "avg_energy": 0.488,
+        "avg_aggression": 0.02
+      },
+      "19": {
+        "adjustments": 714,
+        "avg_short_activity": 0.19,
+        "avg_energy": 0.426,
+        "avg_aggression": 0.025
+      },
+      "20": {
+        "adjustments": 713,
+        "avg_short_activity": 0.156,
+        "avg_energy": 0.387,
+        "avg_aggression": 0.027
+      },
+      "21": {
+        "adjustments": 705,
+        "avg_short_activity": 0.124,
+        "avg_energy": 0.376,
+        "avg_aggression": 0.043
+      },
+      "22": {
+        "adjustments": 707,
+        "avg_short_activity": 0.118,
+        "avg_energy": 0.356,
+        "avg_aggression": 0.069
+      },
+      "23": {
+        "adjustments": 684,
+        "avg_short_activity": 0.064,
+        "avg_energy": 0.278,
+        "avg_aggression": 0.037
+      }
+    },
+    "most_tuned_params": [
+      "idle_trend_weight",
+      "memory",
+      "exploration",
+      "brightness_global",
+      "dwell_influence"
+    ],
+    "strategy_summary": "Idle Trend Weight increased 0.92 \u2192 0.96 (range 0.68\u20131.00); Memory explored around 0.10 (range 0.06\u20130.37); Exploration explored around 0.76 (range 0.33\u20130.87); Brightness Global increased 0.72 \u2192 0.81 (range 0.66\u20131.62); Dwell Influence explored around 0.25 (range 0.20\u20130.71)"
+  }
+}
