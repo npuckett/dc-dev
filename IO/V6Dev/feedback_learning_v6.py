@@ -175,11 +175,11 @@ class FeedbackLearningV6:
     def __init__(
         self,
         persist_dir: str = None,
-        learning_rate: float = 0.03,
+        learning_rate: float = 0.05,       # raised from 0.03: learn faster from rare events
         negative_rate: float = 0.5,
         weight_min: float = 0.4,
         weight_max: float = 2.5,
-        hourly_decay: float = 0.997,
+        hourly_decay: float = 0.993,       # lowered from 0.997: forget stale quiet-hour weights faster
     ):
         if persist_dir is None:
             persist_dir = os.path.dirname(os.path.abspath(__file__))
@@ -198,6 +198,10 @@ class FeedbackLearningV6:
         self._recent_engagements: List[FeedbackContext] = []
         self._recent_non_engagements: List[FeedbackContext] = []
         self._max_recent = 100
+
+        # Quiet mode tracking: time since last engagement
+        self._last_engagement_time: float = time.time()
+        self._quiet_mode_threshold: float = 300.0  # 5 minutes
 
         # Hourly counters
         self._engagements_by_hour: Dict[int, int] = {h: 0 for h in range(24)}
@@ -243,6 +247,7 @@ class FeedbackLearningV6:
             self._recent_engagements.pop(0)
         self._engagements_by_hour[ctx.hour % 24] = \
             self._engagements_by_hour.get(ctx.hour % 24, 0) + 1
+        self._last_engagement_time = time.time()
 
     def record_non_engagement(self, ctx: FeedbackContext):
         """Record a failed engagement attempt (passive person left).
@@ -323,6 +328,17 @@ class FeedbackLearningV6:
         # Falloff width (X scale): [0.9, 1.3]
         width_mult = 0.7 + avg_weight * 0.25
         width_mult = max(0.9, min(1.3, width_mult))
+
+        # Quiet mode boost: if no engagement for > 5 minutes,
+        # increase brightness and pulse to be more visible
+        quiet_boost = 1.0
+        time_since_engagement = time.time() - self._last_engagement_time
+        if time_since_engagement > self._quiet_mode_threshold:
+            # Ramp up over the next 10 minutes: 1.0 → 1.2
+            quiet_ramp = min(1.0, (time_since_engagement - self._quiet_mode_threshold) / 600.0)
+            quiet_boost = 1.0 + quiet_ramp * 0.2
+            brightness_mult *= quiet_boost
+            pulse_mult *= min(1.4, pulse_mult * (1.0 + quiet_ramp * 0.1))
 
         return FeedbackModifiers(
             brightness_mult=brightness_mult,

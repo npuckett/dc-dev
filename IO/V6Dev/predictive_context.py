@@ -72,16 +72,40 @@ class DailyProfile:
 
 
 # ---------------------------------------------------------------------------
-# Regime thresholds (people per hour)
+# Regime thresholds (active-zone people per hour)
+# Calibrated for passive-heavy sidewalk installations where most
+# pedestrians walk through the passive zone without engaging.
+# Uses active-zone entries, not total pedestrian count.
 # ---------------------------------------------------------------------------
 
 REGIME_THRESHOLDS = {
-    'dead':    5,
-    'trickle': 50,
-    'steady':  500,
-    'rush':    2000,
+    'dead':    2,      # <2 active-zone entries/hr
+    'trickle': 15,     # 2-15 active-zone entries/hr
+    'steady':  100,    # 15-100 active-zone entries/hr
+    'rush':    500,    # 100-500 active-zone entries/hr
     # above 'rush' = 'event' if > 2σ above predicted, else still 'rush'
 }
+
+# V5 time-of-day anchor profiles for cold-start seeding.
+# Used when report history < 14 days so the system has reasonable
+# home values to revert toward instead of drifting to 0.5 defaults.
+V5_TIME_PROFILE_ANCHORS = {
+    0:  {'responsiveness': 0.35, 'energy': 0.30, 'brightness_global': 0.70,
+         'speed_global': 0.50, 'pulse_global': 0.50, 'exploration': 0.40},
+    6:  {'responsiveness': 0.45, 'energy': 0.45, 'brightness_global': 0.85,
+         'speed_global': 0.60, 'pulse_global': 0.55, 'exploration': 0.50},
+    10: {'responsiveness': 0.55, 'energy': 0.55, 'brightness_global': 1.00,
+         'speed_global': 0.70, 'pulse_global': 0.65, 'exploration': 0.55},
+    14: {'responsiveness': 0.60, 'energy': 0.58, 'brightness_global': 1.10,
+         'speed_global': 0.75, 'pulse_global': 0.70, 'exploration': 0.55},
+    18: {'responsiveness': 0.55, 'energy': 0.52, 'brightness_global': 1.00,
+         'speed_global': 0.65, 'pulse_global': 0.60, 'exploration': 0.50},
+    22: {'responsiveness': 0.40, 'energy': 0.35, 'brightness_global': 0.75,
+         'speed_global': 0.55, 'pulse_global': 0.50, 'exploration': 0.45},
+}
+
+# Minimum confidence floor during cold-start period (< 14 days of reports)
+COLD_START_MIN_CONFIDENCE = 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +137,9 @@ class PredictiveContextEngine:
 
         # Current live anomaly factor (updated externally each cycle)
         self._current_anomaly: float = 0.0
+
+        # Use active-zone counts for regime classification
+        self._use_active_zone_counts: bool = True
 
     # ------------------------------------------------------------------
     # Loading
@@ -204,9 +231,19 @@ class PredictiveContextEngine:
     # ------------------------------------------------------------------
 
     def _build_prediction_cache(self):
-        """Pre-compute weighted predictions for all (hour, dow) pairs."""
+        """Pre-compute weighted predictions for all (hour, dow) pairs.
+
+        Uses active-zone counts for regime classification (not total people)
+        to properly handle passive-heavy sidewalk installations.
+        Seeds with V5 time profiles when history < 14 days.
+        """
         self._predictions.clear()
+        is_cold_start = len(self._profiles) < 14
+
         if not self._profiles:
+            # No data at all — seed from V5 time profiles
+            if is_cold_start:
+                self._seed_from_v5_profiles()
             return
 
         # Recency weight: newest profile = 1.0, oldest = 0.3
@@ -237,7 +274,9 @@ class PredictiveContextEngine:
 
                     w = recency_w * dow_w
 
-                    count = p.hourly_people.get(hour, 0)
+                    # Use active-zone count for regime classification
+                    active_count = p.hourly_active.get(hour, 0)
+                    count = active_count if self._use_active_zone_counts else p.hourly_people.get(hour, 0)
                     people_vals.append((w, count))
 
                     active = p.hourly_active.get(hour, 0)
@@ -268,8 +307,11 @@ class PredictiveContextEngine:
                 # Confidence: based on sample count and recency
                 n_samples = len(people_vals)
                 confidence = min(1.0, n_samples / 10.0)  # 10+ samples → full confidence
+                # Cold-start: ensure minimum confidence so reversion targets something useful
+                if is_cold_start:
+                    confidence = max(COLD_START_MIN_CONFIDENCE, confidence)
 
-                # Regime classification
+                # Regime classification (uses active-zone counts)
                 regime = self._classify_regime(expected_people, stddev_people)
 
                 self._predictions[(hour, dow)] = HourlyPrediction(
@@ -282,6 +324,10 @@ class PredictiveContextEngine:
                     regime=regime,
                     stddev_people=stddev_people,
                 )
+
+        # During cold start, fill any gaps from V5 time profiles
+        if is_cold_start:
+            self._seed_from_v5_profiles()
 
     # ------------------------------------------------------------------
     # Public query API
@@ -340,7 +386,8 @@ class PredictiveContextEngine:
     def get_budget_multiplier(self, hour: int = None, day_of_week: int = None) -> float:
         """Context-dependent budget multiplier.
 
-        During predicted peak hours → 2×.  During dead hours → 0.5×.
+        INVERTED for dead/trickle: on a quiet sidewalk, the system should
+        be MORE expressive to attract attention, not frozen.
         During anomalies → 3× to allow rapid adaptation.
         """
         ctx = self.get_context(hour, day_of_week)
@@ -348,9 +395,12 @@ class PredictiveContextEngine:
         if ctx.anomaly_factor > 2.0:
             return 3.0
 
+        # Inverted logic for low-traffic regimes:
+        # Dead → 1.5× (be creative, try things)
+        # Trickle → 1.25× (some headroom for experimentation)
         regime_mults = {
-            'dead': 0.5,
-            'trickle': 0.75,
+            'dead': 1.5,
+            'trickle': 1.25,
             'steady': 1.0,
             'rush': 1.5,
             'event': 3.0,
@@ -360,12 +410,13 @@ class PredictiveContextEngine:
     def get_tune_interval(self, hour: int = None, day_of_week: int = None) -> float:
         """Recommended auto-tune interval in seconds.
 
-        Dead hours → 30s (reduce churn).  Rush → 3s (fast adaptation).
+        Dead/trickle intervals reduced from V6 original (30/15s) to allow
+        faster exploration during quiet periods.
         """
         ctx = self.get_context(hour, day_of_week)
         regime_intervals = {
-            'dead': 30.0,
-            'trickle': 15.0,
+            'dead': 15.0,      # was 30s — still explore during quiet
+            'trickle': 8.0,    # was 15s — faster adaptation
             'steady': 5.0,
             'rush': 3.0,
             'event': 2.0,
@@ -386,6 +437,63 @@ class PredictiveContextEngine:
 
         # Scale with confidence: low confidence → weaker reversion
         return 0.5 + 0.5 * ctx.confidence
+
+    # ------------------------------------------------------------------
+    # Cold-start seeding from V5 time profiles
+    # ------------------------------------------------------------------
+
+    def _seed_from_v5_profiles(self):
+        """Seed prediction cache with V5 time-of-day anchor profiles.
+
+        Used when report history < 14 days to provide reasonable home
+        values instead of defaulting everything to 0.5.
+        """
+        anchor_hours = sorted(V5_TIME_PROFILE_ANCHORS.keys())
+        for hour in range(24):
+            for dow in range(7):
+                if (hour, dow) in self._predictions:
+                    continue  # don't override existing data
+
+                # Interpolate V5 anchor values for this hour
+                params = self._interpolate_v5_anchors(hour, anchor_hours)
+
+                self._predictions[(hour, dow)] = HourlyPrediction(
+                    hour=hour,
+                    expected_people=0,
+                    expected_active_ratio=0.02,
+                    expected_flow_balance=0.0,
+                    optimal_params=params,
+                    confidence=COLD_START_MIN_CONFIDENCE,
+                    regime='trickle',
+                    stddev_people=0.0,
+                )
+
+    @staticmethod
+    def _interpolate_v5_anchors(hour: int, anchor_hours: List[int]) -> Dict[str, float]:
+        """Linearly interpolate V5 time profile anchors for a given hour."""
+        # Find surrounding anchors
+        lower_h = anchor_hours[0]
+        upper_h = anchor_hours[-1]
+        for i, h in enumerate(anchor_hours):
+            if h <= hour:
+                lower_h = h
+            if h >= hour:
+                upper_h = h
+                break
+
+        if lower_h == upper_h:
+            return dict(V5_TIME_PROFILE_ANCHORS[lower_h])
+
+        lower_vals = V5_TIME_PROFILE_ANCHORS[lower_h]
+        upper_vals = V5_TIME_PROFILE_ANCHORS[upper_h]
+        t = (hour - lower_h) / max(1, upper_h - lower_h)
+
+        result = {}
+        for key in lower_vals:
+            lo = lower_vals[key]
+            hi = upper_vals.get(key, lo)
+            result[key] = lo + (hi - lo) * t
+        return result
 
     # ------------------------------------------------------------------
     # Retrospective analysis  (called after daily report generation)

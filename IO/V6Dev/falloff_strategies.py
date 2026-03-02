@@ -94,6 +94,15 @@ MODE_FALLOFF_DEFAULTS: Dict[str, FalloffShape] = {
         rotation=0.0,
         radius_mult=1.0,
     ),
+    # idle_beacon: used when idle for extended periods (>60s)
+    # Wider, taller, higher-radius to maximize visual presence on sidewalk
+    'idle_beacon': FalloffShape(
+        scale_x=1.6,   # extra wide — cast light into passive zone
+        scale_y=1.2,   # taller — more vertical presence
+        scale_z=1.4,   # deeper — reach further into the sidewalk
+        rotation=0.0,
+        radius_mult=1.15,  # larger reach radius
+    ),
     'engaged': FalloffShape(
         scale_x=0.8,   # narrower — focusing on the person
         scale_y=1.3,   # taller — enveloping vertically
@@ -500,7 +509,10 @@ class FalloffStrategyManager:
 
         if mode == 'idle':
             # BEACON when alone and trying to attract
-            if active_count == 0 and energy > 0.4:
+            # Lowered energy threshold from 0.4 to 0.3 — on this passive-heavy
+            # installation, energy often sits near the floor, but we still
+            # want BEACON to fire to attract attention
+            if active_count == 0 and energy > 0.3:
                 return V6Gesture.BEACON
             return None
 

@@ -367,3 +367,84 @@ from V6Dev.smart_autotuner import SmartAutoTuner
 from V6Dev.mode_intelligence import ModeIntelligence
 from V6Dev.modifier_resolver import ModifierResolver
 ```
+
+---
+
+## V6.1 Calibration Changes (2026-03-01)
+
+### Problem Diagnosis
+
+Analysis of daily reports (Feb 25 – Mar 1) revealed a **passivity spiral**:
+- `idle_trend_weight` climbed from 0.924 → 0.995
+- `energy` hit floor at 0.301
+- Idle mode share: 30.2% → 71.2%
+- Engaged mode share: 15.4% → 4.4%
+- Active:passive ratio: 1:11 → 1:57
+
+Root cause: V6 was designed for a high-engagement installation but deployed on a
+passive-heavy sidewalk (7k–16k people/day, active:passive ratio typically 1:50 to 1:100).
+The engagement score was near-zero, the autotuner had no gradient signal, and dead-regime
+logic pushed everything DOWN — exactly the wrong direction for attracting attention.
+
+### Changes by File
+
+#### `engagement_score.py`
+- **Weights rebalanced**: conversion_rate 0.30→0.20, added passive_awareness (0.15) and proactive_reach (0.10), reduced return_visits 0.15→0.10, stability 0.10→0.05
+- **Conversion normalization**: 10%→3% (realistic for sidewalk)
+- **Smoothing window**: 12→8 (respond faster)
+- **Daytime score floor**: 0.15 minimum so gradient estimator always has signal
+- **New methods**: `record_gesture_attempt()`, `record_strategy_attempt()`, `record_mode_transition()`, `reset_proactive_counters()`
+
+#### `predictive_context.py`
+- **Regime thresholds**: Changed from total people to active-zone people: dead <2, trickle 2–15, steady 15–100, rush 100–500
+- **V5 cold-start seeding**: Added 6-anchor time profiles from V5 for bootstrapping when <14 days history
+- **Active-zone counting**: Uses `_use_active_zone_counts` flag instead of total count
+- **Dead-regime inverted**: budget multiplier 0.5×→1.5×, tune interval 30s→15s (dead = MORE tuning, not less)
+- **Trickle boost**: 0.75×→1.25×, interval 15s→8s
+
+#### `smart_autotuner.py`
+- **idle_trend_weight hard cap**: (0.0, 2.0)→(0.0, 0.75)
+- **Safe floor**: 0.10→0.20
+- **Gradient window**: 50→30
+- **Home values**: idle_trend_weight seeded at 0.50
+- **Dead regime multiplier**: 0.2→0.6
+- **Trickle boosts**: tripled (+0.005→+0.015) for brightness, exploration, energy
+- **Smoothed score window**: 12→8
+- **Anti-passivity block**: When idle >60s, pushes energy/responsiveness/sociability UP toward home+0.1, pushes idle_trend_weight DOWN when >0.65
+
+#### `modifier_resolver.py`
+- **Autotuner budget**: (0.30, 0.08)→(0.50, 0.12) — autotuner gets more room to make changes
+- **Context engine budget**: (0.60, 0.15)→(0.80, 0.20)
+- **Dead-regime context intents inverted**: brightness/exploration UP (+0.05), energy UP (+0.03) instead of all DOWN
+- **Trickle-regime intents added**: brightness/exploration UP (+0.03)
+
+#### `feedback_learning_v6.py`
+- **Learning rate**: 0.03→0.05 (learn faster from rare engagement events)
+- **Hourly decay**: 0.997→0.993 (forget stale quiet-hour weights faster)
+- **Quiet mode boost**: When no engagement for >5 minutes, ramps brightness ×1.0→1.2 and pulse over 10 minutes
+
+#### `mode_intelligence.py`
+- **Pre-transition score**: 0.55→0.40 (start blending earlier on passive installation)
+- **Distance weight**: 0.3→0.4 in candidate scoring (proximity is strongest engagement predictor)
+- **Passive-zone awareness**: People near active/passive boundary (z 250–283) get +0.10 bonus in candidate scoring
+
+#### `falloff_strategies.py`
+- **New `idle_beacon` mode shape**: scale_x=1.6, scale_y=1.2, scale_z=1.4, radius_mult=1.15 — maximum visual presence when idle for extended periods
+- **BEACON energy threshold**: 0.4→0.3 (fires more often when energy is low)
+
+#### `v6_integration.py`
+- **Active-zone count passthrough**: Context engine now receives active_zone_count instead of total
+- **Proactive counter wiring**: `scorer.record_gesture_attempt()` on person enter, `scorer.record_strategy_attempt()` on bandit selection
+- **`v6_health_check()`**: Runs every 5 minutes, checks idle_trend_weight, energy, autotuner budget, engagement score
+- **Passivity spiral detection**: In `on_daily_report()`, detects idle_trend_weight >0.85 AND energy <0.35, auto-resets to safe values (idle_trend_weight→0.50, energy→0.50+, responsiveness→0.50+)
+- **Passivity spiral warning**: Logged in periodic status line
+
+### Design Philosophy
+
+These changes follow three principles:
+
+1. **Dead ≠ Do Nothing**: On a passive-heavy sidewalk, dead/trickle periods are the majority. The system must be MORE expressive during these periods, not less. Visibility attracts attention.
+
+2. **Cap the Damage**: `idle_trend_weight` hard-capped at 0.75, with auto-reset at 0.85. This prevents the runaway loop where the system teaches itself to be invisible.
+
+3. **Always Have Signal**: A score floor of 0.15, faster decay, and active-zone counting ensure the gradient estimator always has something to work with — even during quiet hours.

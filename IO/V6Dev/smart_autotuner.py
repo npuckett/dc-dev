@@ -68,7 +68,7 @@ PARAM_RANGES: Dict[str, Tuple[float, float]] = {
     'pulse_global':       (0.3, 3.0),
     'follow_speed_global':(0.5, 3.0),
     'dwell_influence':    (0.0, 2.0),
-    'idle_trend_weight':  (0.0, 2.0),
+    'idle_trend_weight':  (0.0, 0.75),   # CAPPED: was 2.0 — prevents passivity spiral
 }
 
 # Safe floors (minimum values the tuner won't go below)
@@ -82,7 +82,7 @@ DEFAULT_SAFE_FLOORS: Dict[str, float] = {
     'speed_global': 0.35,
     'pulse_global': 0.35,
     'follow_speed_global': 0.60,
-    'idle_trend_weight': 0.10,
+    'idle_trend_weight': 0.20,  # raised: was 0.10 — prevent near-zero
 }
 
 # Personality params (increase with activity) vs output params (inverse adjust)
@@ -108,7 +108,7 @@ class TunerConfig:
     min_step_threshold: float = 0.002
 
     # Gradient estimation
-    gradient_window: int = 50        # samples for regression
+    gradient_window: int = 30        # reduced from 50 for faster learning
     gradient_learning_rate: float = 0.01
 
     # Cross-parameter detection
@@ -207,7 +207,10 @@ class SmartAutoTuner:
         self._last_correlation_time = 0.0
 
         # Home values (from context engine or overrides)
-        self._home_values: Dict[str, float] = {}
+        self._home_values: Dict[str, float] = {
+            # Default home for idle_trend_weight at 0.50 (prevents passivity spiral)
+            'idle_trend_weight': 0.50,
+        }
         self._safe_floors: Dict[str, float] = dict(DEFAULT_SAFE_FLOORS)
         self._caps: Dict[str, float] = {}
 
@@ -254,7 +257,7 @@ class SmartAutoTuner:
 
         # Compute engagement score
         snap = self.scorer.compute(behavior_status)
-        score = self.scorer.smoothed_score(window=12)
+        score = self.scorer.smoothed_score(window=8)
 
         # Get current param values
         current = self._get_values()
@@ -374,20 +377,22 @@ class SmartAutoTuner:
             deltas[name] = delta
 
         # Regime-specific adjustments (on top of gradient)
-        idle_trends = behavior_status.get('idle_trends', {})
+        idle_trends = behavior_status.get('idle_trends') or {}
         short_activity = idle_trends.get('short_activity', 0.0)
         aggression = behavior_status.get('aggression_level', 0.0)
 
         if regime == 'dead':
-            # During dead hours, minimize churn — only curiosity perturbations
+            # During dead hours, allow meaningful changes (was 0.2 — too frozen)
+            # On a quiet sidewalk, the system should still explore to attract
             for name in TUNABLE_PARAMS:
-                deltas[name] *= 0.2
+                deltas[name] *= 0.6
 
         elif regime == 'trickle':
             # Boost attention-seeking params when traffic is light
+            # Increased from +0.005 to +0.015 for faster response
             for name in ('brightness_global', 'exploration', 'energy'):
                 if short_activity < 0.1:
-                    deltas[name] += 0.005
+                    deltas[name] += 0.015
 
         elif regime == 'rush':
             # During rush, personality should rise to meet demand
@@ -416,6 +421,25 @@ class SmartAutoTuner:
         if damping < 1.0:
             for name in deltas:
                 deltas[name] *= damping
+
+        # Anti-passivity: when idle for extended periods, actively push
+        # engagement params UP to fight the self-reinforcing passivity spiral
+        current_mode = behavior_status.get('mode', 'idle')
+        idle_duration = behavior_status.get('idle_duration', 0.0)
+        if current_mode == 'idle' and idle_duration > 60.0:
+            # Push energy and responsiveness toward home+0.1
+            home = self._get_home_values()
+            for name in ('energy', 'responsiveness', 'sociability'):
+                home_val = home.get(name, 0.5)
+                current_val = self._get_values().get(name, 0.5)
+                target = min(home_val + 0.10, PARAM_RANGES.get(name, (0, 1))[1])
+                if current_val < target:
+                    push = min(0.005, (target - current_val) * 0.1)
+                    deltas[name] = deltas.get(name, 0) + push
+            # Also cap idle_trend_weight from climbing during long idle
+            itw = self._get_values().get('idle_trend_weight', 0.5)
+            if itw > 0.65:
+                deltas['idle_trend_weight'] = deltas.get('idle_trend_weight', 0) - 0.003
 
         # Cross-parameter linking: if two params are correlated and one
         # has a strong gradient, share the delta

@@ -143,12 +143,12 @@ class SourceBudget:
 
 
 DEFAULT_SOURCE_BUDGETS = {
-    'smart_autotuner':   SourceBudget(max_total_delta=0.30, max_per_param_delta=0.08),
+    'smart_autotuner':   SourceBudget(max_total_delta=0.50, max_per_param_delta=0.12),  # raised from 0.30/0.08
     'feedback_learning': SourceBudget(max_total_delta=0.40, max_per_param_delta=0.10),
     'strategy_bandit':   SourceBudget(max_total_delta=0.20, max_per_param_delta=0.06),
     'falloff_strategy':  SourceBudget(max_total_delta=0.50, max_per_param_delta=0.15),
     'mode_intelligence': SourceBudget(max_total_delta=0.25, max_per_param_delta=0.08),
-    'context_engine':    SourceBudget(max_total_delta=0.60, max_per_param_delta=0.15),
+    'context_engine':    SourceBudget(max_total_delta=0.80, max_per_param_delta=0.20),  # raised from 0.60/0.15
 }
 
 
@@ -489,17 +489,39 @@ class ModifierResolver:
         """Convert PredictiveContextEngine context → safety/regime intents."""
         intents = []
 
-        # If regime is 'dead', push outputs down to save energy
+        # If regime is 'dead', BOOST outputs to attract attention.
+        # On a passive-heavy sidewalk, quiet periods are opportunities
+        # to be more expressive, not to dim down.
         regime = getattr(context, 'regime', 'steady')
         if regime == 'dead':
-            for param in ('brightness_global', 'speed_global', 'pulse_global'):
+            for param in ('brightness_global', 'exploration'):
                 intents.append(ModifierIntent(
                     parameter=param,
-                    direction=Direction.DOWN,
+                    direction=Direction.UP,
                     strength=0.05,
                     source='context_engine',
                     priority=Priority.CONTEXT,
-                    confidence=0.9,
+                    confidence=0.8,
+                ))
+            # Gently push energy up too
+            intents.append(ModifierIntent(
+                parameter='energy',
+                direction=Direction.UP,
+                strength=0.03,
+                source='context_engine',
+                priority=Priority.CONTEXT,
+                confidence=0.7,
+            ))
+        elif regime == 'trickle':
+            # Moderate boost to be noticeable
+            for param in ('brightness_global', 'exploration'):
+                intents.append(ModifierIntent(
+                    parameter=param,
+                    direction=Direction.UP,
+                    strength=0.03,
+                    source='context_engine',
+                    priority=Priority.CONTEXT,
+                    confidence=0.7,
                 ))
         elif regime == 'event':
             # Anomalous event — boost responsiveness as context-level

@@ -125,8 +125,16 @@ class ModeIntelligence:
         self.min_stickiness: float = config.get('min_stickiness', 1.5)
 
         # -- Pre-transition thresholds --
-        self.pre_transition_score: float = config.get('pre_transition_score', 0.55)
+        # Lowered from 0.55: on a passive-heavy sidewalk fewer candidates
+        # reach high scores, so start blending earlier
+        self.pre_transition_score: float = config.get('pre_transition_score', 0.40)
         self.pre_transition_max_blend: float = config.get('pre_transition_max_blend', 0.40)
+
+        # -- Passive-zone awareness --
+        # People in the passive zone near the active boundary (z 250–283)
+        # get a small bonus since they're likely to cross into the active zone
+        self.passive_boundary_z_min: float = config.get('passive_boundary_z_min', 250.0)
+        self.passive_boundary_z_max: float = config.get('passive_boundary_z_max', 283.0)
 
         # -- Crowd clustering --
         self.cluster_distance_threshold: float = config.get('cluster_distance', 0.15)
@@ -324,9 +332,10 @@ class ModeIntelligence:
             # Composite score
             score = 0.0
 
-            # Distance factor (closer = higher)
+            # Distance factor (closer = higher) — raised weight from 0.3 to 0.4
+            # because physical proximity is the strongest engagement predictor
             if dist < 0.5:
-                score += 0.3 * (1.0 - dist / 0.5)
+                score += 0.4 * (1.0 - dist / 0.5)
 
             # Dwell factor (longer = higher)
             dwell_score = min(1.0, dwell / 15.0)  # saturates at 15s
@@ -341,6 +350,14 @@ class ModeIntelligence:
                 score += 0.15
             elif speed < 0.1:
                 score += 0.10
+
+            # Passive-zone boundary bonus: people near the active/passive
+            # boundary (z 250–283) are likely about to enter the active zone
+            pos = person.get('pos')
+            if pos and len(pos) >= 3:
+                z_val = pos[2] if len(pos) > 2 else 0
+                if self.passive_boundary_z_min <= z_val <= self.passive_boundary_z_max:
+                    score += 0.10  # near-boundary bonus
 
             # Familiarity bonus
             score_hist = self._candidate_scores.get(pid, [])

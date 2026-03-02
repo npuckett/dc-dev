@@ -32,15 +32,22 @@ if TYPE_CHECKING:
 
 @dataclass
 class ScoringWeights:
-    """Weights for each score component.  Must sum to 1.0."""
-    conversion_rate: float = 0.30
-    dwell_depth: float = 0.25
-    mode_diversity: float = 0.20
-    return_visits: float = 0.15
-    parameter_stability: float = 0.10
+    """Weights for each score component.  Must sum to 1.0.
+
+    Calibrated for passive-heavy sidewalk installations where most
+    pedestrians pass through without entering the active zone.
+    """
+    conversion_rate: float = 0.20      # lowered: active/total is typically 1-3%
+    dwell_depth: float = 0.25          # kept: valuable when it happens
+    mode_diversity: float = 0.15       # lowered slightly
+    passive_awareness: float = 0.15    # NEW: rewards flow detection & mode transitions
+    proactive_reach: float = 0.10      # NEW: rewards system expressiveness during quiet
+    return_visits: float = 0.10        # lowered: unreliable at scale
+    parameter_stability: float = 0.05  # lowered: less important than expressiveness
 
     def __post_init__(self):
         total = (self.conversion_rate + self.dwell_depth + self.mode_diversity
+                 + self.passive_awareness + self.proactive_reach
                  + self.return_visits + self.parameter_stability)
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"ScoringWeights must sum to 1.0, got {total:.3f}")
@@ -91,6 +98,15 @@ class EngagementScorer:
         # auto-tuner's own adjustment log; injected externally)
         self._last_param_stability: float = 1.0
 
+        # Proactive reach tracking: count of gestures/strategy attempts
+        # in the current scoring window (reset each cycle externally)
+        self._gesture_attempts: int = 0
+        self._strategy_attempts: int = 0
+        self._mode_transitions: int = 0
+
+        # Daytime score floor: ensures gradient estimator always has signal
+        self._daytime_floor: float = 0.15  # minimum score during 7am-11pm
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -124,8 +140,9 @@ class EngagementScorer:
         passive = behavior_status.get('passive_count', 0)
         total_obs = max(1, active + passive)
         conversion = active / total_obs
-        # Normalise: 10 % engagement maps to score 1.0 (above 10 % is bonus)
-        comps['conversion_rate'] = min(1.0, conversion / 0.10)
+        # Normalise: 3% engagement maps to score 1.0 (calibrated for
+        # passive-heavy sidewalk where typical active ratio is 1-3%)
+        comps['conversion_rate'] = min(1.0, conversion / 0.03)
         raw['active'] = active
         raw['passive'] = passive
         raw['conversion'] = conversion
@@ -181,15 +198,54 @@ class EngagementScorer:
 
         self._last_param_stability = comps['parameter_stability']
 
+        # --- 6. Passive awareness (V6.1 NEW) -----------------------------
+        # Rewards the system for detecting and responding to passive traffic
+        # even when people don't enter the active zone
+        flow_info = behavior_status.get('flow', {})
+        flow_strength = flow_info.get('strength', 0.0) if isinstance(flow_info, dict) else 0.0
+        mode = behavior_status.get('mode', 'idle')
+        passive_score = 0.0
+        # Flow detection: system is aware of pedestrian movement
+        if passive > 0:
+            passive_score += min(0.4, passive / 50.0)  # some passive traffic = awareness
+        # Flow strength: system is tracking directional movement
+        passive_score += min(0.3, flow_strength * 0.5)
+        # Mode variety: system is responding (not stuck in idle)
+        if mode != 'idle':
+            passive_score += 0.3
+        comps['passive_awareness'] = min(1.0, passive_score)
+        raw['flow_strength'] = flow_strength
+
+        # --- 7. Proactive reach (V6.1 NEW) --------------------------------
+        # Rewards the system for trying to attract attention during quiet periods
+        reach_score = 0.0
+        # Gesture attempts (injected externally via record_attempt())
+        reach_score += min(0.4, self._gesture_attempts * 0.1)
+        # Strategy attempts from bandit
+        reach_score += min(0.3, self._strategy_attempts * 0.1)
+        # Mode transitions show the system is actively adapting
+        reach_score += min(0.3, self._mode_transitions * 0.15)
+        comps['proactive_reach'] = min(1.0, reach_score)
+        raw['gesture_attempts'] = self._gesture_attempts
+        raw['strategy_attempts'] = self._strategy_attempts
+
         # --- Weighted sum ------------------------------------------------
         score = (
             self.w.conversion_rate     * comps['conversion_rate']
             + self.w.dwell_depth       * comps['dwell_depth']
             + self.w.mode_diversity    * comps['mode_diversity']
+            + self.w.passive_awareness * comps.get('passive_awareness', 0.0)
+            + self.w.proactive_reach   * comps.get('proactive_reach', 0.0)
             + self.w.return_visits     * comps['return_visits']
             + self.w.parameter_stability * comps['parameter_stability']
         )
         score = max(0.0, min(1.0, score))
+
+        # Daytime floor: ensure gradient estimator always has signal
+        # during operating hours (7am-11pm)
+        current_hour = time.localtime().tm_hour
+        if 7 <= current_hour <= 23:
+            score = max(self._daytime_floor, score)
 
         snap = EngagementSnapshot(
             timestamp=now,
@@ -202,10 +258,12 @@ class EngagementScorer:
             self._history.pop(0)
         return snap
 
-    def smoothed_score(self, window: int = 12) -> float:
+    def smoothed_score(self, window: int = 8) -> float:
         """Exponentially-weighted mean of the last *window* scores.
 
         Useful for the auto-tuner to avoid reacting to single-cycle noise.
+        Window reduced from 12 to 8 for faster responsiveness to brief
+        engagement events on quiet sidewalks.
         """
         if not self._history:
             return 0.5
@@ -219,6 +277,28 @@ class EngagementScorer:
             weighted += snap.score * w
             total_w += w
         return weighted / total_w
+
+    # ------------------------------------------------------------------
+    # Proactive tracking (call from integration layer)
+    # ------------------------------------------------------------------
+
+    def record_gesture_attempt(self):
+        """Record that a gesture was attempted (for proactive_reach score)."""
+        self._gesture_attempts += 1
+
+    def record_strategy_attempt(self):
+        """Record that a bandit strategy was tried."""
+        self._strategy_attempts += 1
+
+    def record_mode_transition(self):
+        """Record a mode transition."""
+        self._mode_transitions += 1
+
+    def reset_proactive_counters(self):
+        """Reset attempt counters (call each scoring cycle)."""
+        self._gesture_attempts = 0
+        self._strategy_attempts = 0
+        self._mode_transitions = 0
 
     # ------------------------------------------------------------------
     # Offline / report-based scoring
@@ -235,11 +315,11 @@ class EngagementScorer:
         auto = report.get('auto_tuning', {})
         hourly = report.get('hourly_trends', [])
 
-        # 1. Conversion
+        # 1. Conversion (normalised to 3% for passive-heavy installations)
         active_total = sum(h.get('active_count', 0) for h in hourly)
         passive_total = sum(h.get('passive_count', 0) for h in hourly)
         total = max(1, active_total + passive_total)
-        conv = min(1.0, (active_total / total) / 0.10)
+        conv = min(1.0, (active_total / total) / 0.03)
 
         # 2. Dwell depth – not directly in reports, estimate from
         #    engaged mode fraction (higher engaged % ≈ deeper dwell)
@@ -267,10 +347,30 @@ class EngagementScorer:
         else:
             stability = 0.5  # unknown
 
+        # 6. Passive awareness – from traffic and mode distribution
+        passive_awareness = 0.0
+        total_passive = sum(h.get('passive_count', 0) for h in hourly)
+        if total_passive > 0:
+            passive_awareness += 0.4  # there was passive traffic
+        mode_dist = light.get('mode_distribution', {})
+        idle_frac = mode_dist.get('idle', 1.0)
+        if idle_frac < 0.7:
+            passive_awareness += 0.3  # system wasn't stuck in idle
+        flow_frac = mode_dist.get('flow', 0.0)
+        if flow_frac > 0.1:
+            passive_awareness += 0.3  # flow mode was used
+        passive_awareness = min(1.0, passive_awareness)
+
+        # 7. Proactive reach – from autotuner adjustments and params
+        total_adjustments = auto.get('total_adjustments', 0)
+        proactive = min(1.0, total_adjustments / 10000.0)  # 10k+ adjustments = active system
+
         score = (
             self.w.conversion_rate     * conv
             + self.w.dwell_depth       * dwell_est
             + self.w.mode_diversity    * diversity
+            + self.w.passive_awareness * passive_awareness
+            + self.w.proactive_reach   * proactive
             + self.w.return_visits     * return_est
             + self.w.parameter_stability * stability
         )
@@ -288,7 +388,7 @@ class EngagementScorer:
             active = entry.get('active_count', 0)
             passive = entry.get('passive_count', 0)
             total = max(1, active + passive)
-            conv = min(1.0, (active / total) / 0.10)
+            conv = min(1.0, (active / total) / 0.03)
 
             # Approximate dwell from dominant mode
             dom = entry.get('dominant_mode', 'idle')
@@ -303,6 +403,8 @@ class EngagementScorer:
                 self.w.conversion_rate * conv
                 + self.w.dwell_depth   * dwell_est
                 + self.w.mode_diversity * self._shannon_entropy(mode_dist)
+                + self.w.passive_awareness * (0.5 if passive > 0 else 0.0)
+                + self.w.proactive_reach * 0.3   # assume moderate activity
                 + self.w.return_visits * 0.5   # no per-hour data
                 + self.w.parameter_stability * 0.5
             )

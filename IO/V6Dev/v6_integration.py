@@ -190,6 +190,15 @@ class V6Integration:
         self._frame_count = 0
         self._total_adjustments = 0
 
+        # Health monitoring
+        self._last_health_check = 0.0
+        self._health_check_interval = 300.0  # every 5 minutes
+        self._passivity_spiral_detected = False
+
+        # Bandit outcome tracking (to pass context to record_outcome)
+        self._last_bandit_strategy = None
+        self._last_bandit_context = None
+
         logger.info(
             f"V6 Integration initialized: "
             f"autotuner={self.autotuner is not None}, "
@@ -252,42 +261,52 @@ class V6Integration:
         # ➋ Predictive context
         context = None
         if self.context_engine:
-            context = self.context_engine.get_context()
+            # Pass active_zone_count so context engine uses active-zone
+            # people rather than total count
+            active_count = behavior_status.get('active_count', 0)
+            context = self.context_engine.get_context(current_people=active_count)
 
         # ➌ Strategy bandit (for almost-engaged candidates)
         strategy_effect = None
         if self.bandit and behavior_status.get('almost_engaged'):
             almost = behavior_status['almost_engaged']
             candidates = almost.get('candidates', [])
-            if candidates:
+            if candidates and self.bandit.can_attempt():
                 from .strategy_bandit import BanditContext
+                cand = candidates[0]  # best candidate
                 bandit_ctx = BanditContext(
-                    time_period=self._time_period_from_status(behavior_status),
-                    active_count=behavior_status.get('active_count', 0),
-                    mode=behavior_status.get('mode', 'idle'),
+                    hour=int(time.strftime('%H')),
+                    flow_direction=behavior_status.get('flow', {}).get('direction', 0.0) if isinstance(behavior_status.get('flow'), dict) else 0.0,
+                    flow_strength=behavior_status.get('flow', {}).get('strength', 0.0) if isinstance(behavior_status.get('flow'), dict) else 0.0,
+                    candidate_speed=cand.get('speed', 0.0) if isinstance(cand, dict) else 0.0,
+                    candidate_distance=cand.get('distance', 0.0) if isinstance(cand, dict) else 0.0,
+                    regime=behavior_status.get('regime', 'steady'),
                 )
-                strategy_result = self.bandit.select_strategy(bandit_ctx, now)
-                if strategy_result:
-                    strategy_effect = strategy_result
+                selected = self.bandit.select(bandit_ctx)
+                if selected:
+                    strategy_effect = self.bandit.get_effect(selected)
+                    self.bandit.mark_attempted()
+                    # Store context for outcome recording
+                    self._last_bandit_strategy = selected
+                    self._last_bandit_context = bandit_ctx
+                    # Wire up proactive counter: strategy attempt
+                    if self.scorer:
+                        self.scorer.record_strategy_attempt()
 
         # ➍ Feedback learning
         feedback_mods = None
         if self.feedback:
-            mode = behavior_status.get('mode', 'idle')
-            active = behavior_status.get('active_count', 0)
-            dwell = behavior_status.get('dwell_bonus', 0)
-            speed_bucket = self._speed_bucket(tracked_people)
-            group_bucket = self._group_bucket(behavior_status)
-            regime = context.regime if context else 'steady'
+            from .feedback_learning_v6 import FeedbackContext
+            from datetime import datetime as _dt
+            _now_dt = _dt.now()
+            ctx = FeedbackContext()
+            ctx.timestamp = now
+            ctx.hour = _now_dt.hour
+            ctx.source_mode = behavior_status.get('mode', 'idle')
+            ctx.group_size = behavior_status.get('active_count', 0)
+            ctx.regime = context.regime if context else 'steady'
 
-            feedback_mods = self.feedback.get_modifiers(
-                mode=mode,
-                active_count=active,
-                dwell_phase=behavior_status.get('dwell_phase', 'notice'),
-                speed_bucket=speed_bucket,
-                group_bucket=group_bucket,
-                regime_bucket=regime,
-            )
+            feedback_mods = self.feedback.get_modifiers(ctx)
 
         # ➎ Smart auto-tuner
         tuner_result = None
@@ -301,16 +320,18 @@ class V6Integration:
             flow_info = behavior_status.get('flow', {})
             flow_dir = flow_info.get('direction', 0)
             flow_str = flow_info.get('strength', 0)
-            nearest_z = behavior_params.get('nearest_z', 1.0)
-            gesture = behavior_status.get('gesture')
+            nearest_z = behavior_params.get('nearest_z', 300.0)
+            nearest_x = behavior_params.get('nearest_x', -150.0)
 
             falloff_shape = self.falloff_mgr.compute_shape(
                 mode=mode,
-                nearest_z=nearest_z,
+                dt=dt,
+                nearest_person_z=nearest_z,
+                nearest_person_x=nearest_x,
                 flow_direction=flow_dir,
                 flow_strength=flow_str,
-                gesture=gesture,
-                dt=dt,
+                active_count=behavior_status.get('active_count', 0),
+                passive_count=behavior_status.get('passive_count', 0),
             )
 
         # ➐ Modifier resolver (if enabled, merge all intents)
@@ -332,6 +353,11 @@ class V6Integration:
             self._last_log_time = now
             self._log_status(behavior_status, mode_overlay, context)
 
+        # Periodic health check
+        if now - self._last_health_check > self._health_check_interval:
+            self._last_health_check = now
+            self.v6_health_check()
+
         return behavior_params
 
     # ------------------------------------------------------------------
@@ -342,6 +368,7 @@ class V6Integration:
         """Called when a daily report is generated.
 
         Feeds report data to V6 subsystems for learning.
+        Detects passivity spiral pattern and auto-resets if needed.
         """
         # Update predictive context with new data
         if self.context_engine:
@@ -354,7 +381,7 @@ class V6Integration:
 
         # Bandit persistence
         if self.bandit:
-            self.bandit.save_priors()
+            self.bandit._save()
 
         # Feedback persistence
         if self.feedback:
@@ -364,33 +391,43 @@ class V6Integration:
         if self.mode_intel:
             self.mode_intel.reset_session()
 
+        # --- Passivity spiral detection ---
+        # Check for: idle_trend_weight > 0.85 AND energy < 0.35
+        # This was the exact pattern that caused the V5 passivity spiral:
+        # idle_trend_weight climbed to 0.995, energy hit floor at 0.30
+        idle_trend = getattr(self.meta, 'idle_trend_weight', 0.5)
+        energy = getattr(self.meta, 'energy', 0.5)
+        if idle_trend > 0.85 and energy < 0.35:
+            logger.warning(
+                f"PASSIVITY SPIRAL DETECTED: idle_trend_weight={idle_trend:.3f}, "
+                f"energy={energy:.3f}. Auto-resetting to safe values."
+            )
+            self._passivity_spiral_detected = True
+            self._reset_passivity_spiral()
+        else:
+            self._passivity_spiral_detected = False
+
     # ------------------------------------------------------------------
     # Hook: person events (chain after V5 behavior callbacks)
     # ------------------------------------------------------------------
 
     def on_person_entered(self, person: dict, now: float):
         """Chain after behavior.on_person_entered()."""
-        if self.feedback:
-            self.feedback.on_person_entered(person, now)
+        # Wire proactive counter: gesture attempt when person enters active zone
+        if self.scorer:
+            self.scorer.record_gesture_attempt()
 
     def on_person_left(self, person: dict, now: float):
         """Chain after behavior.on_person_left()."""
-        if self.feedback:
-            dwell_time = now - person.get('first_seen', now)
-            self.feedback.on_engagement_ended(
-                mode=person.get('last_mode', 'idle'),
-                dwell_seconds=dwell_time,
-                active_count=0,
-                speed_bucket=self._speed_bucket_single(person),
-                group_bucket='solo',
-            )
-        if self.bandit:
+        if self.bandit and hasattr(self, '_last_bandit_strategy') and self._last_bandit_strategy:
             # Report outcome for the almost-engaged strategy
-            self.bandit.report_outcome(
+            self.bandit.record_outcome(
+                strategy=self._last_bandit_strategy,
+                context=self._last_bandit_context,
                 converted=person.get('reached_engaged', False),
-                dwell_seconds=now - person.get('first_seen', now),
-                now=now,
             )
+            self._last_bandit_strategy = None
+            self._last_bandit_context = None
 
     # ------------------------------------------------------------------
     # Modifier resolution (intent-based merge)
@@ -428,24 +465,32 @@ class V6Integration:
 
         # Feedback intents
         if feedback_mods:
-            mods = feedback_mods if isinstance(feedback_mods, dict) else {}
+            from dataclasses import asdict as _asdict
+            if isinstance(feedback_mods, dict):
+                mods = feedback_mods
+            elif hasattr(feedback_mods, '__dataclass_fields__'):
+                mods = _asdict(feedback_mods)
+            else:
+                mods = {}
             intents = ModifierResolver.intents_from_feedback(mods)
             self.resolver.add_many(intents)
 
         # Strategy intents
         if strategy_effect:
-            effect_dict = {}
-            if hasattr(strategy_effect, 'effect'):
-                e = strategy_effect.effect
-                effect_dict = {
-                    'brightness_mult': getattr(e, 'brightness_mult', 1.0),
-                    'speed_mult': getattr(e, 'speed_mult', 1.0),
-                    'pulse_mult': getattr(e, 'pulse_mult', 1.0),
-                    'scale_x': getattr(e, 'scale_x', None),
-                    'scale_y': getattr(e, 'scale_y', None),
-                    'scale_z': getattr(e, 'scale_z', None),
-                    'rotation': getattr(e, 'rotation', None),
-                }
+            # strategy_effect is a StrategyEffect dataclass directly
+            # Map its fields to what intents_from_strategy expects
+            se = strategy_effect
+            # brightness_boost is additive DMX; convert to mult ~1.0+boost/255
+            br_mult = 1.0 + (getattr(se, 'brightness_boost', 0.0) / 255.0)
+            effect_dict = {
+                'brightness_mult': br_mult,
+                'speed_mult': getattr(se, 'move_speed_mult', 1.0),
+                'pulse_mult': 1.0,
+                'scale_x': getattr(se, 'falloff_scale_x', None),
+                'scale_y': getattr(se, 'falloff_scale_y', None),
+                'scale_z': getattr(se, 'falloff_scale_z', None),
+                'rotation': getattr(se, 'falloff_rotation', None),
+            }
             intents = ModifierResolver.intents_from_strategy(effect_dict)
             self.resolver.add_many(intents)
 
@@ -588,7 +633,94 @@ class V6Integration:
             parts.append(f"regime={context.regime}")
         if self.autotuner:
             parts.append(f"budget={self.autotuner.budget:.0f}")
+        if self._passivity_spiral_detected:
+            parts.append("WARN:passivity_spiral")
         logger.info(', '.join(parts))
+
+    # ------------------------------------------------------------------
+    # Health check & passivity spiral auto-reset
+    # ------------------------------------------------------------------
+
+    def v6_health_check(self) -> dict:
+        """Run a health check on the V6 system.
+
+        Returns a dict with health indicators.
+        Called automatically every 5 minutes from tick().
+        """
+        health = {'ok': True, 'warnings': []}
+
+        # Check idle_trend_weight
+        idle_trend = getattr(self.meta, 'idle_trend_weight', 0.5)
+        if idle_trend > 0.75:
+            health['warnings'].append(
+                f"idle_trend_weight={idle_trend:.3f} (above 0.75 safe limit)"
+            )
+
+        # Check energy floor
+        energy = getattr(self.meta, 'energy', 0.5)
+        if energy < 0.35:
+            health['warnings'].append(
+                f"energy={energy:.3f} (near floor, limiting expressiveness)"
+            )
+
+        # Check autotuner budget
+        if self.autotuner:
+            budget = self.autotuner.budget
+            if budget < 10:
+                health['warnings'].append(
+                    f"autotuner budget={budget:.0f} (nearly depleted)"
+                )
+
+        # Check engagement score
+        if self.scorer:
+            score = self.scorer.smoothed_score()
+            if score < 0.05:
+                health['warnings'].append(
+                    f"engagement score={score:.3f} (near zero — gradient estimator blind)"
+                )
+
+        if health['warnings']:
+            health['ok'] = False
+            logger.warning(f"V6 health check: {'; '.join(health['warnings'])}")
+        else:
+            logger.debug("V6 health check: OK")
+
+        return health
+
+    def _reset_passivity_spiral(self):
+        """Emergency reset when passivity spiral is detected.
+
+        Pushes key parameters back to safe values that allow the system
+        to recover expressiveness.
+        """
+        # Reset idle_trend_weight to safe center
+        if hasattr(self.meta, 'idle_trend_weight'):
+            self.meta.idle_trend_weight = 0.50
+            if 'idle_trend_weight' in self.sliders:
+                self.sliders['idle_trend_weight'].value = 0.50
+
+        # Restore energy above floor
+        if hasattr(self.meta, 'energy'):
+            self.meta.energy = max(0.50, getattr(self.meta, 'energy', 0.5))
+            if 'energy' in self.sliders:
+                self.sliders['energy'].value = self.meta.energy
+
+        # Bump responsiveness
+        if hasattr(self.meta, 'responsiveness'):
+            self.meta.responsiveness = max(0.50, getattr(self.meta, 'responsiveness', 0.5))
+            if 'responsiveness' in self.sliders:
+                self.sliders['responsiveness'].value = self.meta.responsiveness
+
+        # Reset autotuner home values if available
+        if self.autotuner and hasattr(self.autotuner, '_home_values'):
+            self.autotuner._home_values['idle_trend_weight'] = 0.50
+            self.autotuner._home_values['energy'] = 0.50
+
+        logger.warning(
+            "Passivity spiral auto-reset complete: "
+            f"idle_trend_weight→0.50, energy→{self.meta.energy:.2f}, "
+            f"responsiveness→{self.meta.responsiveness:.2f}"
+        )
 
     # ------------------------------------------------------------------
     # WebSocket state extension
@@ -610,12 +742,17 @@ class V6Integration:
             ext['v6_top_gradients'] = {k: round(v, 4) for k, v in top_grads}
 
         if self.bandit:
-            ext['v6_bandit_best'] = self.bandit.get_best_strategy()
+            stats = self.bandit.get_stats()
+            ext['v6_bandit_best'] = max(
+                stats.get('strategies', {}).items(),
+                key=lambda kv: kv[1].get('mean_posterior', 0),
+                default=('none', {})
+            )[0] if stats.get('strategies') else 'none'
 
         if self.context_engine:
             ctx = self.context_engine.get_context()
             ext['v6_regime'] = ctx.regime
-            ext['v6_predicted_traffic'] = round(ctx.predicted_activity, 1)
+            ext['v6_predicted_traffic'] = round(ctx.expected_people, 1)
 
         if self.scorer:
             ext['v6_engagement_score'] = round(self.scorer.smoothed_score(), 3)

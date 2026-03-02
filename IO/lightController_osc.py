@@ -69,6 +69,9 @@ from light_behavior import (
     PRESETS, load_preset
 )
 
+# V6 decision & auto-tuning system (replaces V5 AutoTuningManager)
+from V6Dev.v6_integration import V6Integration, V6Config
+
 # Try to import Art-Net library
 try:
     from stupidArtnet import StupidArtnet
@@ -4272,9 +4275,20 @@ def main():
     behavior = BehaviorSystem(meta=meta_params, database=tracking_db)
     print(f"🧠 Behavior system initialized")
     
-    # Connect tracked manager callbacks to behavior system
-    tracked_manager.on_person_entered = behavior.on_person_entered
-    tracked_manager.on_person_left = behavior.on_person_left
+    # Connect tracked manager callbacks to behavior system + V6 hooks
+    _v5_on_person_entered = behavior.on_person_entered
+    _v5_on_person_left = behavior.on_person_left
+
+    def _on_person_entered(track_id, pos, is_active):
+        _v5_on_person_entered(track_id, pos, is_active)
+        v6.on_person_entered({'id': track_id, 'pos': pos.tolist(), 'is_active': is_active}, time.time())
+
+    def _on_person_left(pid):
+        _v5_on_person_left(pid)
+        v6.on_person_left({'id': pid}, time.time())
+
+    tracked_manager.on_person_entered = _on_person_entered
+    tracked_manager.on_person_left = _on_person_left
     tracked_manager.on_position_updated = behavior.update_person_position
     tracked_manager.on_zone_updated = behavior.set_person_active
     
@@ -4364,6 +4378,14 @@ def main():
                     logger.info(f"🧠 Applied {len(learned_caps)} learned cap adjustments")
         except Exception as e:
             logger.warning(f"Failed to save/apply auto-tune learnings: {e}")
+        
+        # V6.1: Feed report to V6 subsystems for learning
+        try:
+            report_dict = report.to_dict() if hasattr(report, 'to_dict') else {}
+            v6.on_daily_report(report_dict)
+            logger.info(f"🧠 V6 daily report processed for {report.date}")
+        except Exception as e:
+            logger.warning(f"V6 daily report processing failed: {e}")
     
     daily_report_scheduler.on_report_ready = on_report_ready
     
@@ -4480,12 +4502,34 @@ def main():
                 setattr(meta_params, name, slider.value)
         print(f"📁 Restored {len(saved_settings)} slider settings")
 
-    # Auto-tuning manager (trend responsive adjustments)
+    # Auto-tuning manager (trend responsive adjustments) — KEPT for V5 fallback
     auto_tuner = AutoTuningManager(meta=meta_params, sliders=all_sliders, database=tracking_db)
     
     # Load and apply historical learnings from previous days' reports
     auto_tuner.load_learnings_from_db()
     auto_tuner.apply_learnings_to_values()
+
+    # V6.1 Integration Bridge — replaces V5 auto-tuner
+    v6_config = V6Config(
+        reports_dir='reports/daily',
+        enable_smart_autotuner=True,
+        enable_predictive_context=True,
+        enable_strategy_bandit=True,
+        enable_feedback_v6=True,
+        enable_falloff_strategies=True,
+        enable_mode_intelligence=True,
+        enable_modifier_resolver=True,
+    )
+    v6 = V6Integration(
+        meta=meta_params,
+        sliders=all_sliders,
+        database=tracking_db,
+        behavior=behavior,
+        light=light,
+        config=v6_config,
+    )
+    auto_tuner.set_enabled(False)  # V6 replaces V5 auto-tuner
+    print(f"🧠 V6.1 Integration Bridge initialized — V5 auto-tuner disabled")
     
     # Track when to save sliders (debounce saves)
     last_slider_save = time.time()
@@ -4814,7 +4858,30 @@ def main():
         )
 
         behavior_status = behavior.get_status()
-        auto_tuner.update(behavior_status, now)
+
+        # V6.1: Build tracked_people list for V6 modules
+        _tracked_list = []
+        for _tp in tracked_manager.get_all():
+            _tracked_list.append({
+                'id': _tp.track_id,
+                'pos': [_tp.x, _tp.y, _tp.z],
+                'speed': ((_tp.vx**2 + _tp.vz**2) ** 0.5),
+                'vx': _tp.vx,
+                'vz': _tp.vz,
+                'dwell_time': now - _tp.first_seen,
+                'distance': abs(_tp.z - TRACKZONE['offset_z']),
+                'approaching': _tp.vz < -5,  # moving toward install
+                'zone': _tp.zone,
+            })
+
+        # V6.1: Run V6 bridge (replaces auto_tuner.update)
+        behavior_params = v6.tick(
+            behavior_status=behavior_status,
+            behavior_params=behavior_params,
+            tracked_people=_tracked_list,
+            dt=dt,
+            now=now,
+        )
         
         # Update light position for feedback learning context
         behavior.set_light_position(*current_pos)
@@ -4983,6 +5050,11 @@ def main():
                     # Include cached report data (pre-serialized for efficiency)
                     'daily_report': cached_report_dict,
                 }
+                # V6.1: Append V6 state extension to WebSocket broadcast
+                try:
+                    state.update(v6.get_state_extension())
+                except Exception:
+                    pass
                 ws_broadcaster.update_state(state)
                 ws_broadcaster.last_broadcast = time.time()
             except Exception as e:
