@@ -395,33 +395,32 @@ class PredictiveContextEngine:
         if ctx.anomaly_factor > 2.0:
             return 3.0
 
-        # Inverted logic for low-traffic regimes:
-        # Dead → 1.5× (be creative, try things)
-        # Trickle → 1.25× (some headroom for experimentation)
+        # V6.1d: budget multipliers reduced — prevent always-full budget
+        # which made tuning effectively unconstrained
         regime_mults = {
-            'dead': 1.5,
-            'trickle': 1.25,
+            'dead': 1.2,       # V6.1d: was 1.5
+            'trickle': 1.0,    # V6.1d: was 1.25 — no bonus for trickle
             'steady': 1.0,
-            'rush': 1.5,
-            'event': 3.0,
+            'rush': 1.25,      # V6.1d: was 1.5
+            'event': 2.0,      # V6.1d: was 3.0
         }
         return regime_mults.get(ctx.regime, 1.0)
 
     def get_tune_interval(self, hour: int = None, day_of_week: int = None) -> float:
         """Recommended auto-tune interval in seconds.
 
-        Dead/trickle intervals reduced from V6 original (30/15s) to allow
-        faster exploration during quiet periods.
+        V6.1d: intervals lengthened across the board to reduce parameter churn.
+        The system was adjusting 12 params every 5-8s, causing erratic behavior.
         """
         ctx = self.get_context(hour, day_of_week)
         regime_intervals = {
-            'dead': 15.0,      # was 30s — still explore during quiet
-            'trickle': 8.0,    # was 15s — faster adaptation
-            'steady': 5.0,
-            'rush': 3.0,
-            'event': 2.0,
+            'dead': 30.0,      # V6.1d: was 15s — calmer during quiet
+            'trickle': 15.0,   # V6.1d: was 8s — less frequent tuning
+            'steady': 10.0,    # V6.1d: was 5s
+            'rush': 6.0,       # V6.1d: was 3s
+            'event': 4.0,      # V6.1d: was 2s
         }
-        return regime_intervals.get(ctx.regime, 5.0)
+        return regime_intervals.get(ctx.regime, 10.0)
 
     def get_mean_reversion_strength(self, hour: int = None, day_of_week: int = None) -> float:
         """Anomaly-aware mean reversion strength multiplier.

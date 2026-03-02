@@ -95,38 +95,38 @@ OUTPUT_PARAMS = {'brightness_global', 'speed_global', 'pulse_global'}
 class TunerConfig:
     """Tunable hyperparameters for the SmartAutoTuner."""
     # Base interval (overridden by PredictiveContextEngine per regime)
-    base_interval: float = 5.0
+    base_interval: float = 10.0     # V6.1d: was 5.0 — calmer tuning cadence
 
     # Budget
     budget_max: float = 200.0
-    budget_restore_seconds: float = 345.0
-    cost_scale: float = 12.0
+    budget_restore_seconds: float = 600.0   # V6.1d: was 345 — budget regenerates slower
+    cost_scale: float = 25.0                # V6.1d: was 12 — each change costs more budget
 
     # Step limits
-    max_personality_step: float = 0.03
-    max_output_step: float = 0.08
-    min_step_threshold: float = 0.002
+    max_personality_step: float = 0.015     # V6.1d: was 0.03 — smaller per-cycle changes
+    max_output_step: float = 0.04           # V6.1d: was 0.08 — halved
+    min_step_threshold: float = 0.005       # V6.1d: was 0.002 — ignore smaller jitter
 
     # Gradient estimation
-    gradient_window: int = 30        # reduced from 50 for faster learning
-    gradient_learning_rate: float = 0.01
+    gradient_window: int = 30
+    gradient_learning_rate: float = 0.005    # V6.1d: was 0.01 — slower gradient following
 
     # Cross-parameter detection
-    correlation_window: int = 30     # samples for co-movement detection
-    correlation_threshold: float = 0.6  # Pearson r above this = "linked"
+    correlation_window: int = 30
+    correlation_threshold: float = 0.6
 
     # Mean reversion
-    base_reversion: float = 0.01
-    progressive_reversion: float = 0.03
-    output_reversion_scale: float = 0.5  # weaker reversion for outputs
+    base_reversion: float = 0.008           # V6.1d: was 0.01
+    progressive_reversion: float = 0.02     # V6.1d: was 0.03
+    output_reversion_scale: float = 0.5
 
     # Curiosity
-    curiosity_interval: float = 30.0
-    curiosity_strength: float = 0.04
+    curiosity_interval: float = 90.0        # V6.1d: was 30s — much less frequent
+    curiosity_strength: float = 0.015       # V6.1d: was 0.04 — gentle nudge, not a shove
     curiosity_home_bias: float = 0.6
 
     # Engagement-based budget bonus
-    engagement_bonus_rate: float = 3.33  # budget_max/60 per second engaged
+    engagement_bonus_rate: float = 2.0      # V6.1d: was 3.33 — calmer bonus
 
 
 # ---------------------------------------------------------------------------
@@ -389,10 +389,10 @@ class SmartAutoTuner:
 
         elif regime == 'trickle':
             # Boost attention-seeking params when traffic is light
-            # V6.1b: reduced from +0.015 to +0.008 — tripling was too aggressive
+            # V6.1d: reduced from +0.008 to +0.004 — gentler exploration
             for name in ('brightness_global', 'exploration', 'energy'):
                 if short_activity < 0.1:
-                    deltas[name] += 0.008
+                    deltas[name] += 0.004
 
         elif regime == 'rush':
             # During rush, personality should rise to meet demand
