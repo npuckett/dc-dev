@@ -4889,7 +4889,8 @@ def main():
         # Apply behavior parameters to light
         light.brightness_min = int(behavior_params.get('brightness_min', 5))
         light.brightness_max = int(behavior_params.get('brightness_max', 30))
-        light.pulse_speed = behavior_params.get('pulse_speed', 2000)
+        # V6.1b: floor pulse_speed at 1800ms (~1.8s cycle) to prevent strobing
+        light.pulse_speed = max(1800, behavior_params.get('pulse_speed', 2000))
         light.move_speed = behavior_params.get('move_speed', 50)
         light.falloff_radius = behavior_params.get('falloff_radius', 50)
         

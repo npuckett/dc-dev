@@ -1731,7 +1731,8 @@ class BehaviorSystem:
         result['move_speed'] = result['move_speed'] * m.lerp(0.6, 1.4, m.responsiveness) * m.speed_global
         
         # Energy affects pulse and brightness
-        result['pulse_speed'] = result['pulse_speed'] * m.lerp(1.3, 0.7, m.energy) * m.pulse_global
+        # V6.1b: raised pulse floor from 0.7x to 0.8x at max energy to prevent strobing
+        result['pulse_speed'] = result['pulse_speed'] * m.lerp(1.3, 0.8, m.energy) * m.pulse_global
         result['brightness_max'] = result['brightness_max'] * m.lerp(0.7, 1.3, m.energy) * m.brightness_global
         result['brightness_min'] = result['brightness_min'] * m.lerp(0.8, 1.2, m.energy) * m.brightness_global
         
@@ -3068,8 +3069,8 @@ class BehaviorSystem:
         # PULSE FREQUENCY
         # ======================
         # Higher aggression = faster pulse (lower pulse_speed value)
-        # This creates more eye-catching movement
-        pulse_mult = 1.0 - (level * 0.4)  # 1.0x to 0.6x (faster pulse)
+        # V6.1b: softened from 0.6x to 0.8x floor — prevents strobing
+        pulse_mult = 1.0 - (level * 0.2)  # 1.0x to 0.8x (was 0.6x)
         result['pulse_speed'] = result.get('pulse_speed', 4000) * pulse_mult
         
         # ======================
