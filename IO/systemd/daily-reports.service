@@ -18,8 +18,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=dc
-WorkingDirectory=/home/dc/dc-dev/IO
+User=nick
+WorkingDirectory=/home/nick/Documents/Github/dc-dev/IO
 
 # Generate today's report (and re-gen yesterday in case of late events)
 ExecStart=/usr/bin/python3 generate_reports.py --days 2

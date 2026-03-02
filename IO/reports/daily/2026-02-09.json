@@ -1,0 +1,246 @@
+{
+  "date": "2026-02-09",
+  "generated_at": "2026-03-02T16:31:56.016381",
+  "summary": {
+    "total_unique_people": 4837,
+    "total_active_zone_visits": 0,
+    "total_passive_zone_count": 488280,
+    "overall_avg_speed": 4760.8
+  },
+  "peak_times": {
+    "peak_hour": 17,
+    "peak_hour_count": 631,
+    "quietest_hour": 3,
+    "quietest_hour_count": 4
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.18
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 26,
+      "active_count": 0,
+      "passive_count": 1686,
+      "avg_speed": 5628.5,
+      "flow_ltr": 357,
+      "flow_rtl": 1066
+    },
+    {
+      "hour": 1,
+      "total_people": 11,
+      "active_count": 0,
+      "passive_count": 947,
+      "avg_speed": 4211.8,
+      "flow_ltr": 459,
+      "flow_rtl": 352
+    },
+    {
+      "hour": 2,
+      "total_people": 5,
+      "active_count": 0,
+      "passive_count": 195,
+      "avg_speed": 2880.1,
+      "flow_ltr": 103,
+      "flow_rtl": 48
+    },
+    {
+      "hour": 3,
+      "total_people": 4,
+      "active_count": 0,
+      "passive_count": 475,
+      "avg_speed": 4723.4,
+      "flow_ltr": 172,
+      "flow_rtl": 239
+    },
+    {
+      "hour": 4,
+      "total_people": 10,
+      "active_count": 0,
+      "passive_count": 454,
+      "avg_speed": 4693.2,
+      "flow_ltr": 176,
+      "flow_rtl": 207
+    },
+    {
+      "hour": 5,
+      "total_people": 29,
+      "active_count": 0,
+      "passive_count": 2152,
+      "avg_speed": 5221.6,
+      "flow_ltr": 1301,
+      "flow_rtl": 525
+    },
+    {
+      "hour": 6,
+      "total_people": 81,
+      "active_count": 0,
+      "passive_count": 6052,
+      "avg_speed": 4856.3,
+      "flow_ltr": 2434,
+      "flow_rtl": 2618
+    },
+    {
+      "hour": 7,
+      "total_people": 185,
+      "active_count": 0,
+      "passive_count": 16858,
+      "avg_speed": 4834.7,
+      "flow_ltr": 6164,
+      "flow_rtl": 8112
+    },
+    {
+      "hour": 8,
+      "total_people": 427,
+      "active_count": 0,
+      "passive_count": 49120,
+      "avg_speed": 4093.6,
+      "flow_ltr": 16380,
+      "flow_rtl": 24923
+    },
+    {
+      "hour": 9,
+      "total_people": 319,
+      "active_count": 0,
+      "passive_count": 35192,
+      "avg_speed": 4543.5,
+      "flow_ltr": 12833,
+      "flow_rtl": 16994
+    },
+    {
+      "hour": 10,
+      "total_people": 176,
+      "active_count": 0,
+      "passive_count": 20461,
+      "avg_speed": 4253.9,
+      "flow_ltr": 9717,
+      "flow_rtl": 7590
+    },
+    {
+      "hour": 11,
+      "total_people": 170,
+      "active_count": 0,
+      "passive_count": 18241,
+      "avg_speed": 4607.6,
+      "flow_ltr": 8658,
+      "flow_rtl": 6971
+    },
+    {
+      "hour": 12,
+      "total_people": 271,
+      "active_count": 0,
+      "passive_count": 30338,
+      "avg_speed": 4184.0,
+      "flow_ltr": 14532,
+      "flow_rtl": 10649
+    },
+    {
+      "hour": 13,
+      "total_people": 228,
+      "active_count": 0,
+      "passive_count": 25637,
+      "avg_speed": 4702.9,
+      "flow_ltr": 12589,
+      "flow_rtl": 9039
+    },
+    {
+      "hour": 14,
+      "total_people": 274,
+      "active_count": 0,
+      "passive_count": 32763,
+      "avg_speed": 4086.1,
+      "flow_ltr": 15912,
+      "flow_rtl": 10745
+    },
+    {
+      "hour": 15,
+      "total_people": 373,
+      "active_count": 0,
+      "passive_count": 42083,
+      "avg_speed": 4602.5,
+      "flow_ltr": 23801,
+      "flow_rtl": 12045
+    },
+    {
+      "hour": 16,
+      "total_people": 615,
+      "active_count": 0,
+      "passive_count": 73737,
+      "avg_speed": 4447.6,
+      "flow_ltr": 45174,
+      "flow_rtl": 18145
+    },
+    {
+      "hour": 17,
+      "total_people": 631,
+      "active_count": 0,
+      "passive_count": 64951,
+      "avg_speed": 4484.7,
+      "flow_ltr": 37286,
+      "flow_rtl": 17575
+    },
+    {
+      "hour": 18,
+      "total_people": 410,
+      "active_count": 0,
+      "passive_count": 25589,
+      "avg_speed": 5960.1,
+      "flow_ltr": 13631,
+      "flow_rtl": 7743
+    },
+    {
+      "hour": 19,
+      "total_people": 205,
+      "active_count": 0,
+      "passive_count": 11493,
+      "avg_speed": 6209.7,
+      "flow_ltr": 6359,
+      "flow_rtl": 3280
+    },
+    {
+      "hour": 20,
+      "total_people": 147,
+      "active_count": 0,
+      "passive_count": 9796,
+      "avg_speed": 6011.8,
+      "flow_ltr": 5307,
+      "flow_rtl": 2960
+    },
+    {
+      "hour": 21,
+      "total_people": 120,
+      "active_count": 0,
+      "passive_count": 11200,
+      "avg_speed": 4677.2,
+      "flow_ltr": 5766,
+      "flow_rtl": 3346
+    },
+    {
+      "hour": 22,
+      "total_people": 65,
+      "active_count": 0,
+      "passive_count": 4315,
+      "avg_speed": 5978.4,
+      "flow_ltr": 2279,
+      "flow_rtl": 1313
+    },
+    {
+      "hour": 23,
+      "total_people": 58,
+      "active_count": 0,
+      "passive_count": 4545,
+      "avg_speed": 4364.9,
+      "flow_ltr": 2083,
+      "flow_rtl": 1337
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {},
+    "position_entropy": 0.0
+  },
+  "auto_tuning": {
+    "total_adjustments": 0,
+    "strategy_summary": "Backfilled from backup database \u2014 no tuning data available."
+  }
+}
