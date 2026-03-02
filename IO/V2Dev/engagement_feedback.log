@@ -1411,3 +1411,1830 @@ Flow: direction=-0.50, x_offset=30.0
 Light position (normalized): x=0.36, z=0.83
 Almost-engaged: False, strategy: none
 Person zone: active
+
+=== Engagement at 2026-02-25 15:38:47 ===
+Hour: 15, Period: afternoon
+Mode: flow (duration: 1.7s)
+Aggression: 0.07
+Flow: direction=-0.01, x_offset=0.5
+Light position (normalized): x=0.55, z=0.58
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:13:46 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 2.7s)
+Aggression: 0.08
+Flow: direction=-0.09, x_offset=5.3
+Light position (normalized): x=0.22, z=0.42
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:21:48 ===
+Hour: 16, Period: afternoon
+Mode: idle (duration: 1.0s)
+Aggression: 0.03
+Flow: direction=0.00, x_offset=0.0
+Light position (normalized): x=0.54, z=0.21
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:22:16 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.8s)
+Aggression: 0.02
+Flow: direction=0.04, x_offset=-2.1
+Light position (normalized): x=0.51, z=0.10
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:22:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.8s)
+Aggression: 0.00
+Flow: direction=0.03, x_offset=-2.0
+Light position (normalized): x=0.61, z=0.20
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:23:17 ===
+Hour: 16, Period: afternoon
+Mode: idle (duration: 1.0s)
+Aggression: 0.04
+Flow: direction=0.00, x_offset=0.0
+Light position (normalized): x=0.42, z=0.44
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:23:19 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.2s)
+Aggression: 0.00
+Flow: direction=-0.15, x_offset=8.7
+Light position (normalized): x=0.45, z=0.34
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:23:45 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 16.7s)
+Aggression: 0.00
+Flow: direction=0.02, x_offset=-1.1
+Light position (normalized): x=0.67, z=0.52
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:23:49 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 20.9s)
+Aggression: 0.00
+Flow: direction=-0.00, x_offset=0.2
+Light position (normalized): x=0.37, z=0.29
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:24:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 9.6s)
+Aggression: 0.00
+Flow: direction=0.02, x_offset=-1.3
+Light position (normalized): x=0.82, z=0.52
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:24:19 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 13.4s)
+Aggression: 0.00
+Flow: direction=0.04, x_offset=-2.3
+Light position (normalized): x=0.70, z=0.60
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:24:46 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 11.1s)
+Aggression: 0.02
+Flow: direction=-0.07, x_offset=4.4
+Light position (normalized): x=0.32, z=0.22
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:24:49 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 13.8s)
+Aggression: 0.00
+Flow: direction=-0.06, x_offset=3.7
+Light position (normalized): x=0.55, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:14 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 22.3s)
+Aggression: 0.00
+Flow: direction=0.10, x_offset=-6.2
+Light position (normalized): x=0.40, z=0.60
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:15 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 23.7s)
+Aggression: 0.00
+Flow: direction=0.08, x_offset=-4.9
+Light position (normalized): x=0.49, z=0.40
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:18 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 26.2s)
+Aggression: 0.00
+Flow: direction=0.09, x_offset=-5.2
+Light position (normalized): x=0.62, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:18 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 26.2s)
+Aggression: 0.00
+Flow: direction=0.09, x_offset=-5.2
+Light position (normalized): x=0.63, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:44 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 5.4s)
+Aggression: 0.00
+Flow: direction=0.12, x_offset=-7.2
+Light position (normalized): x=0.38, z=0.07
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:25:49 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 9.5s)
+Aggression: 0.00
+Flow: direction=0.12, x_offset=-7.0
+Light position (normalized): x=0.31, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:26:15 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 24.8s)
+Aggression: 0.00
+Flow: direction=-0.06, x_offset=3.7
+Light position (normalized): x=0.53, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:26:19 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 29.2s)
+Aggression: 0.00
+Flow: direction=-0.00, x_offset=0.3
+Light position (normalized): x=0.52, z=0.67
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:26:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 2.2s)
+Aggression: 0.00
+Flow: direction=0.41, x_offset=-24.6
+Light position (normalized): x=0.73, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:26:48 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 5.8s)
+Aggression: 0.00
+Flow: direction=0.41, x_offset=-24.4
+Light position (normalized): x=0.32, z=0.48
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:14 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.0s)
+Aggression: 0.00
+Flow: direction=0.13, x_offset=-7.7
+Light position (normalized): x=0.11, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:16 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 4.4s)
+Aggression: 0.00
+Flow: direction=0.11, x_offset=-6.6
+Light position (normalized): x=0.38, z=0.27
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 6.1s)
+Aggression: 0.00
+Flow: direction=0.10, x_offset=-6.0
+Light position (normalized): x=0.53, z=0.11
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:19 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 7.8s)
+Aggression: 0.00
+Flow: direction=0.10, x_offset=-5.9
+Light position (normalized): x=0.46, z=0.36
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:45 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 22.5s)
+Aggression: 0.00
+Flow: direction=0.13, x_offset=-7.8
+Light position (normalized): x=0.21, z=0.51
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:27:50 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 27.3s)
+Aggression: 0.00
+Flow: direction=0.11, x_offset=-6.5
+Light position (normalized): x=0.56, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:28:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 2.2s)
+Aggression: 0.00
+Flow: direction=0.19, x_offset=-11.1
+Light position (normalized): x=0.58, z=0.03
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:28:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 6.0s)
+Aggression: 0.00
+Flow: direction=0.20, x_offset=-12.3
+Light position (normalized): x=0.26, z=0.26
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:28:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 5.4s)
+Aggression: 0.00
+Flow: direction=-0.18, x_offset=10.7
+Light position (normalized): x=0.71, z=0.19
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:28:49 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 8.8s)
+Aggression: 0.00
+Flow: direction=-0.21, x_offset=12.8
+Light position (normalized): x=0.55, z=0.55
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 10.2s)
+Aggression: 0.03
+Flow: direction=-0.04, x_offset=2.3
+Light position (normalized): x=0.72, z=0.15
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.1s)
+Aggression: 0.00
+Flow: direction=-0.02, x_offset=1.0
+Light position (normalized): x=0.40, z=0.33
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:17 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.2s)
+Aggression: 0.00
+Flow: direction=-0.01, x_offset=0.6
+Light position (normalized): x=0.58, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.6s)
+Aggression: 0.00
+Flow: direction=-0.01, x_offset=0.6
+Light position (normalized): x=0.58, z=0.63
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:44 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.1s)
+Aggression: 0.00
+Flow: direction=0.04, x_offset=-2.5
+Light position (normalized): x=0.33, z=0.86
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:29:48 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 6.7s)
+Aggression: 0.00
+Flow: direction=0.08, x_offset=-4.7
+Light position (normalized): x=0.38, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:30:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 9.3s)
+Aggression: 0.02
+Flow: direction=0.08, x_offset=-4.9
+Light position (normalized): x=0.37, z=0.47
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:30:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 2.9s)
+Aggression: 0.00
+Flow: direction=0.06, x_offset=-3.9
+Light position (normalized): x=0.59, z=0.06
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:30:45 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 18.6s)
+Aggression: 0.00
+Flow: direction=0.26, x_offset=-15.5
+Light position (normalized): x=0.33, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:30:50 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 23.1s)
+Aggression: 0.00
+Flow: direction=0.26, x_offset=-15.4
+Light position (normalized): x=0.55, z=0.87
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 8.4s)
+Aggression: 0.01
+Flow: direction=0.14, x_offset=-8.2
+Light position (normalized): x=0.16, z=0.18
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 8.5s)
+Aggression: 0.01
+Flow: direction=0.14, x_offset=-8.2
+Light position (normalized): x=0.16, z=0.17
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:18 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 0.5s)
+Aggression: 0.00
+Flow: direction=0.16, x_offset=-9.5
+Light position (normalized): x=0.65, z=0.36
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:19 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 0.7s)
+Aggression: 0.00
+Flow: direction=0.16, x_offset=-9.5
+Light position (normalized): x=0.65, z=0.49
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:46 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 28.2s)
+Aggression: 0.00
+Flow: direction=0.27, x_offset=-16.2
+Light position (normalized): x=0.41, z=0.97
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:31:48 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 30.2s)
+Aggression: 0.00
+Flow: direction=0.20, x_offset=-12.1
+Light position (normalized): x=0.38, z=0.72
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:32:16 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 0.0s)
+Aggression: 0.01
+Flow: direction=-0.16, x_offset=9.4
+Light position (normalized): x=0.09, z=0.31
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:32:19 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.1s)
+Aggression: 0.00
+Flow: direction=-0.08, x_offset=5.1
+Light position (normalized): x=0.45, z=0.14
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:32:45 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 16.4s)
+Aggression: 0.01
+Flow: direction=-0.07, x_offset=4.1
+Light position (normalized): x=0.46, z=0.16
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:32:50 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 20.6s)
+Aggression: 0.00
+Flow: direction=-0.14, x_offset=8.2
+Light position (normalized): x=0.26, z=0.38
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:33:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 2.8s)
+Aggression: 0.00
+Flow: direction=0.19, x_offset=-11.4
+Light position (normalized): x=0.25, z=0.85
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:33:16 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.6s)
+Aggression: 0.00
+Flow: direction=0.19, x_offset=-11.4
+Light position (normalized): x=0.19, z=0.54
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:33:18 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 5.8s)
+Aggression: 0.00
+Flow: direction=0.26, x_offset=-15.5
+Light position (normalized): x=0.43, z=0.55
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:33:19 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 7.1s)
+Aggression: 0.00
+Flow: direction=0.30, x_offset=-17.8
+Light position (normalized): x=0.46, z=0.78
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:33:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 3.9s)
+Aggression: 0.00
+Flow: direction=0.07, x_offset=-4.2
+Light position (normalized): x=0.90, z=0.97
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:34:17 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 13.7s)
+Aggression: 0.02
+Flow: direction=0.00, x_offset=-0.3
+Light position (normalized): x=0.47, z=0.41
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:34:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 28.1s)
+Aggression: 0.01
+Flow: direction=-0.28, x_offset=16.7
+Light position (normalized): x=0.33, z=0.22
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:35:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.6s)
+Aggression: 0.01
+Flow: direction=-0.02, x_offset=1.4
+Light position (normalized): x=0.51, z=0.45
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:35:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 0.7s)
+Aggression: 0.00
+Flow: direction=0.03, x_offset=-1.8
+Light position (normalized): x=0.42, z=0.31
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:35:47 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 8.4s)
+Aggression: 0.01
+Flow: direction=0.03, x_offset=-1.6
+Light position (normalized): x=0.24, z=0.26
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:36:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 2.0s)
+Aggression: 0.01
+Flow: direction=0.25, x_offset=-14.9
+Light position (normalized): x=0.41, z=0.46
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:36:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 30.8s)
+Aggression: 0.00
+Flow: direction=-0.27, x_offset=16.5
+Light position (normalized): x=0.56, z=0.77
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:37:14 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 59.0s)
+Aggression: 0.00
+Flow: direction=-0.03, x_offset=1.8
+Light position (normalized): x=0.34, z=0.79
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:37:16 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 60.9s)
+Aggression: 0.00
+Flow: direction=-0.07, x_offset=4.3
+Light position (normalized): x=0.50, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:37:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 10.4s)
+Aggression: 0.01
+Flow: direction=0.14, x_offset=-8.2
+Light position (normalized): x=0.49, z=0.36
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:38:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 1.1s)
+Aggression: 0.01
+Flow: direction=0.10, x_offset=-6.2
+Light position (normalized): x=0.12, z=0.31
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:38:46 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 30.3s)
+Aggression: 0.00
+Flow: direction=0.11, x_offset=-6.4
+Light position (normalized): x=0.05, z=0.46
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:39:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 5.4s)
+Aggression: 0.01
+Flow: direction=0.27, x_offset=-16.2
+Light position (normalized): x=0.28, z=0.85
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:39:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.4s)
+Aggression: 0.00
+Flow: direction=0.27, x_offset=-16.1
+Light position (normalized): x=0.45, z=0.18
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:39:46 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 7.5s)
+Aggression: 0.02
+Flow: direction=0.18, x_offset=-10.8
+Light position (normalized): x=0.47, z=0.34
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:40:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 29.3s)
+Aggression: 0.01
+Flow: direction=-0.45, x_offset=26.9
+Light position (normalized): x=0.59, z=0.39
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:40:44 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 6.0s)
+Aggression: 0.01
+Flow: direction=-0.05, x_offset=3.0
+Light position (normalized): x=0.37, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:41:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 8.7s)
+Aggression: 0.01
+Flow: direction=0.19, x_offset=-11.4
+Light position (normalized): x=0.48, z=0.33
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:41:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.2s)
+Aggression: 0.00
+Flow: direction=0.19, x_offset=-11.4
+Light position (normalized): x=0.41, z=0.60
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:41:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 0.1s)
+Aggression: 0.00
+Flow: direction=0.20, x_offset=-11.9
+Light position (normalized): x=0.36, z=0.41
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:42:16 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 8.1s)
+Aggression: 0.01
+Flow: direction=0.04, x_offset=-2.7
+Light position (normalized): x=0.48, z=0.12
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:42:46 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 3.7s)
+Aggression: 0.01
+Flow: direction=-0.30, x_offset=18.1
+Light position (normalized): x=0.64, z=0.10
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:43:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 8.6s)
+Aggression: 0.01
+Flow: direction=-0.01, x_offset=0.6
+Light position (normalized): x=0.36, z=0.40
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:43:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.1s)
+Aggression: 0.00
+Flow: direction=0.03, x_offset=-1.8
+Light position (normalized): x=0.18, z=0.11
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:43:45 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 7.5s)
+Aggression: 0.00
+Flow: direction=0.03, x_offset=-2.0
+Light position (normalized): x=0.54, z=0.56
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:44:16 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 5.9s)
+Aggression: 0.01
+Flow: direction=-0.25, x_offset=15.0
+Light position (normalized): x=0.29, z=0.34
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:44:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 2.9s)
+Aggression: 0.01
+Flow: direction=-0.01, x_offset=0.4
+Light position (normalized): x=0.39, z=0.27
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:45:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 29.8s)
+Aggression: 0.01
+Flow: direction=-0.04, x_offset=2.1
+Light position (normalized): x=0.52, z=0.66
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:45:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 30.3s)
+Aggression: 0.00
+Flow: direction=-0.04, x_offset=2.1
+Light position (normalized): x=0.56, z=0.53
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:45:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 0.5s)
+Aggression: 0.01
+Flow: direction=0.12, x_offset=-7.2
+Light position (normalized): x=0.60, z=0.59
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:46:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 8.1s)
+Aggression: 0.01
+Flow: direction=-0.21, x_offset=12.8
+Light position (normalized): x=0.31, z=0.49
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:46:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.5s)
+Aggression: 0.01
+Flow: direction=-0.06, x_offset=3.8
+Light position (normalized): x=0.44, z=0.42
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:47:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.9s)
+Aggression: 0.01
+Flow: direction=-0.31, x_offset=18.5
+Light position (normalized): x=0.48, z=0.34
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:47:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 0.9s)
+Aggression: 0.00
+Flow: direction=-0.29, x_offset=17.4
+Light position (normalized): x=0.39, z=0.37
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:47:47 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 14.3s)
+Aggression: 0.02
+Flow: direction=-0.08, x_offset=4.8
+Light position (normalized): x=0.25, z=0.24
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:48:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 10.3s)
+Aggression: 0.01
+Flow: direction=0.06, x_offset=-3.4
+Light position (normalized): x=0.59, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:48:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.4s)
+Aggression: 0.01
+Flow: direction=-0.19, x_offset=11.5
+Light position (normalized): x=0.31, z=0.47
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:49:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.1s)
+Aggression: 0.01
+Flow: direction=0.13, x_offset=-7.9
+Light position (normalized): x=0.81, z=0.31
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:49:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 0.9s)
+Aggression: 0.00
+Flow: direction=0.15, x_offset=-8.9
+Light position (normalized): x=0.76, z=0.19
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:49:45 ===
+Hour: 16, Period: afternoon
+Mode: crowd (duration: 20.1s)
+Aggression: 0.00
+Flow: direction=-0.03, x_offset=1.7
+Light position (normalized): x=0.28, z=0.36
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:50:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 11.7s)
+Aggression: 0.02
+Flow: direction=-0.01, x_offset=0.6
+Light position (normalized): x=0.70, z=0.27
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:50:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.3s)
+Aggression: 0.01
+Flow: direction=0.17, x_offset=-10.5
+Light position (normalized): x=0.35, z=0.19
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:51:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 0.8s)
+Aggression: 0.01
+Flow: direction=0.09, x_offset=-5.2
+Light position (normalized): x=0.54, z=0.47
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:51:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 0.4s)
+Aggression: 0.00
+Flow: direction=0.06, x_offset=-3.5
+Light position (normalized): x=0.51, z=0.45
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:51:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 13.5s)
+Aggression: 0.02
+Flow: direction=-0.48, x_offset=28.9
+Light position (normalized): x=0.40, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:52:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 12.0s)
+Aggression: 0.01
+Flow: direction=0.31, x_offset=-18.5
+Light position (normalized): x=0.57, z=0.44
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:52:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 6.8s)
+Aggression: 0.01
+Flow: direction=-0.05, x_offset=3.3
+Light position (normalized): x=0.62, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:53:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 16.4s)
+Aggression: 0.02
+Flow: direction=-0.05, x_offset=3.2
+Light position (normalized): x=0.50, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:53:16 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 0.3s)
+Aggression: 0.01
+Flow: direction=-0.05, x_offset=3.2
+Light position (normalized): x=0.47, z=0.36
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:53:46 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 6.4s)
+Aggression: 0.00
+Flow: direction=0.13, x_offset=-7.7
+Light position (normalized): x=0.55, z=0.29
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:54:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 6.7s)
+Aggression: 0.01
+Flow: direction=-0.34, x_offset=20.4
+Light position (normalized): x=0.39, z=0.42
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:54:47 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 9.9s)
+Aggression: 0.01
+Flow: direction=-0.31, x_offset=18.7
+Light position (normalized): x=0.47, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:55:14 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 27.4s)
+Aggression: 0.01
+Flow: direction=0.29, x_offset=-17.5
+Light position (normalized): x=0.55, z=0.18
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:55:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 28.3s)
+Aggression: 0.00
+Flow: direction=0.30, x_offset=-18.3
+Light position (normalized): x=0.73, z=0.08
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:55:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 12.6s)
+Aggression: 0.02
+Flow: direction=0.34, x_offset=-20.1
+Light position (normalized): x=0.76, z=0.22
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:56:16 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 2.7s)
+Aggression: 0.01
+Flow: direction=0.56, x_offset=-33.6
+Light position (normalized): x=0.25, z=0.15
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:56:46 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 29.9s)
+Aggression: 0.00
+Flow: direction=0.21, x_offset=-12.5
+Light position (normalized): x=0.63, z=0.20
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:57:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 10.2s)
+Aggression: 0.02
+Flow: direction=0.06, x_offset=-3.5
+Light position (normalized): x=0.47, z=0.11
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:57:16 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.5s)
+Aggression: 0.00
+Flow: direction=0.02, x_offset=-0.9
+Light position (normalized): x=0.66, z=0.53
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:57:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 3.5s)
+Aggression: 0.01
+Flow: direction=0.25, x_offset=-15.2
+Light position (normalized): x=0.36, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:58:15 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 17.5s)
+Aggression: 0.02
+Flow: direction=0.08, x_offset=-4.9
+Light position (normalized): x=0.48, z=0.29
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:58:45 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 5.3s)
+Aggression: 0.01
+Flow: direction=-0.23, x_offset=13.9
+Light position (normalized): x=0.40, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:59:14 ===
+Hour: 16, Period: afternoon
+Mode: flow (duration: 4.8s)
+Aggression: 0.01
+Flow: direction=0.11, x_offset=-6.7
+Light position (normalized): x=0.33, z=0.53
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:59:15 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 1.1s)
+Aggression: 0.00
+Flow: direction=0.14, x_offset=-8.5
+Light position (normalized): x=0.32, z=0.18
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 16:59:44 ===
+Hour: 16, Period: afternoon
+Mode: engaged (duration: 6.0s)
+Aggression: 0.00
+Flow: direction=0.30, x_offset=-17.8
+Light position (normalized): x=0.30, z=0.49
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:00:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 6.7s)
+Aggression: 0.01
+Flow: direction=-0.19, x_offset=11.1
+Light position (normalized): x=0.48, z=0.55
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:00:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 0.3s)
+Aggression: 0.01
+Flow: direction=0.15, x_offset=-9.3
+Light position (normalized): x=0.42, z=0.20
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:01:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 0.8s)
+Aggression: 0.01
+Flow: direction=0.20, x_offset=-12.2
+Light position (normalized): x=0.36, z=0.51
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:01:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 0.0s)
+Aggression: 0.00
+Flow: direction=0.23, x_offset=-13.7
+Light position (normalized): x=0.40, z=0.47
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:01:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 5.1s)
+Aggression: 0.00
+Flow: direction=-0.16, x_offset=9.9
+Light position (normalized): x=0.36, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:02:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 9.8s)
+Aggression: 0.01
+Flow: direction=-0.28, x_offset=16.5
+Light position (normalized): x=0.46, z=0.42
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:02:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 14.7s)
+Aggression: 0.02
+Flow: direction=-0.15, x_offset=9.3
+Light position (normalized): x=0.48, z=0.44
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:03:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 2.0s)
+Aggression: 0.01
+Flow: direction=-0.38, x_offset=22.7
+Light position (normalized): x=0.21, z=0.13
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:03:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.0s)
+Aggression: 0.00
+Flow: direction=-0.38, x_offset=22.7
+Light position (normalized): x=0.44, z=0.11
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:03:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 4.1s)
+Aggression: 0.01
+Flow: direction=-0.32, x_offset=19.1
+Light position (normalized): x=0.25, z=0.29
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:04:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 11.7s)
+Aggression: 0.01
+Flow: direction=0.29, x_offset=-17.2
+Light position (normalized): x=0.20, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:04:46 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 30.7s)
+Aggression: 0.01
+Flow: direction=-0.38, x_offset=22.7
+Light position (normalized): x=0.56, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:05:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 6.1s)
+Aggression: 0.01
+Flow: direction=0.01, x_offset=-0.4
+Light position (normalized): x=0.31, z=0.39
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:05:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.5s)
+Aggression: 0.00
+Flow: direction=-0.02, x_offset=1.5
+Light position (normalized): x=0.42, z=0.48
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:05:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 5.1s)
+Aggression: 0.01
+Flow: direction=0.28, x_offset=-16.6
+Light position (normalized): x=0.45, z=0.24
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:06:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 0.4s)
+Aggression: 0.01
+Flow: direction=-0.22, x_offset=12.9
+Light position (normalized): x=0.48, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:06:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 6.4s)
+Aggression: 0.01
+Flow: direction=0.09, x_offset=-5.4
+Light position (normalized): x=0.65, z=0.49
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:07:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 13.2s)
+Aggression: 0.02
+Flow: direction=-0.01, x_offset=0.5
+Light position (normalized): x=0.51, z=0.55
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:07:16 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.4s)
+Aggression: 0.00
+Flow: direction=-0.04, x_offset=2.4
+Light position (normalized): x=0.51, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:07:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 3.7s)
+Aggression: 0.00
+Flow: direction=-0.17, x_offset=10.1
+Light position (normalized): x=0.53, z=0.53
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:08:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 13.9s)
+Aggression: 0.02
+Flow: direction=0.01, x_offset=-0.3
+Light position (normalized): x=0.35, z=0.13
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:08:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 29.8s)
+Aggression: 0.00
+Flow: direction=0.07, x_offset=-4.0
+Light position (normalized): x=0.28, z=0.16
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:09:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 4.4s)
+Aggression: 0.01
+Flow: direction=0.20, x_offset=-11.7
+Light position (normalized): x=0.52, z=0.60
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:09:16 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.6s)
+Aggression: 0.00
+Flow: direction=0.12, x_offset=-7.5
+Light position (normalized): x=0.33, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:09:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 2.7s)
+Aggression: 0.01
+Flow: direction=-0.50, x_offset=29.7
+Light position (normalized): x=0.61, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:10:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 29.4s)
+Aggression: 0.01
+Flow: direction=-0.12, x_offset=7.0
+Light position (normalized): x=0.51, z=0.05
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:10:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 59.6s)
+Aggression: 0.00
+Flow: direction=0.18, x_offset=-10.6
+Light position (normalized): x=0.52, z=0.65
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:11:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 14.6s)
+Aggression: 0.02
+Flow: direction=-0.10, x_offset=5.8
+Light position (normalized): x=0.42, z=0.38
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:11:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 0.7s)
+Aggression: 0.00
+Flow: direction=-0.06, x_offset=3.9
+Light position (normalized): x=0.55, z=0.40
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:11:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.6s)
+Aggression: 0.00
+Flow: direction=0.29, x_offset=-17.1
+Light position (normalized): x=0.84, z=0.54
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:12:16 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 8.4s)
+Aggression: 0.01
+Flow: direction=-0.19, x_offset=11.6
+Light position (normalized): x=0.33, z=0.41
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:12:46 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 37.8s)
+Aggression: 0.00
+Flow: direction=-0.46, x_offset=27.8
+Light position (normalized): x=0.77, z=0.57
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:13:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 5.4s)
+Aggression: 0.01
+Flow: direction=-0.37, x_offset=22.1
+Light position (normalized): x=0.48, z=0.47
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:13:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 0.8s)
+Aggression: 0.00
+Flow: direction=-0.32, x_offset=19.0
+Light position (normalized): x=0.29, z=0.44
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:13:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 6.3s)
+Aggression: 0.02
+Flow: direction=0.13, x_offset=-7.8
+Light position (normalized): x=0.33, z=0.23
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:14:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 14.3s)
+Aggression: 0.02
+Flow: direction=0.04, x_offset=-2.5
+Light position (normalized): x=0.43, z=0.38
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:14:46 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 11.1s)
+Aggression: 0.01
+Flow: direction=-0.05, x_offset=2.8
+Light position (normalized): x=0.75, z=0.24
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:15:14 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 28.4s)
+Aggression: 0.00
+Flow: direction=-0.36, x_offset=21.7
+Light position (normalized): x=0.87, z=0.58
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:15:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 29.6s)
+Aggression: 0.00
+Flow: direction=-0.33, x_offset=19.7
+Light position (normalized): x=0.55, z=0.58
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:15:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 14.1s)
+Aggression: 0.00
+Flow: direction=0.45, x_offset=-26.9
+Light position (normalized): x=0.42, z=0.09
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:16:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 0.3s)
+Aggression: 0.01
+Flow: direction=0.08, x_offset=-4.9
+Light position (normalized): x=0.29, z=0.31
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:16:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 7.5s)
+Aggression: 0.01
+Flow: direction=-0.04, x_offset=2.2
+Light position (normalized): x=0.34, z=0.40
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:17:14 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 13.0s)
+Aggression: 0.02
+Flow: direction=-0.06, x_offset=3.6
+Light position (normalized): x=0.59, z=0.52
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:17:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.3s)
+Aggression: 0.00
+Flow: direction=-0.09, x_offset=5.4
+Light position (normalized): x=0.43, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:17:46 ===
+Hour: 17, Period: evening
+Mode: crowd (duration: 20.9s)
+Aggression: 0.00
+Flow: direction=-0.03, x_offset=1.7
+Light position (normalized): x=0.74, z=0.52
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:18:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 8.1s)
+Aggression: 0.01
+Flow: direction=0.30, x_offset=-18.1
+Light position (normalized): x=0.40, z=0.15
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:18:46 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 31.1s)
+Aggression: 0.00
+Flow: direction=-0.13, x_offset=8.0
+Light position (normalized): x=0.39, z=0.10
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:19:14 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 59.4s)
+Aggression: 0.01
+Flow: direction=-0.02, x_offset=1.2
+Light position (normalized): x=0.53, z=0.92
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:19:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 60.4s)
+Aggression: 0.00
+Flow: direction=0.00, x_offset=-0.2
+Light position (normalized): x=0.32, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:19:46 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 10.7s)
+Aggression: 0.00
+Flow: direction=0.17, x_offset=-10.4
+Light position (normalized): x=0.75, z=0.53
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:20:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 7.8s)
+Aggression: 0.01
+Flow: direction=-0.12, x_offset=7.2
+Light position (normalized): x=0.62, z=0.20
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:20:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 4.1s)
+Aggression: 0.01
+Flow: direction=-0.06, x_offset=3.4
+Light position (normalized): x=0.56, z=0.19
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:21:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 12.6s)
+Aggression: 0.02
+Flow: direction=-0.37, x_offset=22.1
+Light position (normalized): x=0.40, z=0.37
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:21:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 0.8s)
+Aggression: 0.00
+Flow: direction=-0.36, x_offset=21.9
+Light position (normalized): x=0.36, z=0.12
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:21:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 7.6s)
+Aggression: 0.01
+Flow: direction=0.02, x_offset=-1.0
+Light position (normalized): x=0.58, z=0.21
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:22:16 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 30.5s)
+Aggression: 0.00
+Flow: direction=0.08, x_offset=-4.5
+Light position (normalized): x=0.16, z=0.20
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:22:46 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 16.6s)
+Aggression: 0.02
+Flow: direction=-0.12, x_offset=7.1
+Light position (normalized): x=0.47, z=0.27
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:23:14 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 28.5s)
+Aggression: 0.01
+Flow: direction=-0.48, x_offset=28.6
+Light position (normalized): x=0.26, z=0.86
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:23:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 29.5s)
+Aggression: 0.00
+Flow: direction=-0.48, x_offset=28.6
+Light position (normalized): x=0.43, z=0.70
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:23:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 7.6s)
+Aggression: 0.01
+Flow: direction=-0.01, x_offset=0.7
+Light position (normalized): x=0.23, z=0.43
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:24:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 4.3s)
+Aggression: 0.01
+Flow: direction=-0.11, x_offset=6.4
+Light position (normalized): x=0.40, z=0.32
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:24:45 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 2.5s)
+Aggression: 0.01
+Flow: direction=0.38, x_offset=-23.1
+Light position (normalized): x=0.33, z=0.14
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:25:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 29.3s)
+Aggression: 0.01
+Flow: direction=0.12, x_offset=-7.2
+Light position (normalized): x=0.85, z=0.46
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:25:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 30.0s)
+Aggression: 0.00
+Flow: direction=0.07, x_offset=-4.2
+Light position (normalized): x=0.86, z=0.30
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:25:44 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 13.0s)
+Aggression: 0.00
+Flow: direction=-0.20, x_offset=12.0
+Light position (normalized): x=0.47, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:26:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 14.8s)
+Aggression: 0.00
+Flow: direction=0.09, x_offset=-5.5
+Light position (normalized): x=0.20, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:26:45 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 44.3s)
+Aggression: 0.00
+Flow: direction=-0.04, x_offset=2.5
+Light position (normalized): x=0.65, z=1.00
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:27:15 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 4.5s)
+Aggression: 0.01
+Flow: direction=-0.34, x_offset=20.2
+Light position (normalized): x=0.55, z=0.66
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:27:15 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 0.4s)
+Aggression: 0.00
+Flow: direction=-0.34, x_offset=20.2
+Light position (normalized): x=0.53, z=0.35
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:27:46 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 10.3s)
+Aggression: 0.02
+Flow: direction=-0.06, x_offset=3.5
+Light position (normalized): x=0.37, z=0.34
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:28:16 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 8.2s)
+Aggression: 0.01
+Flow: direction=0.12, x_offset=-7.4
+Light position (normalized): x=0.66, z=0.26
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:29:05 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 7.9s)
+Aggression: 0.01
+Flow: direction=-0.51, x_offset=30.5
+Light position (normalized): x=0.23, z=0.24
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:29:33 ===
+Hour: 17, Period: evening
+Mode: flow (duration: 13.7s)
+Aggression: 0.02
+Flow: direction=0.19, x_offset=-11.2
+Light position (normalized): x=0.43, z=0.58
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:29:35 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 1.6s)
+Aggression: 0.00
+Flow: direction=0.17, x_offset=-10.4
+Light position (normalized): x=0.60, z=0.57
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 17:42:35 ===
+Hour: 17, Period: evening
+Mode: engaged (duration: 8.3s)
+Aggression: 0.00
+Flow: direction=0.09, x_offset=-5.7
+Light position (normalized): x=0.49, z=0.41
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 18:00:34 ===
+Hour: 18, Period: evening
+Mode: flow (duration: 12.0s)
+Aggression: 0.02
+Flow: direction=0.09, x_offset=-5.2
+Light position (normalized): x=0.80, z=0.24
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 18:01:51 ===
+Hour: 18, Period: evening
+Mode: flow (duration: 61.5s)
+Aggression: 0.02
+Flow: direction=0.06, x_offset=-3.7
+Light position (normalized): x=0.56, z=0.42
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 18:02:21 ===
+Hour: 18, Period: evening
+Mode: engaged (duration: 29.2s)
+Aggression: 0.01
+Flow: direction=0.10, x_offset=-6.0
+Light position (normalized): x=0.63, z=0.19
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 18:02:21 ===
+Hour: 18, Period: evening
+Mode: engaged (duration: 30.0s)
+Aggression: 0.00
+Flow: direction=0.10, x_offset=-6.0
+Light position (normalized): x=0.59, z=0.33
+Almost-engaged: False, strategy: none
+Person zone: active
+
+=== Engagement at 2026-02-25 18:02:52 ===
+Hour: 18, Period: evening
+Mode: crowd (duration: 27.1s)
+Aggression: 0.00
+Flow: direction=-0.08, x_offset=5.0
+Light position (normalized): x=0.69, z=0.25
+Almost-engaged: False, strategy: none
+Person zone: active
