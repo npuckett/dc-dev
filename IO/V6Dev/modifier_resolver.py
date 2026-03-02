@@ -143,12 +143,12 @@ class SourceBudget:
 
 
 DEFAULT_SOURCE_BUDGETS = {
-    'smart_autotuner':   SourceBudget(max_total_delta=0.50, max_per_param_delta=0.12),  # raised from 0.30/0.08
-    'feedback_learning': SourceBudget(max_total_delta=0.40, max_per_param_delta=0.10),
-    'strategy_bandit':   SourceBudget(max_total_delta=0.20, max_per_param_delta=0.06),
-    'falloff_strategy':  SourceBudget(max_total_delta=0.50, max_per_param_delta=0.15),
-    'mode_intelligence': SourceBudget(max_total_delta=0.25, max_per_param_delta=0.08),
-    'context_engine':    SourceBudget(max_total_delta=0.60, max_per_param_delta=0.15),  # V6.1b: pulled back (was 0.80/0.20 — too permissive)
+    'smart_autotuner':   SourceBudget(max_total_delta=0.40, max_per_param_delta=0.08),  # V6.1e: was 0.50/0.12 — tighter per-frame allowance
+    'feedback_learning': SourceBudget(max_total_delta=0.20, max_per_param_delta=0.05),  # V6.1e: was 0.40/0.10 — halved to reduce per-frame compound
+    'strategy_bandit':   SourceBudget(max_total_delta=0.15, max_per_param_delta=0.05),  # V6.1e: was 0.20/0.06
+    'falloff_strategy':  SourceBudget(max_total_delta=0.40, max_per_param_delta=0.12),  # V6.1e: was 0.50/0.15
+    'mode_intelligence': SourceBudget(max_total_delta=0.15, max_per_param_delta=0.05),  # V6.1e: was 0.25/0.08
+    'context_engine':    SourceBudget(max_total_delta=0.30, max_per_param_delta=0.06),  # V6.1e: was 0.60/0.15 — halved, main erratic driver
 }
 
 
@@ -494,41 +494,41 @@ class ModifierResolver:
         # to be more expressive, not to dim down.
         regime = getattr(context, 'regime', 'steady')
         if regime == 'dead':
+            # V6.1e: halved strengths (was 0.05/0.03) — these apply every frame
             for param in ('brightness_global', 'exploration'):
                 intents.append(ModifierIntent(
                     parameter=param,
                     direction=Direction.UP,
-                    strength=0.05,
+                    strength=0.025,
                     source='context_engine',
                     priority=Priority.CONTEXT,
                     confidence=0.8,
                 ))
-            # Gently push energy up too
             intents.append(ModifierIntent(
                 parameter='energy',
                 direction=Direction.UP,
-                strength=0.03,
+                strength=0.015,
                 source='context_engine',
                 priority=Priority.CONTEXT,
                 confidence=0.7,
             ))
         elif regime == 'trickle':
-            # Moderate boost to be noticeable
+            # V6.1e: halved (was 0.03) — per-frame push was compounding too fast
             for param in ('brightness_global', 'exploration'):
                 intents.append(ModifierIntent(
                     parameter=param,
                     direction=Direction.UP,
-                    strength=0.03,
+                    strength=0.015,
                     source='context_engine',
                     priority=Priority.CONTEXT,
                     confidence=0.7,
                 ))
         elif regime == 'event':
-            # Anomalous event — boost responsiveness as context-level
+            # V6.1e: reduced (was 0.08)
             intents.append(ModifierIntent(
                 parameter='responsiveness',
                 direction=Direction.UP,
-                strength=0.08,
+                strength=0.05,
                 source='context_engine',
                 priority=Priority.CONTEXT,
                 confidence=0.8,

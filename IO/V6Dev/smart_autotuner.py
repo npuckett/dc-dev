@@ -100,16 +100,16 @@ class TunerConfig:
     # Budget
     budget_max: float = 200.0
     budget_restore_seconds: float = 600.0   # V6.1d: was 345 — budget regenerates slower
-    cost_scale: float = 25.0                # V6.1d: was 12 — each change costs more budget
+    cost_scale: float = 30.0                # V6.1e: was 25 — each change costs more budget
 
     # Step limits
-    max_personality_step: float = 0.015     # V6.1d: was 0.03 — smaller per-cycle changes
-    max_output_step: float = 0.04           # V6.1d: was 0.08 — halved
-    min_step_threshold: float = 0.005       # V6.1d: was 0.002 — ignore smaller jitter
+    max_personality_step: float = 0.012     # V6.1e: was 0.015 — smaller per-cycle changes
+    max_output_step: float = 0.03           # V6.1e: was 0.04
+    min_step_threshold: float = 0.006       # V6.1e: was 0.005 — ignore smaller jitter
 
     # Gradient estimation
     gradient_window: int = 30
-    gradient_learning_rate: float = 0.005    # V6.1d: was 0.01 — slower gradient following
+    gradient_learning_rate: float = 0.004    # V6.1e: was 0.005 — slower gradient following
 
     # Cross-parameter detection
     correlation_window: int = 30
@@ -121,12 +121,12 @@ class TunerConfig:
     output_reversion_scale: float = 0.5
 
     # Curiosity
-    curiosity_interval: float = 90.0        # V6.1d: was 30s — much less frequent
-    curiosity_strength: float = 0.015       # V6.1d: was 0.04 — gentle nudge, not a shove
-    curiosity_home_bias: float = 0.6
+    curiosity_interval: float = 120.0       # V6.1e: was 90s — less frequent exploration
+    curiosity_strength: float = 0.010       # V6.1e: was 0.015 — gentler nudge
+    curiosity_home_bias: float = 0.65       # V6.1e: was 0.6 — slightly more home-seeking
 
     # Engagement-based budget bonus
-    engagement_bonus_rate: float = 2.0      # V6.1d: was 3.33 — calmer bonus
+    engagement_bonus_rate: float = 1.5      # V6.1e: was 2.0 — calmer bonus
 
 
 # ---------------------------------------------------------------------------
@@ -389,10 +389,10 @@ class SmartAutoTuner:
 
         elif regime == 'trickle':
             # Boost attention-seeking params when traffic is light
-            # V6.1d: reduced from +0.008 to +0.004 — gentler exploration
+            # V6.1e: reduced from +0.004 to +0.002 — very gentle exploration
             for name in ('brightness_global', 'exploration', 'energy'):
                 if short_activity < 0.1:
-                    deltas[name] += 0.004
+                    deltas[name] += 0.002
 
         elif regime == 'rush':
             # During rush, personality should rise to meet demand

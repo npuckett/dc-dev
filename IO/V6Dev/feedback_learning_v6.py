@@ -309,17 +309,17 @@ class FeedbackLearningV6:
 
         # Map avg_weight [weight_min, weight_max] → modifier range
         # weight < 1.0 = reduce, weight > 1.0 = boost
-        # Brightness: [0.7, 1.6]
-        brightness_mult = 0.5 + avg_weight * 0.45
-        brightness_mult = max(0.7, min(1.6, brightness_mult))
+        # Brightness: [0.8, 1.4] — V6.1e: tightened (was [0.7, 1.6])
+        brightness_mult = 0.55 + avg_weight * 0.35
+        brightness_mult = max(0.8, min(1.4, brightness_mult))
 
-        # Pulse: [0.85, 1.2] — V6.1b: tightened (was [0.8, 1.4]) to prevent rapid flashing
-        pulse_mult = 0.65 + avg_weight * 0.25
-        pulse_mult = max(0.85, min(1.2, pulse_mult))
+        # Pulse: [0.88, 1.15] — V6.1e: tightened (was [0.85, 1.2])
+        pulse_mult = 0.70 + avg_weight * 0.22
+        pulse_mult = max(0.88, min(1.15, pulse_mult))
 
-        # Move speed: [0.85, 1.15] — V6.1b: tightened (was [0.8, 1.3]) to calm movement
-        speed_mult = 0.7 + avg_weight * 0.2
-        speed_mult = max(0.85, min(1.15, speed_mult))
+        # Move speed: [0.88, 1.12] — V6.1e: tightened (was [0.85, 1.15])
+        speed_mult = 0.72 + avg_weight * 0.18
+        speed_mult = max(0.88, min(1.12, speed_mult))
 
         # Falloff reach (Z scale): [0.8, 1.5]
         reach_mult = 0.5 + avg_weight * 0.4
@@ -334,9 +334,9 @@ class FeedbackLearningV6:
         quiet_boost = 1.0
         time_since_engagement = time.time() - self._last_engagement_time
         if time_since_engagement > self._quiet_mode_threshold:
-            # Ramp up over the next 10 minutes: 1.0 → 1.12 — V6.1b: reduced (was 1.2)
+            # Ramp up over the next 10 minutes: 1.0 → 1.08 — V6.1e: reduced (was 1.12)
             quiet_ramp = min(1.0, (time_since_engagement - self._quiet_mode_threshold) / 600.0)
-            quiet_boost = 1.0 + quiet_ramp * 0.12
+            quiet_boost = 1.0 + quiet_ramp * 0.08
             brightness_mult *= quiet_boost
             pulse_mult *= min(1.2, pulse_mult * (1.0 + quiet_ramp * 0.05))
 
