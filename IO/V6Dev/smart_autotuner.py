@@ -389,10 +389,10 @@ class SmartAutoTuner:
 
         elif regime == 'trickle':
             # Boost attention-seeking params when traffic is light
-            # Increased from +0.005 to +0.015 for faster response
+            # V6.1b: reduced from +0.015 to +0.008 — tripling was too aggressive
             for name in ('brightness_global', 'exploration', 'energy'):
                 if short_activity < 0.1:
-                    deltas[name] += 0.015
+                    deltas[name] += 0.008
 
         elif regime == 'rush':
             # During rush, personality should rise to meet demand

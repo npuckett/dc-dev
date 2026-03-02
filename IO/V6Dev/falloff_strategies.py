@@ -186,12 +186,12 @@ V6_GESTURE_PROFILES: Dict[V6Gesture, GestureProfile] = {
         target_shape=FalloffShape(
             scale_x=0.6,    # narrow
             scale_y=1.0,
-            scale_z=2.0,    # deep pulse
+            scale_z=2.0,    # deep reach
             rotation=0.0,   # rotates during animation
             radius_mult=0.9,
         ),
-        duration=4.0,
-        curve='pulse',      # rhythmic on/off
+        duration=6.0,       # V6.1b: slower (was 4.0) — less frantic
+        curve='sustain',    # V6.1b: gentle hold (was 'pulse' — too flashy)
         brightness_boost=5,
     ),
     V6Gesture.TWIRL: GestureProfile(

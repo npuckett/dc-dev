@@ -148,7 +148,7 @@ DEFAULT_SOURCE_BUDGETS = {
     'strategy_bandit':   SourceBudget(max_total_delta=0.20, max_per_param_delta=0.06),
     'falloff_strategy':  SourceBudget(max_total_delta=0.50, max_per_param_delta=0.15),
     'mode_intelligence': SourceBudget(max_total_delta=0.25, max_per_param_delta=0.08),
-    'context_engine':    SourceBudget(max_total_delta=0.80, max_per_param_delta=0.20),  # raised from 0.60/0.15
+    'context_engine':    SourceBudget(max_total_delta=0.60, max_per_param_delta=0.15),  # V6.1b: pulled back (was 0.80/0.20 — too permissive)
 }
 
 
