@@ -1,0 +1,87 @@
+{
+  "brightness_pulse|afternoon_ltr": {
+    "s": 1.0,
+    "f": 57.0,
+    "n": 56
+  },
+  "drift_toward|afternoon_ltr": {
+    "s": 1.0,
+    "f": 65.0,
+    "n": 64
+  },
+  "pause_and_look|afternoon_ltr": {
+    "s": 1.0,
+    "f": 59.0,
+    "n": 58
+  },
+  "falloff_reshape|afternoon_ltr": {
+    "s": 1.0,
+    "f": 56.0,
+    "n": 55
+  },
+  "brightness_pulse|afternoon_balanced": {
+    "s": 1.0,
+    "f": 12.0,
+    "n": 11
+  },
+  "drift_toward|afternoon_balanced": {
+    "s": 1.0,
+    "f": 10.0,
+    "n": 9
+  },
+  "pause_and_look|afternoon_balanced": {
+    "s": 1.0,
+    "f": 14.0,
+    "n": 13
+  },
+  "falloff_reshape|afternoon_balanced": {
+    "s": 1.0,
+    "f": 14.0,
+    "n": 13
+  },
+  "brightness_pulse|afternoon_none": {
+    "s": 1.0,
+    "f": 2.0,
+    "n": 1
+  },
+  "drift_toward|afternoon_none": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "pause_and_look|afternoon_none": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "falloff_reshape|afternoon_none": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "brightness_pulse|afternoon_rtl": {
+    "s": 1.0,
+    "f": 7.0,
+    "n": 6
+  },
+  "drift_toward|afternoon_rtl": {
+    "s": 1.0,
+    "f": 8.0,
+    "n": 7
+  },
+  "pause_and_look|afternoon_rtl": {
+    "s": 1.0,
+    "f": 11.0,
+    "n": 10
+  },
+  "falloff_reshape|afternoon_rtl": {
+    "s": 1.0,
+    "f": 8.0,
+    "n": 7
+  },
+  "_meta": {
+    "total_attempts": 310,
+    "total_conversions": 0,
+    "saved_at": 1772488944.8222263
+  }
+}
