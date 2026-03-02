@@ -22,6 +22,7 @@ Meta Parameters (personality sliders 0-1):
 
 import math
 import time
+import os
 import random
 import threading
 from enum import Enum
@@ -2858,7 +2859,8 @@ class BehaviorSystem:
         
         # Write to log file
         try:
-            log_path = f"/Users/npmac/Documents/GitHub/dc-dev/IO/V2Dev/{fl.log_file}"
+            _script_dir = os.path.dirname(os.path.abspath(__file__))
+            log_path = os.path.join(_script_dir, fl.log_file)
             with open(log_path, 'a') as f:
                 f.write(f"\n=== Engagement at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
                 f.write(f"Hour: {context.hour}, Period: {context.time_of_day}\n")
