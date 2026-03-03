@@ -439,3 +439,88 @@ Instead of "how many passive people become active," the autotuner now rewards:
 - The system won't frantically brighten during quiet periods
 - Each mode develops its own learned expression signature over time
 - The bandit explores 5 expression strategies per mode, settling on what produces the most alive-looking output
+
+---
+
+## V6.5b: Position Clamping + Active Falloff Animation
+
+**Commit:** `67281ad` — March 3, 2026  
+**Scope:** 2 files modified (`light_behavior.py`, `lightController_osc.py`) — +134 / -48
+
+### Issues Fixed
+
+1. **Light escaping wander box into active zone:** The light object occasionally moved past X=0 into the pedestrian active zone. Root causes:
+   - `WANDER_BOX_LIMITS['max_x']` was set to +10 (past panel edge at X=-30)
+   - `animated_wander_box` was lerp-interpolated but never clamped to hard limits
+   - Gesture targets bypassed wander box entirely
+   - `target_position` and `position` in the controller were never clamped
+
+2. **Falloff too static between modes:** Ambient oscillation was only ±5–14%, the V6 `FalloffStrategyManager` wasn't driving the actual light, and `PointLight` inertia was pulling shapes back to spherical `[1,1,1]` faster than behavior could set them.
+
+### Position Clamping (layered, belt-and-suspenders)
+
+| Layer | Location | What it clamps |
+|-------|----------|----------------|
+| Hard limits | `WANDER_BOX_LIMITS['max_x']` → -30 | Wander box can never extend past panel edge |
+| animated_wander_box | `update_animated_wander_box()` | Post-lerp clamp prevents slow drift past limits |
+| Gesture targets | `_clamp_position_to_box()` | All engaged + static gesture positions clamped |
+| Controller target | `WanderBehavior.update()` | `target_position` clamped after both gesture and wander movement |
+
+### Active Falloff Animation
+
+#### Per-mode base shapes (new)
+
+Each mode now starts with a distinct ellipsoid shape before any animation:
+
+| Mode | Scale X | Scale Y | Scale Z | Character |
+|------|---------|---------|---------|-----------|
+| IDLE | 1.20 | 1.00 | 0.90 | Wide, soft, slightly flat |
+| ENGAGED | 0.85 | 1.15 | 1.00 | Tall, narrow, focused |
+| CROWD | 1.30 | 0.90 | 1.10 | Wide span, covers group |
+| FLOW | 1.10 | 1.00 | 1.15 | Forward-reaching |
+| AWARE | 1.40 | 0.85 | 1.20 | Wide + compressed, active |
+
+Shapes interpolate smoothly during mode transitions.
+
+#### Ambient oscillation depths — Before vs After
+
+| Mode | V6.5 X depth | V6.5b X depth | Change |
+|------|-------------|---------------|--------|
+| IDLE | ±8% | ±25% | 3.1× |
+| FLOW | ±10% | ±40% | 4.0× |
+| ENGAGED | ±12% | ±35% | 2.9× |
+| AWARE | ±14% | ±55% | 3.9× |
+
+Z and Y depths scaled proportionally.
+
+#### New: Falloff radius breathing
+
+Radius now oscillates on a 9.3s period (incommensurate with scale axes):
+- IDLE: ±15%
+- FLOW: ±25%
+- ENGAGED: ±20%
+- AWARE: ±35%
+
+This creates a coordinated size+shape animation — the light grows/shrinks while simultaneously reshaping.
+
+#### Rotation wobble
+
+Doubled from ±4.5° to ±8.5° for visible shape turning.
+
+#### Controller inertia reduction
+
+`PointLight.scale_inertia_speed`: 0.4 → 0.08 (5× slower decay)  
+`PointLight.rotation_inertia_speed`: 0.5 → 0.10 (5× slower decay)
+
+The behavior system sets `target_falloff_scale` every frame, so inertia was fighting it. Now shapes persist as long as behavior drives them.
+
+#### Depth multipliers rebalanced
+
+| Tier | V6.5 | V6.5b |
+|------|------|-------|
+| Quiet | 0.5× | 0.7× |
+| Flow | 1.0× | 1.0× |
+| Aware | 1.8× | 1.5× |
+
+Quiet is more visible; aware is less extreme (base depths are already much larger).
+
