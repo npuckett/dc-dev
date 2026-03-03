@@ -62,6 +62,7 @@ const CONFIG = {
 let scene, camera, renderer, controls;
 let panels = [];
 let lightSphere, lightGlow, falloffSphere;
+let falloffBaseScale = new THREE.Vector3(1, 1, 1);  // Base scale from state, used for V6.5b breathing
 let wanderBoxMesh = null;  // Dynamic wander box wireframe
 let trackedPeople = {};
 let wsConnection = null;
@@ -70,6 +71,23 @@ let lastReportVersion = -1;  // Track report version to avoid redundant updates
 let latestDailyReport = null;  // Store latest report for when panel opens
 let latestRealtimeTrends = null;  // Store realtime trends
 let lastAutoTuning = null;  // Store latest auto-tuning data
+
+// V6 state extension fields
+let v6State = {
+    enabled: false,
+    regime: null,
+    engagement_score: 0,
+    predicted_traffic: 0,
+    mode_familiarity: 1.0,
+    mode_momentum: 1.0,
+    tuner_budget: 0,
+    top_gradients: {},
+    bandit_best: null,
+    // V6.5 additions
+    passive_tier: null,      // 'quiet' | 'flow' | 'busy'
+    expected_passive: 0,     // predicted passive count from predictive context
+    expected_tier: null,     // predicted passive tier
+};
 
 // Wander box lerping state
 let currentWanderBox = { ...CONFIG.WANDER_BOX };  // Current displayed values
@@ -419,9 +437,21 @@ function handleStateUpdate(data) {
         lightSphere.scale.setScalar(0.8 + brightness * 0.4);
         lightGlow.material.opacity = 0.2 + brightness * 0.3;
         
-        // Update falloff radius
+        // Update falloff radius — V6: use anisotropic scale [sx, sy, sz]
         const radius = data.light.falloff_radius || 50;
-        falloffSphere.scale.setScalar(radius / 50);
+        const baseScale = radius / 50;
+        if (data.light.falloff_scale && data.light.falloff_scale.length === 3) {
+            const [sx, sy, sz] = data.light.falloff_scale;
+            falloffSphere.scale.set(baseScale * sx, baseScale * sy, baseScale * sz);
+        } else {
+            falloffSphere.scale.setScalar(baseScale);
+        }
+        // Apply Y-axis rotation from V6 falloff strategies
+        if (data.light.falloff_rotation !== undefined) {
+            falloffSphere.rotation.y = data.light.falloff_rotation;
+        }
+        // Store base scale for V6.5b breathing animation in animate()
+        falloffBaseScale.copy(falloffSphere.scale);
     }
     
     // Update panel brightness
@@ -490,6 +520,20 @@ function handleStateUpdate(data) {
         lastAutoTuning = data.auto_tuning;
         updateAutoTuneDisplay(data.auto_tuning);
     }
+
+    // V6 state extension fields
+    if (data.v6_regime !== undefined)           v6State.regime = data.v6_regime;
+    if (data.v6_engagement_score !== undefined) v6State.engagement_score = data.v6_engagement_score;
+    if (data.v6_predicted_traffic !== undefined) v6State.predicted_traffic = data.v6_predicted_traffic;
+    if (data.v6_mode_familiarity !== undefined)  v6State.mode_familiarity = data.v6_mode_familiarity;
+    if (data.v6_mode_momentum !== undefined)     v6State.mode_momentum = data.v6_mode_momentum;
+    if (data.v6_tuner_budget !== undefined)      v6State.tuner_budget = data.v6_tuner_budget;
+    if (data.v6_top_gradients !== undefined)     v6State.top_gradients = data.v6_top_gradients;
+    if (data.v6_bandit_best !== undefined)       v6State.bandit_best = data.v6_bandit_best;
+    if (data.v6_enabled !== undefined)           v6State.enabled = data.v6_enabled;
+    // V6.5 passive prediction fields
+    if (data.v6_expected_passive !== undefined)  v6State.expected_passive = data.v6_expected_passive;
+    if (data.v6_expected_tier !== undefined)     v6State.expected_tier = data.v6_expected_tier;
 
     
     // Update wander box target if changed (will lerp in animate loop)
@@ -652,31 +696,52 @@ function updateTrendStats() {
         const dailyTotal = currentState?.population?.daily_total ?? 0;
         dailyTotalEl.textContent = dailyTotal;
     }
+
+    // V6.5: passive tier badge (quiet / flow / busy)
+    const passiveTierEl = document.getElementById('trend-passive-tier');
+    if (passiveTierEl) {
+        const tier = v6State.expected_tier || deriveTierFromMode(currentState?.mode);
+        passiveTierEl.textContent = tier ? tier.toLowerCase() : '--';
+        passiveTierEl.className = `passive-tier-badge${tier ? ' tier-' + tier.toLowerCase() : ''}`;
+    }
+}
+
+// Derive a rough passive tier from the current mode (fallback when v6_expected_tier not broadcast)
+function deriveTierFromMode(mode) {
+    if (!mode) return null;
+    if (mode === 'AWARE') return 'busy';
+    if (mode === 'FLOW') return 'flow';
+    return 'quiet';
 }
 
 function updateTuningBars() {
-    // Controller sends auto_tuning.activity = { short, medium, long, energy }
-    const activity = lastAutoTuning?.activity || {};
-    const tuningRanges = [
-        { key: 'short', weight: activity.short, available: latestRealtimeTrends?.short?.available },
-        { key: 'med', weight: activity.medium, available: latestRealtimeTrends?.medium?.available },
+    // V6: use realtime_trends data directly for the activity bars
+    // Maps range key → realtime_trends bucket
+    const trendRanges = [
+        { key: 'short',  trend: latestRealtimeTrends?.short },
+        { key: 'med',    trend: latestRealtimeTrends?.medium },
     ];
 
-    tuningRanges.forEach((range) => {
-        const weight = typeof range.weight === 'number' ? Math.max(0, Math.min(range.weight, 1)) : null;
-        const isAvailable = weight !== null;
-        // Scale up for visibility: activity values are typically 0-0.3, show as % of 0.5 max
-        const scaledWidth = isAvailable ? Math.min(weight / 0.5, 1) * 100 : 0;
+    trendRanges.forEach(({ key, trend }) => {
+        const isAvailable = trend?.available;
+        const active  = isAvailable ? (trend.active  || 0) : 0;
+        const passive = isAvailable ? (trend.passive || 0) : 0;
+        const total   = active + passive;
 
-        const activeEl = document.getElementById(`trend-${range.key}-bar-active`);
-        const passiveEl = document.getElementById(`trend-${range.key}-bar-passive`);
-        const totalEl = document.getElementById(`trend-${range.key}-total`);
-        const weightEl = document.getElementById(`trend-${range.key}-weight`);
+        // Normalize by a rough expected-max for visual scaling
+        const maxExpected = 30;  // people in a 5-min window at busy times
+        const activeWidth  = isAvailable ? Math.min(active  / maxExpected, 1) * 100 : 0;
+        const passiveWidth = isAvailable ? Math.min(passive / maxExpected, 1) * 100 : 0;
 
-        if (activeEl) activeEl.style.width = `${scaledWidth}%`;
-        if (passiveEl) passiveEl.style.width = '0%';
-        if (weightEl) weightEl.textContent = isAvailable ? (weight * 100).toFixed(1) + '%' : '--';
-        if (totalEl) totalEl.textContent = isAvailable ? '' : '-';
+        const activeEl  = document.getElementById(`trend-${key}-bar-active`);
+        const passiveEl = document.getElementById(`trend-${key}-bar-passive`);
+        const totalEl   = document.getElementById(`trend-${key}-total`);
+        const weightEl  = document.getElementById(`trend-${key}-weight`);
+
+        if (activeEl)  activeEl.style.width  = `${activeWidth}%`;
+        if (passiveEl) passiveEl.style.width  = `${passiveWidth}%`;
+        if (weightEl)  weightEl.textContent   = isAvailable ? total : '--';
+        if (totalEl)   totalEl.textContent    = '';
     });
 }
 
@@ -722,24 +787,23 @@ function updateAutoTuneDisplay(autoTuning) {
         }
     });
 
-    // Activity / Target / Energy / Budget summary
+    // Activity / Regime / Momentum / Budget summary (V6)
     const activity = autoTuning?.activity || {};
     const budget = autoTuning?.budget || {};
     const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    setText('tune-activity', typeof activity.short === 'number' ? (activity.short * 100).toFixed(1) + '%' : '--');
-    setText('tune-energy', typeof activity.energy === 'number' ? (activity.energy * 100).toFixed(0) + '%' : '--');
+    // Score: V6 engagement score (0–1 → display as 0–100%)
+    const engScore = typeof activity.score === 'number' ? activity.score
+                   : (typeof v6State.engagement_score === 'number' ? v6State.engagement_score : null);
+    setText('tune-activity', engScore !== null ? (engScore * 100).toFixed(1) + '%' : '--');
 
-    // Target: show adaptive target if available from activity context
-    const targetEl = document.getElementById('tune-target');
-    if (targetEl) {
-        // Use medium activity as proxy for target display, or show budget ratio
-        if (typeof activity.medium === 'number') {
-            targetEl.textContent = (activity.medium * 100).toFixed(1) + '%';
-        } else {
-            targetEl.textContent = '--';
-        }
-    }
+    // Regime: traffic regime from V6 context engine
+    const regime = activity.regime || v6State.regime;
+    setText('tune-target', regime ? regime : '--');
+
+    // Momentum: V6 mode momentum (1.0–1.6×)
+    const momentum = v6State.mode_momentum;
+    setText('tune-energy', typeof momentum === 'number' ? momentum.toFixed(2) + '×' : '--');
 
     // Budget bar
     const budgetEl = document.getElementById('tune-budget');
@@ -753,21 +817,53 @@ function updateAutoTuneDisplay(autoTuning) {
         }
     }
 
+    // Bandit strategy — abbreviated for the narrow stat cell
+    // V6.5b strategies: EXPLORE_WIDE / PULSE_VARIED / SHAPE_SHIFT / ENERGY_BURST / SETTLE_DEEP
+    const BANDIT_ABBREV = {
+        // V6.5b
+        'EXPLORE_WIDE':     'explore',
+        'PULSE_VARIED':     'pulse',
+        'SHAPE_SHIFT':      'shape',
+        'ENERGY_BURST':     'burst',
+        'SETTLE_DEEP':      'settle',
+        // V6 legacy (backward compat)
+        'BRIGHTNESS_PULSE': 'pulse',
+        'DRIFT_TOWARD':     'drift',
+        'PAUSE_AND_LOOK':   'pause',
+        'FALLOFF_RESHAPE':  'reshape',
+    };
+    const banditEl = document.getElementById('tune-bandit');
+    if (banditEl) {
+        const best = v6State.bandit_best;
+        banditEl.textContent = best ? (BANDIT_ABBREV[best] || best.toLowerCase().replace(/_/g, ' ')) : '--';
+    }
+
     // Top deltas (recent param changes)
     const deltasEl = document.getElementById('tune-deltas');
     if (deltasEl) {
         const topDeltas = autoTuning?.top_deltas || [];
+        // Also show V6 top gradients alongside deltas
+        const grads = v6State.top_gradients || {};
+        const gradItems = Object.entries(grads).slice(0, 2);
+
+        let html = '';
         if (topDeltas.length > 0) {
-            const deltaHtml = topDeltas.map(d => {
+            html += topDeltas.map(d => {
                 const arrow = d.delta > 0 ? '↑' : '↓';
                 const cls = d.delta > 0 ? 'delta-up' : 'delta-down';
                 const shortName = d.name.replace('_global', '').replace('_', ' ');
                 return `<span class="delta-item ${cls}">${shortName} ${arrow}${Math.abs(d.delta).toFixed(3)}</span>`;
             }).join('');
-            deltasEl.innerHTML = deltaHtml;
-        } else {
-            deltasEl.innerHTML = '';
         }
+        if (gradItems.length > 0) {
+            html += gradItems.map(([name, g]) => {
+                const arrow = g > 0 ? '↑' : '↓';
+                const cls = g > 0 ? 'delta-up' : 'delta-down';
+                const shortName = name.replace('_global', '').replace('_', ' ');
+                return `<span class="delta-item ${cls} grad-item" title="gradient">∇${shortName} ${arrow}</span>`;
+            }).join('');
+        }
+        deltasEl.innerHTML = html;
     }
 
     // Tuning pulse — use revision counter to detect changes
@@ -801,7 +897,31 @@ function animate() {
         const pulse = Math.sin(Date.now() * 0.003) * 0.1 + 1;
         lightGlow.scale.setScalar(pulse);
     }
-    
+
+    // V6.5b: Animate falloff sphere breathing (per-mode tempo + depth from changelog)
+    // Base scale is set by each state update; here we layer oscillation on top.
+    if (falloffSphere && currentState?.light) {
+        const mode = currentState.mode || 'IDLE';
+        // Depth = fraction of base scale to oscillate (±). Values from V6.5b per-mode animation params.
+        const depthMap = { IDLE: 0.12, FLOW: 0.28, AWARE: 0.42, ENGAGED: 0.25, CROWD: 0.18 };
+        // Tempo multiplier matches V6.5b breathing rates (quiet=0.7×, flow=1.0×, aware=1.6×)
+        const tempoMap = { IDLE: 0.7,  FLOW: 1.0,  AWARE: 1.6,  ENGAGED: 1.1,  CROWD: 1.2 };
+        const depth = depthMap[mode] ?? 0.12;
+        const tempo = tempoMap[mode] ?? 1.0;
+        const t = Date.now() * 0.001 * tempo;
+        // Independent phase offsets per axis for a lava-lamp / organic feel
+        const breathX = 1.0 + Math.sin(t * 0.80)         * depth * 0.6;
+        const breathY = 1.0 + Math.sin(t * 0.53 + 1.21)  * depth * 0.4;
+        const breathZ = 1.0 + Math.sin(t * 0.67 + 2.41)  * depth * 0.7;
+        // Radius breathing — 9.3s period (per changelog), applied uniformly on top
+        const radiusPulse = 1.0 + Math.sin(t / 9.3 * 2 * Math.PI / tempo) * depth * 0.35;
+        falloffSphere.scale.set(
+            falloffBaseScale.x * breathX * radiusPulse,
+            falloffBaseScale.y * breathY * radiusPulse,
+            falloffBaseScale.z * breathZ * radiusPulse
+        );
+    }
+
     renderer.render(scene, camera);
 }
 
@@ -892,7 +1012,9 @@ function sampleTrendsData() {
     } else if (currentState?.people) {
         // Last resort: use people array length
         const peopleCount = currentState.people.length;
-        if (currentState.mode === 'engaged' || currentState.mode === 'crowd') {
+        // Controller broadcasts mode as uppercase (ENGAGED, CROWD, IDLE, FLOW, AWARE)
+        const modeUpper = (currentState.mode || '').toUpperCase();
+        if (modeUpper === 'ENGAGED' || modeUpper === 'CROWD') {
             engaged = peopleCount;
         } else {
             passing = peopleCount;

@@ -810,10 +810,10 @@ html, body {
     margin-top: 4px;
 }
 
-/* Tune summary (Activity / Target / Energy / Budget) */
+/* Tune summary (Score / Regime / Momentum / Budget / Strategy) */
 .tune-summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 4px;
     padding: 6px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -871,3 +871,44 @@ html, body {
     background: rgba(255, 140, 100, 0.1);
 }
 
+/* V6 gradient indicators (dimmer than deltas) */
+.delta-item.grad-item {
+    opacity: 0.65;
+    font-style: italic;
+}
+
+/* =============================================================================
+   V6.5 PASSIVE TIER BADGE (quiet / flow / busy)
+   Reflects the sidewalk passive traffic tier broadcast by the controller.
+   ============================================================================= */
+
+.passive-tier-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.45);
+    vertical-align: middle;
+}
+
+/* quiet: <2 passive/min — cool blue, subdued */
+.passive-tier-badge.tier-quiet {
+    color: rgba(130, 175, 225, 0.85);
+    background: rgba(90, 140, 220, 0.12);
+}
+
+/* flow: 2–10 passive/min — green, matches passing track color */
+.passive-tier-badge.tier-flow {
+    color: rgba(100, 230, 140, 0.85);
+    background: rgba(80, 200, 110, 0.12);
+}
+
+/* busy: ≥10 passive/min — amber, V6.5 AWARE mode color */
+.passive-tier-badge.tier-busy {
+    color: rgba(255, 200, 70, 0.90);
+    background: rgba(210, 160, 40, 0.14);
+}

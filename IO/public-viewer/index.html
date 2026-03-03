@@ -34,6 +34,7 @@
                 <span class="now-value" id="trend-current">0</span>
                 <span class="now-meta"><span id="trend-current-active">0</span> engaged | <span id="trend-current-passive">0</span> passing</span>
                 <span class="now-meta daily-total"><span id="trend-daily-total">0</span> today</span>
+                <span class="now-meta">sidewalk: <span id="trend-passive-tier" class="passive-tier-badge">--</span></span>
             </div>
         </div>
         <div id="trends-panels">
@@ -42,26 +43,30 @@
                     <span class="behavior-title">Auto-Tune</span>
                     <span class="behavior-status" id="behavior-status-label">Off</span>
                 </div>
-                <!-- Activity / Budget summary -->
+                <!-- Activity / Budget summary (V6) -->
                 <div class="tune-summary">
                     <div class="tune-stat">
-                        <span class="tune-stat-label">Activity</span>
+                        <span class="tune-stat-label">D.Range</span>
                         <span class="tune-stat-value" id="tune-activity">--</span>
                     </div>
                     <div class="tune-stat">
-                        <span class="tune-stat-label">Target</span>
+                        <span class="tune-stat-label">Regime</span>
                         <span class="tune-stat-value" id="tune-target">--</span>
                     </div>
                     <div class="tune-stat">
-                        <span class="tune-stat-label">Energy</span>
+                        <span class="tune-stat-label">Momentum</span>
                         <span class="tune-stat-value" id="tune-energy">--</span>
                     </div>
                     <div class="tune-stat">
                         <span class="tune-stat-label">Budget</span>
                         <span class="tune-stat-value" id="tune-budget">--</span>
                     </div>
+                    <div class="tune-stat">
+                        <span class="tune-stat-label">Strategy</span>
+                        <span class="tune-stat-value" id="tune-bandit">--</span>
+                    </div>
                 </div>
-                <!-- Activity window bars -->
+                <!-- Activity window bars (realtime trends) -->
                 <div class="behavior-trends">
                     <div class="trend-row" data-range="short">
                         <span class="trend-tag">5m <span class="trend-tag-value" id="trend-short-weight">--</span></span>
@@ -69,7 +74,7 @@
                             <span class="trend-seg engaged" id="trend-short-bar-active"></span>
                             <span class="trend-seg passing" id="trend-short-bar-passive"></span>
                         </div>
-                        <span class="trend-count" id="trend-short-total">-</span>
+                        <span class="trend-count" id="trend-short-total"></span>
                     </div>
                     <div class="trend-row" data-range="med">
                         <span class="trend-tag">15m <span class="trend-tag-value" id="trend-med-weight">--</span></span>
@@ -77,9 +82,8 @@
                             <span class="trend-seg engaged" id="trend-med-bar-active"></span>
                             <span class="trend-seg passing" id="trend-med-bar-passive"></span>
                         </div>
-                        <span class="trend-count" id="trend-med-total">-</span>
+                        <span class="trend-count" id="trend-med-total"></span>
                     </div>
-
                 </div>
                 <!-- Personality parameters -->
                 <div class="params-section-label">Personality</div>

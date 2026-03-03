@@ -1,163 +1,270 @@
 {
-  "generated_at": "2026-03-03T06:00:20.369894",
-  "total_reports": 0,
-  "database": "/home/nick/Documents/Github/dc-dev/IO/tracking_history.db",
-  "date_range": {
-    "first": null,
-    "last": null
-  },
+  "generated": "2026-03-03T14:26:13",
+  "total_reports": 33,
   "reports": [
     {
       "date": "2026-01-29",
-      "file": "2026-01-29.json",
       "total_people": 6649,
-      "total_events": 448496,
-      "peak_hour": 17,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 15
     },
     {
       "date": "2026-01-30",
-      "file": "2026-01-30.json",
       "total_people": 6497,
-      "total_events": 421575,
-      "peak_hour": 17,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-01-31",
-      "file": "2026-01-31.json",
       "total_people": 5367,
-      "total_events": 373431,
-      "peak_hour": 16,
-      "dominant_flow": "right_to_left"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-01",
-      "file": "2026-02-01.json",
       "total_people": 5016,
-      "total_events": 337531,
-      "peak_hour": 17,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-02",
-      "file": "2026-02-02.json",
       "total_people": 3943,
-      "total_events": 285817,
-      "peak_hour": 12,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 16
+    },
+    {
+      "date": "2026-02-03",
+      "total_people": 3481,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-04",
+      "total_people": 6967,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-05",
+      "total_people": 7085,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-06",
+      "total_people": 4687,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-07",
+      "total_people": 2806,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-08",
+      "total_people": 2751,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-09",
+      "total_people": 4837,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
     },
     {
       "date": "2026-02-10",
-      "file": "2026-02-10.json",
       "total_people": 576,
-      "total_events": 25333,
-      "peak_hour": 16,
-      "dominant_flow": "left_to_right"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 2
     },
     {
       "date": "2026-02-11",
-      "file": "2026-02-11.json",
       "total_people": 225,
-      "total_events": 2579,
-      "peak_hour": 15,
-      "dominant_flow": "left_to_right"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 2
     },
     {
       "date": "2026-02-12",
-      "file": "2026-02-12.json",
       "total_people": 554,
-      "total_events": 5112,
-      "peak_hour": 15,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 2
     },
     {
       "date": "2026-02-13",
-      "file": "2026-02-13.json",
       "total_people": 15548,
-      "total_events": 159598,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-14",
-      "file": "2026-02-14.json",
       "total_people": 15291,
-      "total_events": 156961,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-15",
-      "file": "2026-02-15.json",
       "total_people": 14026,
-      "total_events": 119862,
-      "peak_hour": 17,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-16",
-      "file": "2026-02-16.json",
       "total_people": 10613,
-      "total_events": 113531,
-      "peak_hour": 13,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-17",
-      "file": "2026-02-17.json",
       "total_people": 23233,
-      "total_events": 208702,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-18",
-      "file": "2026-02-18.json",
       "total_people": 10364,
-      "total_events": 96072,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-19",
-      "file": "2026-02-19.json",
       "total_people": 22735,
-      "total_events": 206437,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-20",
-      "file": "2026-02-20.json",
       "total_people": 14893,
-      "total_events": 138087,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-21",
-      "file": "2026-02-21.json",
       "total_people": 16584,
-      "total_events": 121413,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-22",
-      "file": "2026-02-22.json",
       "total_people": 7137,
-      "total_events": 101826,
-      "peak_hour": 14,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
     },
     {
       "date": "2026-02-23",
-      "file": "2026-02-23.json",
       "total_people": 17885,
-      "total_events": 158977,
-      "peak_hour": 16,
-      "dominant_flow": "balanced"
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 24
+    },
+    {
+      "date": "2026-02-24",
+      "total_people": 15984,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-25",
+      "total_people": 10475,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-26",
+      "total_people": 16602,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-27",
+      "total_people": 14027,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-02-28",
+      "total_people": 10982,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-03-01",
+      "total_people": 7905,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
+    },
+    {
+      "date": "2026-03-02",
+      "total_people": 16558,
+      "active_events": 0,
+      "passive_events": 0,
+      "peak_hour": null,
+      "hours_with_data": 0
     }
   ]
 }
