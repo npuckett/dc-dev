@@ -2239,9 +2239,10 @@ class PointLight:
     scale_spring_speed: float = 2.5     # V5.1: faster spring for snappier gesture shapes
     rotation_spring_speed: float = 2.5
     # Inertia: how fast scale/rotation return to neutral when no target is set
-    # V5.1: much slower inertia so shapes actually persist visibly
-    scale_inertia_speed: float = 0.4    # Was 1.5 — shapes now hold ~2.5s before fading
-    rotation_inertia_speed: float = 0.5  # Was 1.5 — rotation holds longer
+    # V6.5b: Very slow inertia — behavior sets target_falloff_scale every frame,
+    # so inertia should NOT fight it. Only matters during brief gaps.
+    scale_inertia_speed: float = 0.08   # Was 0.4 — nearly no drift back to [1,1,1]
+    rotation_inertia_speed: float = 0.10 # Was 0.5 — rotation holds much longer
     
     move_speed: float = 50
     pulse_phase: float = 0.0
@@ -2429,6 +2430,10 @@ class WanderBehavior:
         # Gesture target takes priority
         if self.gesture_target is not None:
             self.light.target_position = self.gesture_target.copy()
+            # V6.5b: Clamp gesture target to wander box — no escaping into active zone
+            self.light.target_position[0] = np.clip(self.light.target_position[0], self.wander_box['min_x'], self.wander_box['max_x'])
+            self.light.target_position[1] = np.clip(self.light.target_position[1], self.wander_box['min_y'], self.wander_box['max_y'])
+            self.light.target_position[2] = np.clip(self.light.target_position[2], self.wander_box['min_z'], self.wander_box['max_z'])
             return
         
         # Always clamp wander target to current box bounds (box may have moved)
@@ -2458,6 +2463,11 @@ class WanderBehavior:
         diff = target - current
         smooth = 0.03  # Gentle, slow movement
         self.light.target_position = current + diff * smooth
+        
+        # V6.5b: Final clamp — target_position must stay within wander box
+        self.light.target_position[0] = np.clip(self.light.target_position[0], self.wander_box['min_x'], self.wander_box['max_x'])
+        self.light.target_position[1] = np.clip(self.light.target_position[1], self.wander_box['min_y'], self.wander_box['max_y'])
+        self.light.target_position[2] = np.clip(self.light.target_position[2], self.wander_box['min_z'], self.wander_box['max_z'])
 
 
 # =============================================================================

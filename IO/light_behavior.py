@@ -589,6 +589,8 @@ class BehaviorSystem:
     }
     
     # Base mode parameters
+    # V6.5b: More differentiated falloff_radius per mode + base scale shapes
+    # so each mode has a visibly distinct light character
     MODE_PARAMS = {
         BehaviorMode.IDLE: {
             'move_speed': 20,
@@ -596,8 +598,11 @@ class BehaviorSystem:
             'brightness_min': 3,
             'brightness_max': 15,
             'pulse_speed': 4000,
-            'falloff_radius': 80,
-            'follow_smoothing': 0.0,  # Not following
+            'falloff_radius': 90,       # V6.5b: wider, softer spread when idle
+            'follow_smoothing': 0.0,    # Not following
+            'base_scale_x': 1.2,        # V6.5b: slightly wide ellipse
+            'base_scale_y': 1.0,
+            'base_scale_z': 0.9,        # V6.5b: slightly flattened forward
         },
         BehaviorMode.ENGAGED: {
             'move_speed': 60,           # V5.1: much faster initial response (was 40)
@@ -605,8 +610,11 @@ class BehaviorSystem:
             'brightness_min': 12,       # V5: brighter minimum (was 8)
             'brightness_max': 55,       # V5: much brighter (was 30)
             'pulse_speed': 2500,
-            'falloff_radius': 50,
+            'falloff_radius': 45,       # V6.5b: tighter focus on person
             'follow_smoothing': 0.08,   # V5.1: faster tracking (was 0.06)
+            'base_scale_x': 0.85,       # V6.5b: narrower, more focused
+            'base_scale_y': 1.15,       # V6.5b: taller — vertical emphasis
+            'base_scale_z': 1.0,
         },
         BehaviorMode.CROWD: {
             'move_speed': 60,
@@ -614,8 +622,11 @@ class BehaviorSystem:
             'brightness_min': 15,       # V5: brighter (was 12)
             'brightness_max': 80,       # V5: much brighter (was 45)
             'pulse_speed': 1500,
-            'falloff_radius': 40,
+            'falloff_radius': 55,       # V6.5b: wider than engaged to cover group
             'follow_smoothing': 0.03,
+            'base_scale_x': 1.3,        # V6.5b: wide to span multiple people
+            'base_scale_y': 0.9,
+            'base_scale_z': 1.1,
         },
         BehaviorMode.FLOW: {
             'move_speed': 25,
@@ -623,8 +634,11 @@ class BehaviorSystem:
             'brightness_min': 5,
             'brightness_max': 20,
             'pulse_speed': 3000,
-            'falloff_radius': 70,
+            'falloff_radius': 75,       # V6.5b: generous reach for flow tracking
             'follow_smoothing': 0.0,
+            'base_scale_x': 1.1,        # V6.5b: slightly wide
+            'base_scale_y': 1.0,
+            'base_scale_z': 1.15,       # V6.5b: deeper forward reach
         },
         BehaviorMode.AWARE: {
             'move_speed': 35,           # V6.5: faster than FLOW — energetic
@@ -632,8 +646,11 @@ class BehaviorSystem:
             'brightness_min': 8,        # V6.5: brighter floor
             'brightness_max': 30,       # V6.5: significantly brighter
             'pulse_speed': 2200,        # V6.5: faster pulse
-            'falloff_radius': 65,       # V6.5: moderate reach
+            'falloff_radius': 60,       # V6.5b: active, medium reach
             'follow_smoothing': 0.0,
+            'base_scale_x': 1.4,        # V6.5b: wide lateral spread
+            'base_scale_y': 0.85,       # V6.5b: compressed vertically
+            'base_scale_z': 1.2,        # V6.5b: forward-reaching
         },
     }
     
@@ -856,9 +873,9 @@ class BehaviorSystem:
         
         # V6.5: Hard limits — wander box NEVER exceeds these bounds
         # Panels span X=-40 to X=-280; Z depth is -12 to +12 (panels 2/3 local Z)
-        # Z is locked to panel depth; X gets modest padding; Y bounded to panel height
+        # Z is locked to panel depth; X stays within panel span; Y bounded to panel height
         self.WANDER_BOX_LIMITS = {
-            'min_x': -350, 'max_x': 10,     # ~70cm padding beyond panel edges
+            'min_x': -350, 'max_x': -30,    # Panel edges: -280 to -40, tight padding
             'min_y': -10,  'max_y': 200,     # Panels top at Y≈120, slight extra room
             'min_z': -32,  'max_z': 28,      # FIXED to panel depth — never changes
         }
@@ -1191,35 +1208,43 @@ class BehaviorSystem:
     }
 
     # V5.1: Ambient falloff oscillation — runs in ALL modes for a living feel
-    # Subtle continuous shape breathing even when idle / no gestures active
-    # V6.5: Added Y-axis, flow-reactive tempo + depth, directional phase offsets
+    # V6.5b: Dramatically increased depths for visible shape-shifting.
+    # Falloff should actively breathe in conjunction with brightness —
+    # the shape of the light is as important as its intensity.
     AMBIENT_FALLOFF_CONFIG = {
         'x_period': 11.0,          # Seconds per X scale cycle (slow, organic)
         'z_period': 8.5,           # Seconds per Z scale cycle (different to avoid sync)
-        'y_period': 13.0,          # V6.5: Y scale cycle (incommensurate with X/Z)
-        'x_depth_idle': 0.08,      # ±8% X scale in IDLE
-        'z_depth_idle': 0.06,      # ±6% Z scale in IDLE
-        'y_depth_idle': 0.05,      # V6.5: ±5% Y scale in IDLE
-        'x_depth_engaged': 0.12,   # ±12% X scale in ENGAGED/CROWD
-        'z_depth_engaged': 0.10,   # ±10% Z scale in ENGAGED/CROWD
-        'y_depth_engaged': 0.08,   # V6.5: ±8% Y scale in ENGAGED/CROWD
-        'x_depth_flow': 0.10,      # V6.5: ±10% X in FLOW
-        'z_depth_flow': 0.08,      # V6.5: ±8% Z in FLOW
-        'y_depth_flow': 0.06,      # V6.5: ±6% Y in FLOW
-        'x_depth_aware': 0.14,     # V6.5: ±14% X in AWARE (dramatic)
-        'z_depth_aware': 0.12,     # V6.5: ±12% Z in AWARE
-        'y_depth_aware': 0.10,     # V6.5: ±10% Y in AWARE
+        'y_period': 13.0,          # Y scale cycle (incommensurate with X/Z)
+        'radius_period': 9.3,      # V6.5b: Falloff radius breathing period
+        # V6.5b: Scale depths — much larger for visible shape animation
+        'x_depth_idle': 0.25,      # ±25% X scale in IDLE — gentle breathing
+        'z_depth_idle': 0.20,      # ±20% Z scale in IDLE
+        'y_depth_idle': 0.15,      # ±15% Y scale in IDLE
+        'x_depth_engaged': 0.35,   # ±35% X scale in ENGAGED/CROWD
+        'z_depth_engaged': 0.28,   # ±28% Z scale in ENGAGED/CROWD
+        'y_depth_engaged': 0.20,   # ±20% Y scale in ENGAGED/CROWD
+        'x_depth_flow': 0.40,      # ±40% X in FLOW — active shape-shifting
+        'z_depth_flow': 0.30,      # ±30% Z in FLOW
+        'y_depth_flow': 0.25,      # ±25% Y in FLOW
+        'x_depth_aware': 0.55,     # ±55% X in AWARE — dramatic reshaping
+        'z_depth_aware': 0.40,     # ±40% Z in AWARE
+        'y_depth_aware': 0.35,     # ±35% Y in AWARE
+        # V6.5b: Radius breathing depths
+        'radius_depth_idle': 0.15,     # ±15% radius in IDLE
+        'radius_depth_flow': 0.25,     # ±25% radius in FLOW
+        'radius_depth_engaged': 0.20,  # ±20% radius in ENGAGED
+        'radius_depth_aware': 0.35,    # ±35% radius in AWARE
         'rotation_period': 15.0,   # Seconds per slow rotation wobble
-        'rotation_depth': 0.08,    # ±0.08 radians (~4.5°) subtle wobble
+        'rotation_depth': 0.15,    # ±0.15 radians (~8.5°) visible wobble
         # V6.5: Flow-reactive tempo scaling
         'tempo_quiet': 0.7,        # Slower breathing when quiet
         'tempo_flow': 1.0,         # Standard rhythm in FLOW
         'tempo_aware': 1.6,        # Excited breathing in AWARE
         'tempo_ema_alpha': 0.05,   # Slow EMA smoothing for tempo transitions
-        # V6.5: Flow-reactive depth scaling
-        'depth_quiet_mult': 0.5,   # Subtle shimmer when quiet
+        # V6.5b: Flow-reactive depth scaling (stacks with per-mode depths)
+        'depth_quiet_mult': 0.7,   # Calmer when quiet but still visible
         'depth_flow_mult': 1.0,    # Standard depth in FLOW
-        'depth_aware_mult': 1.8,   # Dramatic shape shifts in AWARE
+        'depth_aware_mult': 1.5,   # Enhanced in AWARE
         # V6.5: Directional phase offset from flow
         'flow_phase_offset_strength': 0.4,  # Max phase offset between X/Z from flow direction
     }
@@ -1501,23 +1526,22 @@ class BehaviorSystem:
 
     def _apply_ambient_falloff(self, params: Dict, dt: float):
         """
-        V6.5: Apply continuous ambient falloff shape oscillation.
+        V6.5b: Apply continuous ambient falloff shape oscillation.
 
         Runs in ALL modes. Three independent oscillators on X/Y/Z with
         incommensurate periods so the shape never exactly repeats.
+        Also breathes falloff_radius in sync for a coordinated shape+size animation.
 
-        V6.5 additions:
-        - Y-axis oscillation (was never driven before)
-        - Flow-reactive tempo: busy sidewalk = faster breathing
-        - Flow-reactive depth: busy = more dramatic shape shifts
-        - Directional phase offsets: flow direction creates a 'wave' motion
+        V6.5b: Dramatically increased depths — the shape of the light
+        should be as alive as its brightness. Scale depths are 3-5x larger
+        than V6.5 and radius now breathes too.
 
         Modifies params dict in-place.
         """
         cfg = self.AMBIENT_FALLOFF_CONFIG
         two_pi = math.pi * 2
 
-        # V6.5: Compute target tempo and depth multipliers based on passive tier
+        # Compute target tempo and depth multipliers based on passive tier
         if self.state.mode == BehaviorMode.AWARE:
             target_tempo = cfg['tempo_aware']
             depth_mult = cfg['depth_aware_mult']
@@ -1531,7 +1555,7 @@ class BehaviorSystem:
             target_tempo = cfg['tempo_quiet']
             depth_mult = cfg['depth_quiet_mult']
 
-        # V6.5: Smooth tempo transition with EMA (no jarring speed changes)
+        # Smooth tempo transition with EMA (no jarring speed changes)
         alpha = cfg['tempo_ema_alpha']
         self.state.ambient_tempo_factor += alpha * (target_tempo - self.state.ambient_tempo_factor)
         tempo = self.state.ambient_tempo_factor
@@ -1542,10 +1566,16 @@ class BehaviorSystem:
         self.state.ambient_falloff_phase_y += two_pi * dt * tempo / cfg['y_period']
         self.state.ambient_falloff_phase_rot += two_pi * dt * tempo / cfg['rotation_period']
 
+        # V6.5b: Advance radius phase (slightly offset tempo for organic feel)
+        if not hasattr(self.state, 'ambient_falloff_phase_radius'):
+            self.state.ambient_falloff_phase_radius = 0.0
+        self.state.ambient_falloff_phase_radius += two_pi * dt * tempo / cfg['radius_period']
+
         # Wrap phases to avoid float overflow over long runtime
         for attr in ('ambient_falloff_phase_x', 'ambient_falloff_phase_z',
-                     'ambient_falloff_phase_y', 'ambient_falloff_phase_rot'):
-            val = getattr(self.state, attr)
+                     'ambient_falloff_phase_y', 'ambient_falloff_phase_rot',
+                     'ambient_falloff_phase_radius'):
+            val = getattr(self.state, attr, 0.0)
             if val > two_pi:
                 setattr(self.state, attr, val - two_pi)
 
@@ -1554,25 +1584,30 @@ class BehaviorSystem:
             x_depth = cfg['x_depth_aware']
             z_depth = cfg['z_depth_aware']
             y_depth = cfg['y_depth_aware']
+            r_depth = cfg['radius_depth_aware']
         elif self.state.mode == BehaviorMode.FLOW:
             x_depth = cfg['x_depth_flow']
             z_depth = cfg['z_depth_flow']
             y_depth = cfg['y_depth_flow']
+            r_depth = cfg['radius_depth_flow']
         elif self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
             x_depth = cfg['x_depth_engaged']
             z_depth = cfg['z_depth_engaged']
             y_depth = cfg['y_depth_engaged']
+            r_depth = cfg['radius_depth_engaged']
         else:
             x_depth = cfg['x_depth_idle']
             z_depth = cfg['z_depth_idle']
             y_depth = cfg['y_depth_idle']
+            r_depth = cfg['radius_depth_idle']
 
-        # V6.5: Apply depth multiplier (quiet=subtle, busy=dramatic)
+        # Apply depth multiplier (quiet=calmer, busy=enhanced)
         x_depth *= depth_mult
         z_depth *= depth_mult
         y_depth *= depth_mult
+        r_depth *= depth_mult
 
-        # V6.5: Directional phase offset from flow — creates 'wave' motion
+        # Directional phase offset from flow — creates 'wave' motion
         # When pedestrians walk L→R, gradient breathing ripples in that direction
         flow_phase_offset = 0.0
         if self.state.flow and abs(self.state.flow.direction) > 0.15:
@@ -1586,12 +1621,19 @@ class BehaviorSystem:
         wave_y = math.sin(self.state.ambient_falloff_phase_y)
         wave_rot = math.sin(self.state.ambient_falloff_phase_rot)
 
+        # V6.5b: Radius breathing — use sin² for always-positive modulation
+        # (radius grows and shrinks but never goes negative)
+        wave_radius = math.sin(self.state.ambient_falloff_phase_radius)
+
         # Multiply onto existing falloff scale (stacks with gesture shapes)
         params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * (1.0 + wave_x * x_depth)
         params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * (1.0 + wave_z * z_depth)
         params['falloff_scale_y'] = params.get('falloff_scale_y', 1.0) * (1.0 + wave_y * y_depth)
 
-        # Add subtle rotation wobble
+        # V6.5b: Breathe the falloff radius — coordinated with scale for alive feel
+        params['falloff_radius'] = params.get('falloff_radius', 50) * (1.0 + wave_radius * r_depth)
+
+        # Rotation wobble — visible enough to see shape turning
         params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + wave_rot * cfg['rotation_depth']
 
     def trigger_entry_pulse(self, reentry=False):
@@ -1896,6 +1938,19 @@ class BehaviorSystem:
         if wb['max_y'] - wb['min_y'] < 30:
             wb['min_y'] = limits['min_y']
             wb['max_y'] = self.base_wander_box['max_y']
+
+    def _clamp_position_to_box(self, pos: np.ndarray) -> np.ndarray:
+        """V6.5b: Clamp a position to the WANDER_BOX_LIMITS hard bounds.
+        
+        Used on gesture targets and any position that could escape the panel area.
+        Returns a new clamped array (does not modify input).
+        """
+        limits = self.WANDER_BOX_LIMITS
+        clamped = pos.copy()
+        clamped[0] = max(limits['min_x'], min(limits['max_x'], clamped[0]))
+        clamped[1] = max(limits['min_y'], min(limits['max_y'], clamped[1]))
+        clamped[2] = max(limits['min_z'], min(limits['max_z'], clamped[2]))
+        return clamped
 
     def apply_time_of_day(self, params: Dict) -> Dict:
         """Apply time of day modifiers"""
@@ -3376,9 +3431,15 @@ class BehaviorSystem:
         self._clamp_wander_box()
         
         # --- V5: Emit falloff shape params from gesture state ---
-        params['falloff_scale_x'] = self.state.gesture_falloff_scale[0]
-        params['falloff_scale_y'] = self.state.gesture_falloff_scale[1]
-        params['falloff_scale_z'] = self.state.gesture_falloff_scale[2]
+        # V6.5b: Start from per-mode base scale shape (already transition-interpolated
+        # in base_params above), then multiply gesture on top
+        base_sx = params.get('base_scale_x', 1.0)
+        base_sy = params.get('base_scale_y', 1.0)
+        base_sz = params.get('base_scale_z', 1.0)
+        
+        params['falloff_scale_x'] = base_sx * self.state.gesture_falloff_scale[0]
+        params['falloff_scale_y'] = base_sy * self.state.gesture_falloff_scale[1]
+        params['falloff_scale_z'] = base_sz * self.state.gesture_falloff_scale[2]
         params['falloff_rotation'] = self.state.gesture_falloff_rotation
         
         # --- V5.1: Apply ambient falloff oscillation (always running, all modes) ---
@@ -3733,6 +3794,15 @@ class BehaviorSystem:
             current = self.animated_wander_box[key]
             target = self.target_wander_box[key]
             self.animated_wander_box[key] = current + (target - current) * lerp_factor
+        
+        # V6.5b: Clamp animated box to hard limits — prevents slow lerp drift
+        limits = self.WANDER_BOX_LIMITS
+        self.animated_wander_box['min_x'] = max(limits['min_x'], self.animated_wander_box['min_x'])
+        self.animated_wander_box['max_x'] = min(limits['max_x'], self.animated_wander_box['max_x'])
+        self.animated_wander_box['min_y'] = max(limits['min_y'], self.animated_wander_box['min_y'])
+        self.animated_wander_box['max_y'] = min(limits['max_y'], self.animated_wander_box['max_y'])
+        self.animated_wander_box['min_z'] = limits['min_z']
+        self.animated_wander_box['max_z'] = limits['max_z']
     
     def get_gesture_target(self) -> Optional[np.ndarray]:
         """Get target position for current gesture, if any.
@@ -3746,14 +3816,20 @@ class BehaviorSystem:
         # Dynamic engaged gestures compute position frame-by-frame
         if self.state.gesture in (GestureType.NOD, GestureType.LEAN, 
                                    GestureType.SWAY, GestureType.ORBIT):
-            return self._compute_engaged_gesture_position()
+            pos = self._compute_engaged_gesture_position()
+            if pos is not None:
+                pos = self._clamp_position_to_box(pos)
+            return pos
         
         # SETTLE and BREATHE don't override position (they modify parameters)
         if self.state.gesture in (GestureType.SETTLE, GestureType.BREATHE):
             return None
         
         # All other gestures use their static target
-        return self.state.gesture_target
+        target = self.state.gesture_target
+        if target is not None:
+            target = self._clamp_position_to_box(target)
+        return target
     
     def should_wander(self) -> bool:
         """Check if light should be wandering (vs following)"""
