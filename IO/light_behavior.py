@@ -34,6 +34,7 @@ import numpy as np
 
 class BehaviorMode(Enum):
     IDLE = "idle"
+    AWARE = "aware"       # V6.5: Busy passive tier (high sidewalk traffic)
     ENGAGED = "engaged"
     CROWD = "crowd"
     FLOW = "flow"
@@ -553,7 +554,9 @@ class BehaviorState:
     # V5.1: Ambient falloff oscillation phases (always running)
     ambient_falloff_phase_x: float = 0.0       # Phase for X scale oscillation
     ambient_falloff_phase_z: float = 0.0       # Phase for Z scale oscillation
+    ambient_falloff_phase_y: float = 0.0       # V6.5: Phase for Y scale oscillation
     ambient_falloff_phase_rot: float = 0.0     # Phase for rotation wobble
+    ambient_tempo_factor: float = 1.0          # V6.5: EMA-smoothed tempo multiplier
     
     # V5: Gesture-driven falloff shape (set by _compute_engaged_gesture_position)
     gesture_falloff_scale: Tuple = (1.0, 1.0, 1.0)   # (sx, sy, sz) from current gesture
@@ -623,6 +626,15 @@ class BehaviorSystem:
             'falloff_radius': 70,
             'follow_smoothing': 0.0,
         },
+        BehaviorMode.AWARE: {
+            'move_speed': 35,           # V6.5: faster than FLOW — energetic
+            'wander_interval': 2.0,     # V6.5: frequent repositioning
+            'brightness_min': 8,        # V6.5: brighter floor
+            'brightness_max': 30,       # V6.5: significantly brighter
+            'pulse_speed': 2200,        # V6.5: faster pulse
+            'falloff_radius': 65,       # V6.5: moderate reach
+            'follow_smoothing': 0.0,
+        },
     }
     
     # Transition durations - how long parameter interpolation takes
@@ -635,6 +647,16 @@ class BehaviorSystem:
         (BehaviorMode.IDLE, BehaviorMode.FLOW): 2.0,       # Gradual flow transition
         (BehaviorMode.FLOW, BehaviorMode.IDLE): 3.0,       # Slow exit from flow
         (BehaviorMode.FLOW, BehaviorMode.ENGAGED): 0.4,    # V5: snappier (was 0.8)
+        # V6.5: AWARE transitions
+        (BehaviorMode.FLOW, BehaviorMode.AWARE): 2.5,      # Gradual ramp-up to busy
+        (BehaviorMode.AWARE, BehaviorMode.FLOW): 3.0,      # Slow wind-down from busy
+        (BehaviorMode.IDLE, BehaviorMode.AWARE): 3.0,      # Quiet to busy (rare)
+        (BehaviorMode.AWARE, BehaviorMode.IDLE): 4.0,      # Busy to quiet
+        (BehaviorMode.AWARE, BehaviorMode.ENGAGED): 0.4,   # Immediate active zone entry
+        (BehaviorMode.ENGAGED, BehaviorMode.AWARE): 2.0,   # Return to busy after engagement
+        (BehaviorMode.ENGAGED, BehaviorMode.FLOW): 2.0,    # Return to flow after engagement
+        (BehaviorMode.CROWD, BehaviorMode.FLOW): 3.0,      # Crowd to flow
+        (BehaviorMode.CROWD, BehaviorMode.AWARE): 2.5,     # Crowd to busy
     }
     
     # Mode stickiness - minimum time conditions must persist before switching
@@ -642,13 +664,22 @@ class BehaviorSystem:
     MODE_STICKINESS = {
         # (from_mode, to_mode): seconds conditions must persist
         (BehaviorMode.IDLE, BehaviorMode.ENGAGED): 0.0,      # Immediate when someone enters active zone
-        (BehaviorMode.IDLE, BehaviorMode.FLOW): 15.0,        # Wait 15s of passive traffic before flow mode
+        (BehaviorMode.IDLE, BehaviorMode.FLOW): 5.0,         # V6.5: faster entry to flow (was 15s)
+        (BehaviorMode.IDLE, BehaviorMode.AWARE): 8.0,        # V6.5: quiet to busy needs persistence
         (BehaviorMode.ENGAGED, BehaviorMode.IDLE): 5.0,      # Wait 5s after last person leaves
         (BehaviorMode.ENGAGED, BehaviorMode.CROWD): 3.0,     # Wait 3s with 2+ people before crowd
+        (BehaviorMode.ENGAGED, BehaviorMode.FLOW): 5.0,      # V6.5: return to flow after engaged
+        (BehaviorMode.ENGAGED, BehaviorMode.AWARE): 5.0,     # V6.5: return to busy after engaged
         (BehaviorMode.CROWD, BehaviorMode.ENGAGED): 5.0,     # Wait 5s after crowd thins
         (BehaviorMode.CROWD, BehaviorMode.IDLE): 5.0,        # Wait 5s after everyone leaves
+        (BehaviorMode.CROWD, BehaviorMode.FLOW): 5.0,        # V6.5: crowd to flow
+        (BehaviorMode.CROWD, BehaviorMode.AWARE): 5.0,       # V6.5: crowd to busy
         (BehaviorMode.FLOW, BehaviorMode.IDLE): 10.0,        # Wait 10s of low traffic before idle
         (BehaviorMode.FLOW, BehaviorMode.ENGAGED): 0.0,      # Immediate when someone enters active zone
+        (BehaviorMode.FLOW, BehaviorMode.AWARE): 10.0,       # V6.5: flow to busy needs sustained traffic
+        (BehaviorMode.AWARE, BehaviorMode.FLOW): 8.0,        # V6.5: busy to flow - slow wind-down
+        (BehaviorMode.AWARE, BehaviorMode.IDLE): 12.0,       # V6.5: busy to quiet - long wind-down
+        (BehaviorMode.AWARE, BehaviorMode.ENGAGED): 0.0,     # Immediate when someone enters active zone
     }
     
     # Minimum time to stay in a mode before any switch (except emergency immediate switches)
@@ -915,15 +946,30 @@ class BehaviorSystem:
         self.state.nearest_person_z = nearest_z
         self.state.proximity_factor = self.calculate_proximity_factor(nearest_z)
     
+    # V6.5: Three passive tiers — quiet / flow / busy
+    # Thresholds are passive_rate (people/min in passive zone)
+    PASSIVE_TIER_FLOW = 2       # >= 2/min → FLOW (normal sidewalk)
+    PASSIVE_TIER_AWARE = 10     # >= 10/min → AWARE (busy sidewalk)
+
     def determine_mode(self, active_count: int, passive_count: int,
                        passive_rate: float = 0.0) -> BehaviorMode:
-        """Determine which mode we should be in based on inputs"""
+        """Determine which mode we should be in based on inputs.
+
+        V6.5: Three passive tiers replace the old binary IDLE/FLOW split:
+        - IDLE ("quiet"): passive_rate < 2/min or no detections
+        - FLOW ("normal flow"): passive_rate 2-10/min — primary daytime state
+        - AWARE ("busy"): passive_rate >= 10/min — high energy, wide reach
+
+        Active zone entries (ENGAGED/CROWD) always override passive tiers.
+        """
         # CROWD threshold lowered from 3 to 2 for more crowd mode activation
         if active_count >= 2:
             return BehaviorMode.CROWD
         elif active_count >= 1:
             return BehaviorMode.ENGAGED
-        elif self.meta.flow_mode_enabled and passive_rate >= self.flow_threshold:
+        elif self.meta.flow_mode_enabled and passive_rate >= self.PASSIVE_TIER_AWARE:
+            return BehaviorMode.AWARE
+        elif self.meta.flow_mode_enabled and passive_rate >= self.PASSIVE_TIER_FLOW:
             return BehaviorMode.FLOW
         else:
             return BehaviorMode.IDLE
@@ -1137,15 +1183,36 @@ class BehaviorSystem:
 
     # V5.1: Ambient falloff oscillation — runs in ALL modes for a living feel
     # Subtle continuous shape breathing even when idle / no gestures active
+    # V6.5: Added Y-axis, flow-reactive tempo + depth, directional phase offsets
     AMBIENT_FALLOFF_CONFIG = {
         'x_period': 11.0,          # Seconds per X scale cycle (slow, organic)
         'z_period': 8.5,           # Seconds per Z scale cycle (different to avoid sync)
-        'x_depth_idle': 0.08,      # ±8% X scale in IDLE/FLOW
-        'z_depth_idle': 0.06,      # ±6% Z scale in IDLE/FLOW
+        'y_period': 13.0,          # V6.5: Y scale cycle (incommensurate with X/Z)
+        'x_depth_idle': 0.08,      # ±8% X scale in IDLE
+        'z_depth_idle': 0.06,      # ±6% Z scale in IDLE
+        'y_depth_idle': 0.05,      # V6.5: ±5% Y scale in IDLE
         'x_depth_engaged': 0.12,   # ±12% X scale in ENGAGED/CROWD
         'z_depth_engaged': 0.10,   # ±10% Z scale in ENGAGED/CROWD
+        'y_depth_engaged': 0.08,   # V6.5: ±8% Y scale in ENGAGED/CROWD
+        'x_depth_flow': 0.10,      # V6.5: ±10% X in FLOW
+        'z_depth_flow': 0.08,      # V6.5: ±8% Z in FLOW
+        'y_depth_flow': 0.06,      # V6.5: ±6% Y in FLOW
+        'x_depth_aware': 0.14,     # V6.5: ±14% X in AWARE (dramatic)
+        'z_depth_aware': 0.12,     # V6.5: ±12% Z in AWARE
+        'y_depth_aware': 0.10,     # V6.5: ±10% Y in AWARE
         'rotation_period': 15.0,   # Seconds per slow rotation wobble
         'rotation_depth': 0.08,    # ±0.08 radians (~4.5°) subtle wobble
+        # V6.5: Flow-reactive tempo scaling
+        'tempo_quiet': 0.7,        # Slower breathing when quiet
+        'tempo_flow': 1.0,         # Standard rhythm in FLOW
+        'tempo_aware': 1.6,        # Excited breathing in AWARE
+        'tempo_ema_alpha': 0.05,   # Slow EMA smoothing for tempo transitions
+        # V6.5: Flow-reactive depth scaling
+        'depth_quiet_mult': 0.5,   # Subtle shimmer when quiet
+        'depth_flow_mult': 1.0,    # Standard depth in FLOW
+        'depth_aware_mult': 1.8,   # Dramatic shape shifts in AWARE
+        # V6.5: Directional phase offset from flow
+        'flow_phase_offset_strength': 0.4,  # Max phase offset between X/Z from flow direction
     }
 
     def _update_engaged_gestures(self, dt: float, active_count: int):
@@ -1425,47 +1492,96 @@ class BehaviorSystem:
 
     def _apply_ambient_falloff(self, params: Dict, dt: float):
         """
-        V5.1: Apply continuous ambient falloff shape oscillation.
-        
-        Runs in ALL modes to give the light a living, breathing quality
-        even when no gestures are active. Uses slow, incommensurate
-        periods on X/Z/rotation so the shape never exactly repeats.
-        
+        V6.5: Apply continuous ambient falloff shape oscillation.
+
+        Runs in ALL modes. Three independent oscillators on X/Y/Z with
+        incommensurate periods so the shape never exactly repeats.
+
+        V6.5 additions:
+        - Y-axis oscillation (was never driven before)
+        - Flow-reactive tempo: busy sidewalk = faster breathing
+        - Flow-reactive depth: busy = more dramatic shape shifts
+        - Directional phase offsets: flow direction creates a 'wave' motion
+
         Modifies params dict in-place.
         """
         cfg = self.AMBIENT_FALLOFF_CONFIG
         two_pi = math.pi * 2
-        
-        # Advance ambient phases
-        self.state.ambient_falloff_phase_x += two_pi * dt / cfg['x_period']
-        self.state.ambient_falloff_phase_z += two_pi * dt / cfg['z_period']
-        self.state.ambient_falloff_phase_rot += two_pi * dt / cfg['rotation_period']
-        
+
+        # V6.5: Compute target tempo and depth multipliers based on passive tier
+        if self.state.mode == BehaviorMode.AWARE:
+            target_tempo = cfg['tempo_aware']
+            depth_mult = cfg['depth_aware_mult']
+        elif self.state.mode == BehaviorMode.FLOW:
+            target_tempo = cfg['tempo_flow']
+            depth_mult = cfg['depth_flow_mult']
+        elif self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+            target_tempo = cfg['tempo_flow']  # moderate in engaged modes
+            depth_mult = cfg['depth_flow_mult']
+        else:
+            target_tempo = cfg['tempo_quiet']
+            depth_mult = cfg['depth_quiet_mult']
+
+        # V6.5: Smooth tempo transition with EMA (no jarring speed changes)
+        alpha = cfg['tempo_ema_alpha']
+        self.state.ambient_tempo_factor += alpha * (target_tempo - self.state.ambient_tempo_factor)
+        tempo = self.state.ambient_tempo_factor
+
+        # Advance ambient phases (tempo-scaled)
+        self.state.ambient_falloff_phase_x += two_pi * dt * tempo / cfg['x_period']
+        self.state.ambient_falloff_phase_z += two_pi * dt * tempo / cfg['z_period']
+        self.state.ambient_falloff_phase_y += two_pi * dt * tempo / cfg['y_period']
+        self.state.ambient_falloff_phase_rot += two_pi * dt * tempo / cfg['rotation_period']
+
         # Wrap phases to avoid float overflow over long runtime
-        if self.state.ambient_falloff_phase_x > two_pi:
-            self.state.ambient_falloff_phase_x -= two_pi
-        if self.state.ambient_falloff_phase_z > two_pi:
-            self.state.ambient_falloff_phase_z -= two_pi
-        if self.state.ambient_falloff_phase_rot > two_pi:
-            self.state.ambient_falloff_phase_rot -= two_pi
-        
-        # Select depth based on mode
-        if self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
+        for attr in ('ambient_falloff_phase_x', 'ambient_falloff_phase_z',
+                     'ambient_falloff_phase_y', 'ambient_falloff_phase_rot'):
+            val = getattr(self.state, attr)
+            if val > two_pi:
+                setattr(self.state, attr, val - two_pi)
+
+        # Select base depth based on mode
+        if self.state.mode == BehaviorMode.AWARE:
+            x_depth = cfg['x_depth_aware']
+            z_depth = cfg['z_depth_aware']
+            y_depth = cfg['y_depth_aware']
+        elif self.state.mode == BehaviorMode.FLOW:
+            x_depth = cfg['x_depth_flow']
+            z_depth = cfg['z_depth_flow']
+            y_depth = cfg['y_depth_flow']
+        elif self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
             x_depth = cfg['x_depth_engaged']
             z_depth = cfg['z_depth_engaged']
+            y_depth = cfg['y_depth_engaged']
         else:
             x_depth = cfg['x_depth_idle']
             z_depth = cfg['z_depth_idle']
-        
-        # Compute oscillations
-        wave_x = math.sin(self.state.ambient_falloff_phase_x)
-        wave_z = math.sin(self.state.ambient_falloff_phase_z)
+            y_depth = cfg['y_depth_idle']
+
+        # V6.5: Apply depth multiplier (quiet=subtle, busy=dramatic)
+        x_depth *= depth_mult
+        z_depth *= depth_mult
+        y_depth *= depth_mult
+
+        # V6.5: Directional phase offset from flow — creates 'wave' motion
+        # When pedestrians walk L→R, gradient breathing ripples in that direction
+        flow_phase_offset = 0.0
+        if self.state.flow and abs(self.state.flow.direction) > 0.15:
+            flow_phase_offset = (self.state.flow.direction
+                                 * self.state.flow.strength
+                                 * cfg['flow_phase_offset_strength'])
+
+        # Compute oscillations with directional offset on X vs Z
+        wave_x = math.sin(self.state.ambient_falloff_phase_x + flow_phase_offset)
+        wave_z = math.sin(self.state.ambient_falloff_phase_z - flow_phase_offset)
+        wave_y = math.sin(self.state.ambient_falloff_phase_y)
         wave_rot = math.sin(self.state.ambient_falloff_phase_rot)
-        
+
         # Multiply onto existing falloff scale (stacks with gesture shapes)
         params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * (1.0 + wave_x * x_depth)
         params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * (1.0 + wave_z * z_depth)
-        
+        params['falloff_scale_y'] = params.get('falloff_scale_y', 1.0) * (1.0 + wave_y * y_depth)
+
         # Add subtle rotation wobble
         params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + wave_rot * cfg['rotation_depth']
 
@@ -2146,82 +2262,117 @@ class BehaviorSystem:
     
     def apply_idle_trends(self, params: Dict) -> Dict:
         """
-        Modify IDLE mode parameters based on passive zone trends.
-        This makes the light responsive to foot traffic patterns even when
-        no one is in the active zone.
+        V6.5: Modify parameters based on passive zone trends.
+
+        Now runs in IDLE, FLOW, and AWARE modes (not just IDLE).
+        Tier-scaled influence: IDLE=base, FLOW=1.5×, AWARE=2.0× multiplier
+        on position tracking, energy scaling, and brightness response.
         """
-        if self.state.mode != BehaviorMode.IDLE:
+        # V6.5: Run in all passive tiers, not just IDLE
+        if self.state.mode not in (BehaviorMode.IDLE, BehaviorMode.FLOW, BehaviorMode.AWARE):
             return params
-        
+
         trends = self.state.idle_trends
         if not trends:
             return params
-        
+
         weight = self.meta.idle_trend_weight
         if weight < 0.1:
             return params
-        
+
         result = dict(params)
-        
+
+        # V6.5: Tier multiplier — higher tiers get stronger passive influence
+        tier_mult = {
+            BehaviorMode.IDLE: 1.0,
+            BehaviorMode.FLOW: 1.5,
+            BehaviorMode.AWARE: 2.0,
+        }.get(self.state.mode, 1.0)
+
         # ======================
         # ACTIVITY ANTICIPATION
         # ======================
-        # High anticipation = be more alert (faster, brighter, ready)
         anticipation = trends.activity_anticipation * weight
-        
+
         if anticipation > 0.6:
             # Busy or getting busy - be more alert
-            result['wander_interval'] = result.get('wander_interval', 5.0) * (1.0 - 0.3 * anticipation)
-            result['brightness_max'] = result.get('brightness_max', 15) * (1.0 + 0.3 * anticipation)
-            result['brightness_min'] = result.get('brightness_min', 3) * (1.0 + 0.2 * anticipation)
-        elif anticipation < 0.2:
-            # Very quiet - be more subdued
+            antic_strength = 0.3 * tier_mult  # V6.5: scaled by tier
+            result['wander_interval'] = result.get('wander_interval', 5.0) * (1.0 - antic_strength * anticipation)
+            result['brightness_max'] = result.get('brightness_max', 15) * (1.0 + antic_strength * anticipation)
+            result['brightness_min'] = result.get('brightness_min', 3) * (1.0 + 0.2 * tier_mult * anticipation)
+        elif anticipation < 0.2 and self.state.mode == BehaviorMode.IDLE:
+            # Very quiet - be more subdued (only in IDLE)
             result['wander_interval'] = result.get('wander_interval', 5.0) * (1.0 + 0.5 * (0.2 - anticipation))
             result['brightness_max'] = result.get('brightness_max', 15) * 0.8
-            result['pulse_speed'] = result.get('pulse_speed', 4000) * 1.3  # Slower pulse
-        
+            result['pulse_speed'] = result.get('pulse_speed', 4000) * 1.3
+
         # ======================
-        # FLOW MOMENTUM
+        # FLOW MOMENTUM — POSITION TRACKING
         # ======================
-        # Sustained directional flow - bias wander box toward that direction
+        # V6.5: Much stronger position following in higher tiers
         momentum = trends.flow_momentum * weight
-        
-        if abs(momentum) > 0.3:
-            # Significant flow momentum - shift wander box to anticipate
-            # Positive momentum = left-to-right flow = shift box rightward (more negative X)
-            flow_shift = momentum * 40  # Up to 40cm shift
+
+        # Flow shift scales with tier: IDLE=50cm, FLOW=120cm, AWARE=180cm
+        flow_shift_max = {
+            BehaviorMode.IDLE: 50,
+            BehaviorMode.FLOW: 120,
+            BehaviorMode.AWARE: 180,
+        }.get(self.state.mode, 50)
+
+        if abs(momentum) > 0.2:  # V6.5: lower threshold (was 0.3)
+            flow_shift = momentum * flow_shift_max
             self.current_wander_box['min_x'] = self.base_wander_box['min_x'] - flow_shift
             self.current_wander_box['max_x'] = self.base_wander_box['max_x'] - flow_shift
-        
+
         # ======================
-        # ENERGY MATCHING
+        # ENERGY MATCHING — DENSITY-DRIVEN
         # ======================
-        # Match overall energy to the environment
         energy = trends.energy_level * weight
-        
-        # Speed scales with energy
-        energy_speed_mult = 0.7 + (energy * 0.6)  # 0.7x to 1.3x
+
+        # V6.5: Stronger energy influence in higher tiers
+        # IDLE: 0.7-1.3×, FLOW: 0.6-1.6×, AWARE: 0.5-1.9×
+        energy_range = 0.3 * tier_mult  # 0.3, 0.45, 0.6
+        energy_speed_mult = (1.0 - energy_range) + (energy * energy_range * 2)
         result['move_speed'] = result.get('move_speed', 20) * energy_speed_mult
-        
-        # Pulse speed inversely - high energy = faster pulse (lower value)
-        energy_pulse_mult = 1.3 - (energy * 0.6)  # 1.3x to 0.7x
+
+        # Pulse speed inversely - high energy = faster pulse
+        energy_pulse_mult = (1.0 + energy_range) - (energy * energy_range * 2)
         result['pulse_speed'] = result.get('pulse_speed', 4000) * energy_pulse_mult
-        
+
+        # V6.5: Brightness scales much more with density in FLOW/AWARE
+        brightness_boost = energy * 0.2 * tier_mult  # IDLE +20%, FLOW +30%, AWARE +40%
+        result['brightness_max'] = result.get('brightness_max', 15) * (1.0 + brightness_boost)
+
         # ======================
         # IMMEDIATE PASSIVE RESPONSE
         # ======================
-        # React to immediate passive zone activity
         if trends.recent_passive_count > 0:
-            # Someone walking by right now - be more alert
             immediate_boost = min(1.0, trends.recent_passive_count / 3.0) * weight
-            result['brightness_max'] = result.get('brightness_max', 15) * (1.0 + 0.2 * immediate_boost)
-            
-            # Bias toward the flow direction
-            if abs(trends.recent_flow_direction) > 0.3:
-                immediate_shift = trends.recent_flow_direction * 25 * weight
+            # V6.5: Stronger brightness response in higher tiers
+            brightness_mult = 0.2 * tier_mult  # IDLE +20%, FLOW +30%, AWARE +40%
+            result['brightness_max'] = result.get('brightness_max', 15) * (1.0 + brightness_mult * immediate_boost)
+
+            # V6.5: Stronger position bias toward flow direction
+            if abs(trends.recent_flow_direction) > 0.2:  # Lower threshold (was 0.3)
+                immediate_shift_max = 25 * tier_mult  # 25/37.5/50 cm
+                immediate_shift = trends.recent_flow_direction * immediate_shift_max * weight
                 self.current_wander_box['min_x'] = self.current_wander_box.get('min_x', -290) - immediate_shift
                 self.current_wander_box['max_x'] = self.current_wander_box.get('max_x', -30) - immediate_shift
-        
+
+        # ======================
+        # V6.5: FLOW CONSISTENCY → EXPLORATION
+        # ======================
+        # When all timescales agree on direction, decrease exploration (follow with conviction)
+        # When flow_momentum is weak/mixed, increase exploration (search for the pattern)
+        if self.state.mode in (BehaviorMode.FLOW, BehaviorMode.AWARE):
+            flow_consistency = abs(trends.flow_momentum)
+            # Strong consistent flow → lower exploration multiplier
+            # Weak/mixed flow → higher exploration
+            exploration_mod = 1.0 - (flow_consistency * 0.4)  # 1.0 at zero, 0.6 at full consistency
+            # Applied via meta parameter scaling (not directly on exploration param,
+            # but on wander_interval which is the behavioral expression of exploration)
+            result['wander_interval'] = result.get('wander_interval', 3.0) * (0.7 + exploration_mod * 0.6)
+
         return result
 
     def update_aggression(self, dt: float, passive_count: int, active_count: int):
@@ -3599,7 +3750,8 @@ class BehaviorSystem:
         driving_factors['thresholds'] = {
             'crowd': 2,      # active_count >= 2
             'engaged': 1,    # active_count >= 1
-            'flow': self.flow_threshold,  # passive_rate >= this
+            'aware': self.PASSIVE_TIER_AWARE,  # V6.5: passive_rate >= this
+            'flow': self.PASSIVE_TIER_FLOW,    # V6.5: passive_rate >= this
         }
         
         # Mode-based factors
@@ -3761,6 +3913,11 @@ class BehaviorSystem:
             'time_of_day': self.get_time_of_day_modifier().mood,
             'pending_mode': pending_info,
             'driving_factors': driving_factors,
+            # V6.5: Promote counts to top-level so V6 modules read them correctly
+            # (They were only under driving_factors before — V6 got 0 every time)
+            'active_count': self.state.last_active_count,
+            'passive_count': self.state.last_passive_count,
+            'passive_rate': self.state.last_passive_rate,
             'proximity_factor': self.state.proximity_factor,
             'entry_pulse_active': self.state.entry_pulse_active,
             'engaged_breathing': {

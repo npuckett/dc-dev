@@ -124,6 +124,14 @@ MODE_FALLOFF_DEFAULTS: Dict[str, FalloffShape] = {
         rotation=0.0,  # dynamically set toward flow direction
         radius_mult=1.0,
     ),
+    # V6.5: AWARE (busy sidewalk) — energetic, wide presence reaching toward traffic
+    'aware': FalloffShape(
+        scale_x=1.5,   # wide reach — participating in the flow
+        scale_y=1.1,   # moderate vertical — energetic but not towering
+        scale_z=1.5,   # deep reach out toward the busy sidewalk
+        rotation=0.0,  # dynamically set toward flow direction
+        radius_mult=1.15,  # larger coverage for dense traffic
+    ),
 }
 
 
@@ -302,6 +310,12 @@ class FalloffStrategyManager:
         self._flow_direction: float = 0.0   # -1 to +1
         self._flow_strength: float = 0.0    # 0 to 1
 
+        # V6.5: Settle animation (post-ENGAGED return to passive tier)
+        self._settle_active: bool = False
+        self._settle_start: float = 0.0
+        self._settle_duration: float = 3.0  # seconds
+        self._last_mode: str = 'idle'
+
     # ------------------------------------------------------------------
     # Per-frame update
     # ------------------------------------------------------------------
@@ -320,7 +334,8 @@ class FalloffStrategyManager:
         """Compute the desired falloff shape for this frame.
 
         Returns a ``FalloffShape`` combining mode default, proximity
-        response, flow alignment, and active gesture.
+        response, flow alignment, passive density, settle animation,
+        and active gesture.
         """
         now = time.time()
         self._nearest_person_z = nearest_person_z
@@ -328,20 +343,32 @@ class FalloffStrategyManager:
         self._flow_direction = flow_direction
         self._flow_strength = flow_strength
 
+        # V6.5: Detect ENGAGED→passive transition for settle animation
+        if self._last_mode in ('engaged', 'crowd') and mode in ('idle', 'flow', 'aware'):
+            self._settle_active = True
+            self._settle_start = now
+        self._last_mode = mode
+
         # 1. Mode default
         mode_shape = MODE_FALLOFF_DEFAULTS.get(mode, NEUTRAL_SHAPE)
 
         # 2. Proximity response (only when someone is in active zone)
         prox_shape = self._compute_proximity_shape(mode, nearest_person_z, active_count)
 
-        # 3. Flow alignment (IDLE and FLOW modes)
+        # 3. Flow alignment (IDLE, FLOW, and AWARE modes)
         flow_shape = self._compute_flow_shape(mode, flow_direction, flow_strength)
 
-        # 4. Active gesture overlay
+        # 4. V6.5: Passive density layer (FLOW and AWARE modes)
+        density_shape = self._compute_density_shape(mode, passive_count)
+
+        # 5. V6.5: Settle animation (post-engagement release)
+        settle_shape = self._compute_settle_shape(now)
+
+        # 6. Active gesture overlay
         gesture_shape = self._compute_gesture_shape(now)
 
-        # Combine: mode × proximity × flow × gesture
-        combined = mode_shape * prox_shape * flow_shape * gesture_shape
+        # Combine: mode × proximity × flow × density × settle × gesture
+        combined = mode_shape * prox_shape * flow_shape * density_shape * settle_shape * gesture_shape
 
         # Clamp to sane ranges
         combined.scale_x = max(0.3, min(3.0, combined.scale_x))
@@ -436,7 +463,8 @@ class FalloffStrategyManager:
         flow_strength: float,
     ) -> FalloffShape:
         """Flow-aligned rotation: ellipsoid points into the flow."""
-        if mode not in ('idle', 'flow') or flow_strength < 0.15:
+        # V6.5: Include 'aware' mode (was only idle/flow)
+        if mode not in ('idle', 'flow', 'aware') or flow_strength < 0.15:
             return NEUTRAL_SHAPE
 
         # Rotation: point the long Z-axis toward incoming traffic
@@ -446,12 +474,71 @@ class FalloffStrategyManager:
         # Stretch Z proportional to flow strength (more flow = longer reach)
         z_stretch = 1.0 + flow_strength * 0.4  # 1.0 → 1.4
 
+        # V6.5: In AWARE mode, stronger rotation and stretch
+        if mode == 'aware':
+            rotation *= 1.3   # up to ±0.65 rad (~37°)
+            z_stretch = 1.0 + flow_strength * 0.6  # 1.0 → 1.6
+
         return FalloffShape(
             scale_x=1.0,
             scale_y=1.0,
             scale_z=z_stretch,
             rotation=rotation,
             radius_mult=1.0,
+        )
+
+    def _compute_density_shape(
+        self,
+        mode: str,
+        passive_count: int,
+    ) -> FalloffShape:
+        """V6.5: Passive density layer — more people = wider, taller gradient.
+
+        Creates a sense of the light 'expanding to embrace the crowd'.
+        Only applies in FLOW and AWARE modes.
+        """
+        if mode not in ('flow', 'aware') or passive_count <= 0:
+            return NEUTRAL_SHAPE
+
+        # Log-scaled density factor: 0 at 1 person, ~0.7 at 10, ~1.0 at 50+
+        density = min(1.0, math.log(passive_count + 1) / math.log(51))
+
+        # Scale up axes proportional to density
+        return FalloffShape(
+            scale_x=1.0 + density * 0.3,     # up to 1.3
+            scale_y=1.0 + density * 0.15,    # up to 1.15
+            scale_z=1.0 + density * 0.3,     # up to 1.3
+            rotation=0.0,
+            radius_mult=1.0 + density * 0.1,  # up to 1.1
+        )
+
+    def _compute_settle_shape(self, now: float) -> FalloffShape:
+        """V6.5: Settle animation when returning from ENGAGED to a passive tier.
+
+        Brief wider-than-normal falloff that gradually contracts back,
+        as if the light is 'releasing' the person who left.
+        """
+        if not self._settle_active:
+            return NEUTRAL_SHAPE
+
+        elapsed = now - self._settle_start
+        if elapsed >= self._settle_duration:
+            self._settle_active = False
+            return NEUTRAL_SHAPE
+
+        # Intensity: quick expansion then slow contraction
+        t = elapsed / self._settle_duration
+        if t < 0.2:
+            intensity = t / 0.2  # ramp up to 1.0 in first 20%
+        else:
+            intensity = 1.0 - ((t - 0.2) / 0.8) ** 1.5  # slow power-curve decay
+
+        return FalloffShape(
+            scale_x=1.0 + intensity * 0.4,    # brief wider spread
+            scale_y=1.0 + intensity * 0.2,    # slight vertical expansion
+            scale_z=1.0 + intensity * 0.3,    # brief deeper reach
+            rotation=0.0,
+            radius_mult=1.0 + intensity * 0.1,
         )
 
     def _compute_gesture_shape(self, now: float) -> FalloffShape:
@@ -514,6 +601,12 @@ class FalloffStrategyManager:
             # want BEACON to fire to attract attention
             if active_count == 0 and energy > 0.3:
                 return V6Gesture.BEACON
+            return None
+
+        # V6.5: AWARE mode — SWEEP to scan across busy sidewalk
+        if mode == 'aware':
+            if energy > 0.5:
+                return V6Gesture.SWEEP
             return None
 
         if mode == 'engaged':

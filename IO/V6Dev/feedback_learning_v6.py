@@ -58,6 +58,10 @@ class FeedbackContext:
     dwell_duration: float = 0.0        # seconds in active zone (for engagements)
     strategy_used: str = ''            # attraction strategy that preceded this
 
+    # V6.5: Passive traffic context
+    passive_rate: float = 0.0          # people/min in passive zone
+    passive_tier: str = 'quiet'        # quiet / flow / busy
+
     # Falloff shape at moment of engagement
     falloff_scale_x: float = 1.0
     falloff_scale_z: float = 1.0
@@ -130,6 +134,8 @@ def get_all_buckets(ctx: FeedbackContext) -> List[str]:
         _speed_bucket(ctx.person_speed),
         _group_bucket(ctx.group_size),
         _regime_bucket(ctx.regime),
+        # V6.5: passive tier bucket — learns per sidewalk density level
+        f'passive_{ctx.passive_tier}',
     ]
 
 

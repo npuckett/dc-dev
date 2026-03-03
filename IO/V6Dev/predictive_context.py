@@ -51,6 +51,9 @@ class HourlyPrediction:
     regime: str                   # dead / trickle / steady / rush / event
     stddev_people: float          # standard deviation of people count
     anomaly_factor: float = 0.0   # how anomalous the current traffic is (0 = normal, >2 = extreme)
+    # V6.5: passive traffic prediction
+    expected_passive_count: float = 0.0   # avg passive people this hour
+    expected_passive_tier: str = 'quiet'  # quiet / flow / busy
 
 
 @dataclass
@@ -255,6 +258,7 @@ class PredictiveContextEngine:
                 people_vals: List[Tuple[float, float]] = []  # (weight, value)
                 active_ratios: List[Tuple[float, float]] = []
                 flow_balances: List[Tuple[float, float]] = []
+                passive_vals: List[Tuple[float, float]] = []  # V6.5: passive counts
                 best_score = -1.0
                 best_params: Dict[str, float] = {}
 
@@ -283,6 +287,8 @@ class PredictiveContextEngine:
                     passive = p.hourly_passive.get(hour, 0)
                     total = max(1, active + passive)
                     active_ratios.append((w, active / total))
+                    # V6.5: collect passive counts
+                    passive_vals.append((w, passive))
 
                     ltr = p.hourly_flow_ltr.get(hour, 0)
                     rtl = p.hourly_flow_rtl.get(hour, 0)
@@ -303,6 +309,14 @@ class PredictiveContextEngine:
                 stddev_people = self._weighted_stddev(people_vals)
                 expected_active = self._weighted_mean(active_ratios)
                 expected_flow = self._weighted_mean(flow_balances)
+                # V6.5: passive prediction
+                expected_passive = self._weighted_mean(passive_vals) if passive_vals else 0.0
+                # Convert hourly passive count to rate (per minute) for tier classification
+                passive_per_min = expected_passive / 60.0
+                expected_tier = (
+                    'busy' if passive_per_min >= 10 else
+                    'flow' if passive_per_min >= 2 else 'quiet'
+                )
 
                 # Confidence: based on sample count and recency
                 n_samples = len(people_vals)
@@ -323,6 +337,8 @@ class PredictiveContextEngine:
                     confidence=confidence,
                     regime=regime,
                     stddev_people=stddev_people,
+                    expected_passive_count=expected_passive,
+                    expected_passive_tier=expected_tier,
                 )
 
         # During cold start, fill any gaps from V5 time profiles
@@ -436,6 +452,58 @@ class PredictiveContextEngine:
 
         # Scale with confidence: low confidence → weaker reversion
         return 0.5 + 0.5 * ctx.confidence
+
+    def get_passive_personality(
+        self, hour: int = None, day_of_week: int = None
+    ) -> Dict[str, float]:
+        """V6.5: Return time-of-day passive personality modifiers.
+
+        Uses the learned hourly passive count to set behavioral baselines
+        so the character's "default mood" varies with expected sidewalk activity.
+
+        Returns
+        -------
+        dict with keys:
+            expected_passive : avg passive count for this hour
+            expected_tier : 'quiet' / 'flow' / 'busy'
+            breath_tempo_bias : -0.3 to +0.5 bias on ambient breathing tempo
+            energy_bias : -0.1 to +0.15 bias on resting energy level
+            exploration_bias : -0.05 to +0.10 bias on exploration param
+        """
+        ctx = self.get_context(hour, day_of_week)
+        tier = ctx.expected_passive_tier
+        passive = ctx.expected_passive_count
+
+        # Scale biases by how much passive traffic is expected
+        # quiet  → calmer, slower breathing, less exploration
+        # flow   → neutral baseline
+        # busy   → energised, faster breathing, wider exploration
+        if tier == 'busy':
+            breath_bias = 0.4
+            energy_bias = 0.12
+            explore_bias = 0.08
+        elif tier == 'flow':
+            breath_bias = 0.0
+            energy_bias = 0.0
+            explore_bias = 0.0
+        else:  # quiet
+            breath_bias = -0.2
+            energy_bias = -0.06
+            explore_bias = -0.03
+
+        # Blend toward neutral if confidence is low
+        conf = ctx.confidence
+        breath_bias *= conf
+        energy_bias *= conf
+        explore_bias *= conf
+
+        return {
+            'expected_passive': passive,
+            'expected_tier': tier,
+            'breath_tempo_bias': breath_bias,
+            'energy_bias': energy_bias,
+            'exploration_bias': explore_bias,
+        }
 
     # ------------------------------------------------------------------
     # Cold-start seeding from V5 time profiles

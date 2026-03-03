@@ -329,6 +329,13 @@ class V6Integration:
             ctx.source_mode = behavior_status.get('mode', 'idle')
             ctx.group_size = behavior_status.get('active_count', 0)
             ctx.regime = context.regime if context else 'steady'
+            # V6.5: passive traffic context for per-tier feedback learning
+            ctx.passive_rate = behavior_status.get('passive_rate', 0.0)
+            _mode = ctx.source_mode
+            ctx.passive_tier = (
+                'busy' if _mode == 'aware' else
+                'flow' if _mode == 'flow' else 'quiet'
+            )
 
             feedback_mods = self.feedback.get_modifiers(ctx)
             self._cached_feedback_mods = feedback_mods
@@ -660,6 +667,11 @@ class V6Integration:
                 parts.append(f"pre-transition={overlay.pre_transition_blend:.2f}")
         if context:
             parts.append(f"regime={context.regime}")
+        # V6.5: log passive tier info
+        passive_rate = status.get('passive_rate', 0.0)
+        mode = status.get('mode', 'idle')
+        tier = 'busy' if mode == 'aware' else ('flow' if mode == 'flow' else 'quiet')
+        parts.append(f"passive={passive_rate:.1f}/min({tier})")
         if self.autotuner:
             parts.append(f"budget={self.autotuner.budget:.0f}")
         if self._passivity_spiral_detected:
@@ -782,6 +794,9 @@ class V6Integration:
             ctx = self.context_engine.get_context()
             ext['v6_regime'] = ctx.regime
             ext['v6_predicted_traffic'] = round(ctx.expected_people, 1)
+            # V6.5: passive prediction info
+            ext['v6_expected_passive'] = round(ctx.expected_passive_count, 1)
+            ext['v6_expected_tier'] = ctx.expected_passive_tier
 
         if self.scorer:
             ext['v6_engagement_score'] = round(self.scorer.smoothed_score(), 3)

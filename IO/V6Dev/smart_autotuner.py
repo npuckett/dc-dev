@@ -427,22 +427,36 @@ class SmartAutoTuner:
 
         # Anti-passivity: when idle for extended periods, actively push
         # engagement params UP to fight the self-reinforcing passivity spiral
+        # V6.5: Also act during FLOW with longer threshold — FLOW is the new
+        # common state and can still be "quiet" if only 2-3 passive/min
         current_mode = behavior_status.get('mode', 'idle')
-        idle_duration = behavior_status.get('idle_duration', 0.0)
+        idle_duration = behavior_status.get('idle_duration', 0.0) if current_mode == 'idle' else 0.0
+        mode_duration = behavior_status.get('mode_duration', 0.0)
+
+        anti_passivity_active = False
+        push_strength = 0.0
         if current_mode == 'idle' and idle_duration > 60.0:
-            # Push energy and responsiveness toward home+0.1
+            anti_passivity_active = True
+            push_strength = 1.0
+        elif current_mode == 'flow' and mode_duration > 180.0:
+            # In FLOW for 3+ minutes without any engagements — gentle push
+            anti_passivity_active = True
+            push_strength = 0.5
+
+        if anti_passivity_active:
             home = self._get_home_values()
+            push_offset = 0.10 * push_strength
             for name in ('energy', 'responsiveness', 'sociability'):
                 home_val = home.get(name, 0.5)
                 current_val = self._get_values().get(name, 0.5)
-                target = min(home_val + 0.10, PARAM_RANGES.get(name, (0, 1))[1])
+                target = min(home_val + push_offset, PARAM_RANGES.get(name, (0, 1))[1])
                 if current_val < target:
-                    push = min(0.005, (target - current_val) * 0.1)
+                    push = min(0.005 * push_strength, (target - current_val) * 0.1)
                     deltas[name] = deltas.get(name, 0) + push
             # Also cap idle_trend_weight from climbing during long idle
             itw = self._get_values().get('idle_trend_weight', 0.5)
             if itw > 0.65:
-                deltas['idle_trend_weight'] = deltas.get('idle_trend_weight', 0) - 0.003
+                deltas['idle_trend_weight'] = deltas.get('idle_trend_weight', 0) - 0.003 * push_strength
 
         # Cross-parameter linking: if two params are correlated and one
         # has a strong gradient, share the delta
@@ -687,7 +701,15 @@ class SmartAutoTuner:
         if self.context_engine:
             learned = self.context_engine.get_optimal_home_values()
             if learned:
-                return learned
+                # V6.5: Apply passive personality biases so home values
+                # shift with expected sidewalk traffic throughout the day
+                pp = self.context_engine.get_passive_personality()
+                home = dict(learned)
+                if 'energy' in home:
+                    home['energy'] = max(0.2, min(0.9, home['energy'] + pp.get('energy_bias', 0)))
+                if 'exploration' in home:
+                    home['exploration'] = max(0.2, min(0.8, home['exploration'] + pp.get('exploration_bias', 0)))
+                return home
         return self._home_values
 
     # ------------------------------------------------------------------

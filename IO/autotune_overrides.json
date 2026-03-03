@@ -51,24 +51,18 @@
     "restore_seconds": 600.0,
     "cost_scale": 30.0
   },
-  "last_updated": "2026-03-03T00:00:00.000000",
+  "v6_5_passive_tiers": {
+    "flow_threshold": 2,
+    "aware_threshold": 10,
+    "note": "passive_rate (people/min) boundaries for IDLE→FLOW→AWARE"
+  },
+  "last_updated": "2026-03-03T12:00:00.000000",
   "last_review_changes": [
-    "home[responsiveness]: 0.500 \u2192 0.530 (floor-clamped 96.6%)",
-    "home[energy]: 0.450 \u2192 0.480 (floor-clamped 96.6%)",
-    "home[sociability]: 0.450 \u2192 0.487 (floor-clamped 96.6%)",
-    "home[memory]: 0.300 \u2192 0.345 (floor-clamped 100.0%)",
-    "home[brightness_global]: 1.200 \u2192 0.930 (ceiling-clamped 96.6%)",
-    "home[speed_global]: 0.700 \u2192 0.565 (ceiling-clamped 96.6%)",
-    "home[pulse_global]: 0.800 \u2192 0.620 (ceiling-clamped 96.6%)",
-    "home[follow_speed_global]: 1.000 \u2192 0.700 (floor-clamped 96.6%)",
-    "home[dwell_influence]: 0.500 \u2192 0.400 (tracking median 0.002)",
-    "home[idle_trend_weight]: 0.400 \u2192 0.712 (tracking median 1.960)",
-    "floor[responsiveness]: 0.300 \u2192 0.350 (low engagement)",
-    "floor[energy]: 0.250 \u2192 0.300 (low engagement)",
-    "floor[sociability]: 0.200 \u2192 0.250 (low engagement)",
-    "floor[exploration]: 0.150 \u2192 0.200 (low engagement)",
-    "floor[attention_span]: 0.100 \u2192 0.150 (low engagement)",
-    "reversion: base 0.020\u21920.025, prog 0.060\u21920.070 (8 clamped)",
-    "budget: max 30\u219226, restore 300s\u2192345s"
+    "V6.5: Three passive tiers (IDLE<2/min, FLOW 2-10/min, AWARE>=10/min)",
+    "V6.5: Flow-reactive ambient breathing with Y-axis",
+    "V6.5: Density-based falloff stretching",
+    "V6.5: Settle animation after engagement",
+    "V6.5: Passive personality from predictive context",
+    "V6.5: Fixed active_count/passive_count not reaching V6 modules (was always 0)"
   ]
 }
