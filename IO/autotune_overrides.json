@@ -26,26 +26,32 @@
     "idle_trend_weight": 0.1
   },
   "caps": {
-    "brightness_global": 3.0,
-    "speed_global": 1.6,
+    "brightness_global": 2.5,
+    "speed_global": 1.5,
     "pulse_global": 2.0,
-    "energy": 0.85,
-    "responsiveness": 0.9
+    "energy": 0.80,
+    "responsiveness": 0.85,
+    "exploration": 0.75,
+    "sociability": 0.85,
+    "attention_span": 0.90,
+    "memory": 0.80,
+    "follow_speed_global": 2.0,
+    "dwell_influence": 1.5
   },
   "curiosity": {
-    "interval": 30.0,
-    "strength": 0.04
+    "interval": 120.0,
+    "strength": 0.010
   },
   "reversion": {
-    "base": 0.025,
-    "progressive": 0.07
+    "base": 0.015,
+    "progressive": 0.04
   },
   "budget": {
     "max": 200.0,
-    "restore_seconds": 345.0,
-    "cost_scale": 12.0
+    "restore_seconds": 600.0,
+    "cost_scale": 30.0
   },
-  "last_updated": "2026-02-13T10:23:22.938127",
+  "last_updated": "2026-03-03T00:00:00.000000",
   "last_review_changes": [
     "home[responsiveness]: 0.500 \u2192 0.530 (floor-clamped 96.6%)",
     "home[energy]: 0.450 \u2192 0.480 (floor-clamped 96.6%)",

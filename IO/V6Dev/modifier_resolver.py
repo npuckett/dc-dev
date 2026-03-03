@@ -278,6 +278,26 @@ class ModifierResolver:
         negative_weight = 0.0
         dominant_source = intents[0].source
 
+        # V6.1f: Pre-compute proximity dampening factors so we can
+        # dampen individual UP/DOWN intents before summing.
+        # This lets mean-reversion (DOWN) win near caps instead of
+        # the net being zeroed out by dampening.
+        floor = self._safe_floors.get(param)
+        cap = self._caps.get(param)
+        up_dampen = 1.0
+        down_dampen = 1.0
+        if cap is not None and floor is not None and cap > floor:
+            range_size = cap - floor
+            if range_size > 0:
+                # How close to cap? (for dampening UP pushes)
+                headroom_up = max(0, cap - current) / range_size
+                if headroom_up < 0.25:
+                    up_dampen = (headroom_up / 0.25) ** 2
+                # How close to floor? (for dampening DOWN pushes)
+                headroom_dn = max(0, current - floor) / range_size
+                if headroom_dn < 0.25:
+                    down_dampen = (headroom_dn / 0.25) ** 2
+
         for intent in intents:
             delta = intent.effective_delta(current)
 
@@ -285,6 +305,12 @@ class ModifierResolver:
             budget = self._source_budgets.get(intent.source)
             if budget:
                 delta = budget.clamp(delta)
+
+            # V6.1f: Dampen individual intent based on direction + proximity
+            if delta > 0:
+                delta *= up_dampen
+            elif delta < 0:
+                delta *= down_dampen
 
             # Weight = confidence / priority (lower priority num = higher weight)
             weight = intent.confidence * (6 - intent.priority.value)  # 1–5 scale inversion

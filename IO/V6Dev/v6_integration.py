@@ -180,15 +180,28 @@ class V6Integration:
         # 8. Modifier resolver (intent-based merging)
         self.resolver = None
         if self.config.enable_modifier_resolver:
-            from .smart_autotuner import DEFAULT_SAFE_FLOORS
+            from .smart_autotuner import DEFAULT_SAFE_FLOORS, PARAM_RANGES
+            # V6.1f: Wire PARAM_RANGES upper bounds as caps into the resolver
+            # so per-frame multiplicative mods can't push values past range max.
+            resolver_caps = {name: hi for name, (lo, hi) in PARAM_RANGES.items()}
             self.resolver = ModifierResolver(
                 safe_floors=dict(DEFAULT_SAFE_FLOORS),
+                caps=resolver_caps,
             )
 
         # Timing
         self._last_log_time = 0.0
         self._frame_count = 0
         self._total_adjustments = 0
+
+        # V6.1f: Rate-limit per-frame intent sources to prevent runaway
+        # Context/feedback/mode intents were compounding at ~28fps, driving
+        # all params to caps in seconds. Now apply every 2s instead.
+        self._intent_interval = 2.0  # seconds between context/feedback/mode applications
+        self._last_intent_time = 0.0
+        self._cached_feedback_mods = None
+        self._cached_context = None
+        self._cached_mode_overlay = None
 
         # Health monitoring
         self._last_health_check = 0.0
@@ -251,20 +264,31 @@ class V6Integration:
 
         self._frame_count += 1
 
-        # ➊ Mode intelligence
+        # V6.1f: Rate-limit context/feedback/mode intent computation
+        # These were applying every frame (~28fps), compounding multiplicative
+        # and additive pushes that drove all params to caps in seconds.
+        # Now compute fresh values only every _intent_interval seconds;
+        # between ticks, use cached values (or None to skip entirely).
+        apply_intents = (now - self._last_intent_time >= self._intent_interval)
+        if apply_intents:
+            self._last_intent_time = now
+
+        # ➁ Mode intelligence (always compute for mode tracking, cache for intents)
         mode_overlay = None
         if self.mode_intel:
             mode_overlay = self.mode_intel.update(
                 behavior_status, tracked_people, now,
             )
+            if apply_intents:
+                self._cached_mode_overlay = mode_overlay
 
-        # ➋ Predictive context
+        # ➂ Predictive context (always compute for regime, cache for intents)
         context = None
         if self.context_engine:
-            # Pass active_zone_count so context engine uses active-zone
-            # people rather than total count
             active_count = behavior_status.get('active_count', 0)
             context = self.context_engine.get_context(current_people=active_count)
+            if apply_intents:
+                self._cached_context = context
 
         # ➌ Strategy bandit (for almost-engaged candidates)
         strategy_effect = None
@@ -293,9 +317,9 @@ class V6Integration:
                     if self.scorer:
                         self.scorer.record_strategy_attempt()
 
-        # ➍ Feedback learning
+        # ➄ Feedback learning (rate-limited)
         feedback_mods = None
-        if self.feedback:
+        if self.feedback and apply_intents:
             from .feedback_learning_v6 import FeedbackContext
             from datetime import datetime as _dt
             _now_dt = _dt.now()
@@ -307,6 +331,7 @@ class V6Integration:
             ctx.regime = context.regime if context else 'steady'
 
             feedback_mods = self.feedback.get_modifiers(ctx)
+            self._cached_feedback_mods = feedback_mods
 
         # ➎ Smart auto-tuner
         tuner_result = None
@@ -335,10 +360,14 @@ class V6Integration:
             )
 
         # ➐ Modifier resolver (if enabled, merge all intents)
+        # V6.1f: Use cached context/feedback/mode for rate-limited intents
         if self.resolver:
             behavior_params = self._resolve_modifiers(
-                behavior_params, tuner_result, feedback_mods,
-                strategy_effect, mode_overlay, context,
+                behavior_params, tuner_result,
+                self._cached_feedback_mods if apply_intents else None,
+                strategy_effect,
+                self._cached_mode_overlay if apply_intents else None,
+                self._cached_context if apply_intents else None,
                 falloff_shape,
             )
         else:

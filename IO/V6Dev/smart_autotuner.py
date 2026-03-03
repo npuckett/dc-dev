@@ -56,18 +56,21 @@ TUNABLE_PARAMS = [
 ]
 
 # Default ranges (overridable via overrides JSON)
+# V6.1f: Tightened upper bounds — prevents compound per-frame buildup
+# Old brightness was 5.0, energy/responsiveness 1.0 with no resolver cap.
+# Feedback MULTIPLY intents compound exponentially at ~28fps.
 PARAM_RANGES: Dict[str, Tuple[float, float]] = {
-    'responsiveness':     (0.0, 1.0),
-    'energy':             (0.0, 1.0),
-    'attention_span':     (0.0, 1.0),
-    'sociability':        (0.0, 1.0),
-    'exploration':        (0.0, 1.0),
-    'memory':             (0.0, 1.0),
-    'brightness_global':  (0.2, 5.0),
-    'speed_global':       (0.2, 2.0),
-    'pulse_global':       (0.3, 3.0),
-    'follow_speed_global':(0.5, 3.0),
-    'dwell_influence':    (0.0, 2.0),
+    'responsiveness':     (0.0, 0.85),   # V6.1f: was 1.0
+    'energy':             (0.0, 0.80),   # V6.1f: was 1.0
+    'attention_span':     (0.0, 0.90),   # V6.1f: was 1.0
+    'sociability':        (0.0, 0.85),   # V6.1f: was 1.0
+    'exploration':        (0.0, 0.75),   # V6.1f: was 1.0
+    'memory':             (0.0, 0.80),   # V6.1f: was 1.0
+    'brightness_global':  (0.2, 2.5),    # V6.1f: was 5.0 — main visual runaway
+    'speed_global':       (0.2, 1.5),    # V6.1f: was 2.0
+    'pulse_global':       (0.3, 2.0),
+    'follow_speed_global':(0.5, 2.0),    # V6.1f: was 3.0
+    'dwell_influence':    (0.0, 1.5),    # V6.1f: was 2.0
     'idle_trend_weight':  (0.0, 0.75),   # CAPPED: was 2.0 — prevents passivity spiral
 }
 
@@ -95,7 +98,7 @@ OUTPUT_PARAMS = {'brightness_global', 'speed_global', 'pulse_global'}
 class TunerConfig:
     """Tunable hyperparameters for the SmartAutoTuner."""
     # Base interval (overridden by PredictiveContextEngine per regime)
-    base_interval: float = 10.0     # V6.1d: was 5.0 — calmer tuning cadence
+    base_interval: float = 8.0      # V6.1f: was 10.0 — revert more often to counteract per-frame pushes
 
     # Budget
     budget_max: float = 200.0
@@ -116,9 +119,9 @@ class TunerConfig:
     correlation_threshold: float = 0.6
 
     # Mean reversion
-    base_reversion: float = 0.008           # V6.1d: was 0.01
-    progressive_reversion: float = 0.02     # V6.1d: was 0.03
-    output_reversion_scale: float = 0.5
+    base_reversion: float = 0.015           # V6.1f: was 0.008 — stronger pull toward home
+    progressive_reversion: float = 0.04     # V6.1f: was 0.02 — doubles pull when far from home
+    output_reversion_scale: float = 0.8     # V6.1f: was 0.5 — output params now revert nearly as fast as personality
 
     # Curiosity
     curiosity_interval: float = 120.0       # V6.1e: was 90s — less frequent exploration
