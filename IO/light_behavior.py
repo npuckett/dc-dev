@@ -613,9 +613,9 @@ class BehaviorSystem:
             'pulse_speed': 2500,
             'falloff_radius': 45,       # V6.5b: tighter focus on person
             'follow_smoothing': 0.08,   # V5.1: faster tracking (was 0.06)
-            'base_scale_x': 0.85,       # V6.5b: narrower, more focused
+            'base_scale_x': 1.1,        # V6.5b: wide enough to hit adjacent panels
             'base_scale_y': 1.15,       # V6.5b: taller — vertical emphasis
-            'base_scale_z': 1.0,
+            'base_scale_z': 1.1,        # V6.5b: enough depth for panel pickup
         },
         BehaviorMode.CROWD: {
             'move_speed': 60,
@@ -876,7 +876,7 @@ class BehaviorSystem:
         # Panels span X=-40 to X=-280; Z depth is -12 to +12 (panels 2/3 local Z)
         # Z is locked to panel depth; X stays within panel span; Y bounded to panel height
         self.WANDER_BOX_LIMITS = {
-            'min_x': -350, 'max_x': -30,    # Panel edges: -280 to -40, tight padding
+            'min_x': -300, 'max_x': -30,    # Panel edges: -280 to -40, tight padding
             'min_y': -10,  'max_y': 200,     # Panels top at Y≈120, slight extra room
             'min_z': -32,  'max_z': 28,      # FIXED to panel depth — never changes
         }
