@@ -352,3 +352,90 @@ get_status()
 4. **Learning:** Feedback learning now differentiates by passive density. Over days/weeks, the system learns which brightness/speed/pulse settings attract engagement during quiet vs busy sidewalk conditions.
 
 5. **Bug fix impact:** With `active_count`/`passive_count` now actually reaching V6 modules, the autotuner's regime heuristics, feedback learning's group size bucketing, and falloff density scaling will all start working with real data instead of always-zero values. This alone may produce noticeable behavioral improvement.
+
+---
+
+## V6.5b: Autotuner Refocus — Dynamic Range Optimization
+
+**Date:** March 3, 2026 (same day as V6.5)  
+**Scope:** 6 files modified — complete reorientation of autotuning optimization target
+
+### Motivation
+
+The V6 autotuner was built around **conversion** — detecting passive pedestrians and trying to convert them to active engagement. With the V6.5 passive-first philosophy (IDLE is valid, FLOW is primary), conversion is the wrong metric. The system should instead optimize for **expressive dynamic range** — how varied and alive the light output looks within each mode.
+
+### Design Decisions
+
+| Question | Choice |
+|----------|--------|
+| Score focus | Dynamic range (coefficient of variation across 5 output dimensions) |
+| Anti-passivity spiral | Removed entirely — IDLE is a valid long-term mode |
+| Strategy bandit purpose | Repurposed for mode expression strategies |
+| Quiet mode boost | Removed — system shouldn't auto-brighten when nobody's around |
+
+### Changes by File
+
+#### `engagement_score.py` — Fitness Function Overhaul
+
+- **Replaced `conversion_rate` (weight 0.20) with `dynamic_range` (weight 0.25)**
+- Added deque-based rolling windows (60 samples) for: brightness, position_x, move_speed, pulse_speed, falloff, mode
+- New `_compute_dynamic_range()` — computes coefficient of variation (CV) across 5 output dimensions with calibrated targets:
+  - Brightness CV target: 0.30 → score 1.0
+  - Position X CV target: 0.15 → score 1.0
+  - Move speed CV target: 0.25 → score 1.0
+  - Pulse speed CV target: 0.20 → score 1.0
+  - Falloff CV target: 0.20 → score 1.0
+- New `record_output_sample()` public method for frame-by-frame tracking
+- New `_cv()` static helper for coefficient of variation calculation
+- Fixed `passive` NameError → `passive_count` from behavior_status
+
+#### `smart_autotuner.py` — Anti-Passivity Removal
+
+- Removed ~25 lines of anti-passivity spiral from `_compute_deltas()`
+- The removed block pushed energy/responsiveness/sociability upward when idle time exceeded 60s or flow exceeded 180s
+- Replaced with comment explaining V6.5 philosophy: "IDLE/FLOW are valid long-term modes, not problems to fix"
+- Gradient ascent, regime heuristics, mean reversion, curiosity, and budget enforcement unchanged
+
+#### `v6_integration.py` — Bandit Rewiring & Passivity Cleanup
+
+- Removed passivity spiral detection from `on_daily_report()` — `_passivity_spiral_detected` always False
+- `_reset_passivity_spiral()` → no-op stub (API preserved)
+- `v6_health_check()` simplified — removed idle_trend_weight and energy floor warnings
+- Bandit completely rewired: creates `BanditContext(hour, mode, passive_rate, regime)`, cycles strategies every 15–25s, records quality from `dynamic_range` component
+- `on_person_left()` → no-op (no more conversion outcome recording)
+
+#### `feedback_learning_v6.py` — Quiet Mode Boost Removal
+
+- Removed code that auto-ramped brightness +8% and pulse +5% after 5 minutes of no engagement
+- Bucket-based reinforcement learning otherwise unchanged
+
+#### `strategy_bandit.py` — Complete Strategy Overhaul
+
+- **New strategies:** `EXPLORE_WIDE` (wide wander), `PULSE_VARIED` (rhythm variation), `SHAPE_SHIFT` (anisotropic falloff), `ENERGY_BURST` (high energy/brightness), `SETTLE_DEEP` (slow contemplative)
+- **New context:** `BanditContext(hour, mode, passive_rate, regime)` → bucket key `"{mode}_{time_period}"`
+- **New StrategyEffect fields:** `pulse_speed_mult`, `exploration_mult`
+- Strategy effects have longer durations (12–25s vs old 2–2.5s)
+- `record_outcome()` uses continuous quality (0–1) mapped to Beta distribution updates instead of boolean conversion
+- Added `should_switch_strategy()`, `set_active_strategy()`, lifecycle management
+- Persistence saves `total_quality_sum` instead of `total_conversions`, version='6.5'
+- Deleted stale `bandit_priors.json` (old conversion-era data with wrong strategy names)
+- Renamed `BetaArm.conversion_rate` → `avg_quality`
+
+#### `light_behavior.py` — Dynamic Range Data Export
+
+- Added `driving_factors['wander_box'] = dict(self.animated_wander_box)` in `get_status()` so engagement scorer can track position diversity
+
+### What the System Now Optimizes For
+
+Instead of "how many passive people become active," the autotuner now rewards:
+
+1. **Output variance within modes** — lights that smoothly vary brightness, position, speed, pulse, and falloff score higher than lights stuck at fixed values
+2. **Natural expression** — each mode should have its own character rather than all modes converging toward maximum brightness
+3. **Mode-appropriate strategies** — the bandit learns which expression strategies (wide exploration, rhythm variation, shape-shifting, etc.) produce the best dynamic range in each mode × time-of-day combination
+
+### Expected Impact
+
+- IDLE mode will no longer trigger emergency energy ramps
+- The system won't frantically brighten during quiet periods
+- Each mode develops its own learned expression signature over time
+- The bandit explores 5 expression strategies per mode, settling on what produces the most alive-looking output

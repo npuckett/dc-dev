@@ -290,32 +290,37 @@ class V6Integration:
             if apply_intents:
                 self._cached_context = context
 
-        # ➌ Strategy bandit (for almost-engaged candidates)
+        # ➌ Strategy bandit — V6.5: expression strategy per mode (not conversion)
         strategy_effect = None
-        if self.bandit and behavior_status.get('almost_engaged'):
-            almost = behavior_status['almost_engaged']
-            candidates = almost.get('candidates', [])
-            if candidates and self.bandit.can_attempt():
-                from .strategy_bandit import BanditContext
-                cand = candidates[0]  # best candidate
-                bandit_ctx = BanditContext(
-                    hour=int(time.strftime('%H')),
-                    flow_direction=behavior_status.get('flow', {}).get('direction', 0.0) if isinstance(behavior_status.get('flow'), dict) else 0.0,
-                    flow_strength=behavior_status.get('flow', {}).get('strength', 0.0) if isinstance(behavior_status.get('flow'), dict) else 0.0,
-                    candidate_speed=cand.get('speed', 0.0) if isinstance(cand, dict) else 0.0,
-                    candidate_distance=cand.get('distance', 0.0) if isinstance(cand, dict) else 0.0,
-                    regime=behavior_status.get('regime', 'steady'),
-                )
+        if self.bandit:
+            from .strategy_bandit import BanditContext
+            bandit_ctx = BanditContext(
+                hour=int(time.strftime('%H')),
+                mode=behavior_status.get('mode', 'idle'),
+                passive_rate=behavior_status.get('passive_rate', 0.0),
+                regime=context.regime if context else 'steady',
+            )
+            # Switch strategy when timer expires
+            if self.bandit.should_switch_strategy(now):
+                # Record outcome of previous strategy (if any)
+                if self.bandit.current_strategy and self.bandit.current_context and self.scorer:
+                    # Score based on dynamic range from the scorer
+                    last_snap = self.scorer.history[-1] if self.scorer.history else None
+                    quality = last_snap.components.get('dynamic_range', 0.5) if last_snap else 0.5
+                    self.bandit.record_outcome(
+                        self.bandit.current_strategy,
+                        self.bandit.current_context,
+                        quality=quality,
+                    )
+                # Select new strategy
                 selected = self.bandit.select(bandit_ctx)
-                if selected:
-                    strategy_effect = self.bandit.get_effect(selected)
-                    self.bandit.mark_attempted()
-                    # Store context for outcome recording
-                    self._last_bandit_strategy = selected
-                    self._last_bandit_context = bandit_ctx
-                    # Wire up proactive counter: strategy attempt
-                    if self.scorer:
-                        self.scorer.record_strategy_attempt()
+                strategy_effect = self.bandit.get_effect(selected)
+                self.bandit.set_active_strategy(selected, bandit_ctx, now)
+                if self.scorer:
+                    self.scorer.record_strategy_attempt()
+            elif self.bandit.current_strategy:
+                # Continue applying current strategy
+                strategy_effect = self.bandit.get_effect(self.bandit.current_strategy)
 
         # ➄ Feedback learning (rate-limited)
         feedback_mods = None
@@ -427,21 +432,10 @@ class V6Integration:
         if self.mode_intel:
             self.mode_intel.reset_session()
 
-        # --- Passivity spiral detection ---
-        # Check for: idle_trend_weight > 0.85 AND energy < 0.35
-        # This was the exact pattern that caused the V5 passivity spiral:
-        # idle_trend_weight climbed to 0.995, energy hit floor at 0.30
-        idle_trend = getattr(self.meta, 'idle_trend_weight', 0.5)
-        energy = getattr(self.meta, 'energy', 0.5)
-        if idle_trend > 0.85 and energy < 0.35:
-            logger.warning(
-                f"PASSIVITY SPIRAL DETECTED: idle_trend_weight={idle_trend:.3f}, "
-                f"energy={energy:.3f}. Auto-resetting to safe values."
-            )
-            self._passivity_spiral_detected = True
-            self._reset_passivity_spiral()
-        else:
-            self._passivity_spiral_detected = False
+        # V6.5: Passivity spiral detection REMOVED.
+        # IDLE is a valid long-term mode. The engagement scorer now rewards
+        # dynamic range within each mode rather than conversion metrics.
+        self._passivity_spiral_detected = False
 
     # ------------------------------------------------------------------
     # Hook: person events (chain after V5 behavior callbacks)
@@ -454,16 +448,12 @@ class V6Integration:
             self.scorer.record_gesture_attempt()
 
     def on_person_left(self, person: dict, now: float):
-        """Chain after behavior.on_person_left()."""
-        if self.bandit and hasattr(self, '_last_bandit_strategy') and self._last_bandit_strategy:
-            # Report outcome for the almost-engaged strategy
-            self.bandit.record_outcome(
-                strategy=self._last_bandit_strategy,
-                context=self._last_bandit_context,
-                converted=person.get('reached_engaged', False),
-            )
-            self._last_bandit_strategy = None
-            self._last_bandit_context = None
+        """Chain after behavior.on_person_left().
+
+        V6.5: No longer records conversion outcomes — bandit now tracks
+        expression quality via dynamic range, not per-person conversions.
+        """
+        pass
 
     # ------------------------------------------------------------------
     # Modifier resolution (intent-based merge)
@@ -690,20 +680,6 @@ class V6Integration:
         """
         health = {'ok': True, 'warnings': []}
 
-        # Check idle_trend_weight
-        idle_trend = getattr(self.meta, 'idle_trend_weight', 0.5)
-        if idle_trend > 0.75:
-            health['warnings'].append(
-                f"idle_trend_weight={idle_trend:.3f} (above 0.75 safe limit)"
-            )
-
-        # Check energy floor
-        energy = getattr(self.meta, 'energy', 0.5)
-        if energy < 0.35:
-            health['warnings'].append(
-                f"energy={energy:.3f} (near floor, limiting expressiveness)"
-            )
-
         # Check autotuner budget
         if self.autotuner:
             budget = self.autotuner.budget
@@ -729,39 +705,13 @@ class V6Integration:
         return health
 
     def _reset_passivity_spiral(self):
-        """Emergency reset when passivity spiral is detected.
+        """V6.5: No-op — passivity spiral detection removed.
 
-        Pushes key parameters back to safe values that allow the system
-        to recover expressiveness.
+        IDLE is a valid long-term mode. The engagement scorer now rewards
+        dynamic range within each mode rather than conversion metrics.
+        Kept as stub for API compatibility.
         """
-        # Reset idle_trend_weight to safe center
-        if hasattr(self.meta, 'idle_trend_weight'):
-            self.meta.idle_trend_weight = 0.50
-            if 'idle_trend_weight' in self.sliders:
-                self.sliders['idle_trend_weight'].value = 0.50
-
-        # Restore energy above floor
-        if hasattr(self.meta, 'energy'):
-            self.meta.energy = max(0.50, getattr(self.meta, 'energy', 0.5))
-            if 'energy' in self.sliders:
-                self.sliders['energy'].value = self.meta.energy
-
-        # Bump responsiveness
-        if hasattr(self.meta, 'responsiveness'):
-            self.meta.responsiveness = max(0.50, getattr(self.meta, 'responsiveness', 0.5))
-            if 'responsiveness' in self.sliders:
-                self.sliders['responsiveness'].value = self.meta.responsiveness
-
-        # Reset autotuner home values if available
-        if self.autotuner and hasattr(self.autotuner, '_home_values'):
-            self.autotuner._home_values['idle_trend_weight'] = 0.50
-            self.autotuner._home_values['energy'] = 0.50
-
-        logger.warning(
-            "Passivity spiral auto-reset complete: "
-            f"idle_trend_weight→0.50, energy→{self.meta.energy:.2f}, "
-            f"responsiveness→{self.meta.responsiveness:.2f}"
-        )
+        pass
 
     # ------------------------------------------------------------------
     # WebSocket state extension

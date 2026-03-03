@@ -335,16 +335,9 @@ class FeedbackLearningV6:
         width_mult = 0.7 + avg_weight * 0.25
         width_mult = max(0.9, min(1.3, width_mult))
 
-        # Quiet mode boost: if no engagement for > 5 minutes,
-        # increase brightness and pulse to be more visible
-        quiet_boost = 1.0
-        time_since_engagement = time.time() - self._last_engagement_time
-        if time_since_engagement > self._quiet_mode_threshold:
-            # Ramp up over the next 10 minutes: 1.0 → 1.08 — V6.1e: reduced (was 1.12)
-            quiet_ramp = min(1.0, (time_since_engagement - self._quiet_mode_threshold) / 600.0)
-            quiet_boost = 1.0 + quiet_ramp * 0.08
-            brightness_mult *= quiet_boost
-            pulse_mult *= min(1.2, pulse_mult * (1.0 + quiet_ramp * 0.05))
+        # V6.5: Quiet mode boost REMOVED.
+        # IDLE is a valid long-term mode. The system should express itself
+        # dynamically within each mode, not ramp up brightness to attract.
 
         return FeedbackModifiers(
             brightness_mult=brightness_mult,

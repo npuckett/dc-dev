@@ -1,87 +1,108 @@
 {
-  "brightness_pulse|afternoon_ltr": {
-    "s": 1.0,
-    "f": 57.0,
-    "n": 56
-  },
-  "drift_toward|afternoon_ltr": {
-    "s": 1.0,
-    "f": 65.0,
-    "n": 64
-  },
-  "pause_and_look|afternoon_ltr": {
-    "s": 1.0,
-    "f": 59.0,
-    "n": 58
-  },
-  "falloff_reshape|afternoon_ltr": {
-    "s": 1.0,
-    "f": 56.0,
-    "n": 55
-  },
-  "brightness_pulse|afternoon_balanced": {
-    "s": 1.0,
-    "f": 12.0,
-    "n": 11
-  },
-  "drift_toward|afternoon_balanced": {
-    "s": 1.0,
-    "f": 10.0,
-    "n": 9
-  },
-  "pause_and_look|afternoon_balanced": {
-    "s": 1.0,
-    "f": 14.0,
-    "n": 13
-  },
-  "falloff_reshape|afternoon_balanced": {
-    "s": 1.0,
-    "f": 14.0,
-    "n": 13
-  },
-  "brightness_pulse|afternoon_none": {
-    "s": 1.0,
-    "f": 2.0,
+  "explore_wide|idle_afternoon": {
+    "s": 1.5,
+    "f": 1.5,
     "n": 1
   },
-  "drift_toward|afternoon_none": {
+  "pulse_varied|idle_afternoon": {
+    "s": 2.0,
+    "f": 2.0,
+    "n": 2
+  },
+  "shape_shift|idle_afternoon": {
     "s": 1.0,
     "f": 1.0,
     "n": 0
   },
-  "pause_and_look|afternoon_none": {
+  "energy_burst|idle_afternoon": {
     "s": 1.0,
     "f": 1.0,
     "n": 0
   },
-  "falloff_reshape|afternoon_none": {
+  "settle_deep|idle_afternoon": {
     "s": 1.0,
     "f": 1.0,
     "n": 0
   },
-  "brightness_pulse|afternoon_rtl": {
+  "explore_wide|engaged_afternoon": {
     "s": 1.0,
-    "f": 7.0,
-    "n": 6
+    "f": 1.0,
+    "n": 0
   },
-  "drift_toward|afternoon_rtl": {
-    "s": 1.0,
-    "f": 8.0,
-    "n": 7
+  "pulse_varied|engaged_afternoon": {
+    "s": 2.446638372425105,
+    "f": 1.5533616275748947,
+    "n": 2
   },
-  "pause_and_look|afternoon_rtl": {
+  "shape_shift|engaged_afternoon": {
     "s": 1.0,
-    "f": 11.0,
-    "n": 10
+    "f": 1.0,
+    "n": 0
   },
-  "falloff_reshape|afternoon_rtl": {
+  "energy_burst|engaged_afternoon": {
     "s": 1.0,
-    "f": 8.0,
-    "n": 7
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|engaged_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "explore_wide|flow_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "pulse_varied|flow_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "shape_shift|flow_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "energy_burst|flow_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|flow_afternoon": {
+    "s": 1.9252416998048256,
+    "f": 1.0747583001951744,
+    "n": 1
+  },
+  "explore_wide|aware_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "pulse_varied|aware_afternoon": {
+    "s": 3.7140522201647643,
+    "f": 1.285947779835236,
+    "n": 3
+  },
+  "shape_shift|aware_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "energy_burst|aware_afternoon": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|aware_afternoon": {
+    "s": 1.885494894133328,
+    "f": 1.114505105866672,
+    "n": 1
   },
   "_meta": {
-    "total_attempts": 310,
-    "total_conversions": 0,
-    "saved_at": 1772488944.8222263
+    "total_attempts": 10,
+    "total_quality_sum": 7.471427186528022,
+    "version": "6.5",
+    "saved_at": 1772558917.5471146
   }
 }

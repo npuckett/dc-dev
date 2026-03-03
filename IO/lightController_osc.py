@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-3D Light Controller V5 - Development Version
+3D Light Controller V6.5 - Passive-Flow-Driven Behavior
 
 V5 Changes (Feb 2026):
 - Anisotropic falloff: per-axis scale (X/Y/Z) + Y-axis rotation with spring inertia
@@ -4199,7 +4199,7 @@ def main():
     display = fullscreen_size
     # Use NOFRAME instead of FULLSCREEN - stays visible when focus is lost
     screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | NOFRAME)
-    pygame.display.set_caption("3D Light Controller V5 - Production")
+    pygame.display.set_caption("3D Light Controller V6.5")
     
     font = pygame.font.SysFont('monospace', 14)
     font_small = pygame.font.SysFont('monospace', 12)
@@ -4534,7 +4534,7 @@ def main():
         config=v6_config,
     )
     auto_tuner.set_enabled(False)  # V6 replaces V5 auto-tuner
-    print(f"🧠 V6.1 Integration Bridge initialized — V5 auto-tuner disabled")
+    print(f"🧠 V6.5 Integration Bridge initialized — V5 auto-tuner disabled")
     
     # Track when to save sliders (debounce saves)
     last_slider_save = time.time()
@@ -4685,7 +4685,7 @@ def main():
                     else:
                         display = windowed_size
                         screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL | RESIZABLE)
-                    pygame.display.set_caption("3D Light Controller V5 - Production")
+                    pygame.display.set_caption("3D Light Controller V6.5")
                     # Reinitialize OpenGL state after display change
                     glEnable(GL_DEPTH_TEST)
                     glEnable(GL_BLEND)

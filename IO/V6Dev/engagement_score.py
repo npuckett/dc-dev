@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-V6 Composite Engagement Score
-==============================
+V6.5 Composite Engagement Score — Dynamic Range Focus
+======================================================
 
 Replaces raw activity level as the auto-tuner's optimisation target.
-Computes a single 0–1 score from five weighted components, all derivable
+Computes a single 0–1 score from weighted components, all derivable
 from data already collected by the V5 tracking_database and daily reports.
+
+V6.5 CHANGE: Replaced conversion_rate (passive→active) with dynamic_range.
+The system now optimises for expressive, varied behavior within each mode
+rather than trying to convert pedestrians from passive to active zone.
 
 Usage:
     scorer = EngagementScorer(database)
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, TYPE_CHECKING
 
@@ -34,19 +39,20 @@ if TYPE_CHECKING:
 class ScoringWeights:
     """Weights for each score component.  Must sum to 1.0.
 
-    Calibrated for passive-heavy sidewalk installations where most
-    pedestrians pass through without entering the active zone.
+    V6.5: Replaced conversion_rate with dynamic_range.
+    The system now rewards expressive, varied behavior within each mode
+    rather than passive→active conversion.
     """
-    conversion_rate: float = 0.20      # lowered: active/total is typically 1-3%
-    dwell_depth: float = 0.25          # kept: valuable when it happens
-    mode_diversity: float = 0.15       # lowered slightly
-    passive_awareness: float = 0.15    # NEW: rewards flow detection & mode transitions
-    proactive_reach: float = 0.10      # NEW: rewards system expressiveness during quiet
-    return_visits: float = 0.10        # lowered: unreliable at scale
-    parameter_stability: float = 0.05  # lowered: less important than expressiveness
+    dynamic_range: float = 0.25        # V6.5: replaces conversion_rate — rewards output variance
+    dwell_depth: float = 0.20          # kept: valuable when it happens
+    mode_diversity: float = 0.15       # Shannon entropy across modes
+    passive_awareness: float = 0.15    # rewards flow detection & mode transitions
+    proactive_reach: float = 0.10      # rewards system expressiveness during quiet
+    return_visits: float = 0.10        # return rate
+    parameter_stability: float = 0.05  # low param thrashing
 
     def __post_init__(self):
-        total = (self.conversion_rate + self.dwell_depth + self.mode_diversity
+        total = (self.dynamic_range + self.dwell_depth + self.mode_diversity
                  + self.passive_awareness + self.proactive_reach
                  + self.return_visits + self.parameter_stability)
         if abs(total - 1.0) > 0.01:
@@ -107,6 +113,17 @@ class EngagementScorer:
         # Daytime score floor: ensures gradient estimator always has signal
         self._daytime_floor: float = 0.15  # minimum score during 7am-11pm
 
+        # V6.5: Dynamic range tracking — rolling windows per mode
+        # Track actual output values to measure variance within each mode
+        self._output_history_window = 60  # samples (~5 min at 5s interval)
+        self._brightness_history: deque = deque(maxlen=self._output_history_window)
+        self._position_x_history: deque = deque(maxlen=self._output_history_window)
+        self._move_speed_history: deque = deque(maxlen=self._output_history_window)
+        self._pulse_speed_history: deque = deque(maxlen=self._output_history_window)
+        self._falloff_history: deque = deque(maxlen=self._output_history_window)
+        # Track mode with each sample for per-mode analysis
+        self._mode_history: deque = deque(maxlen=self._output_history_window)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -135,17 +152,26 @@ class EngagementScorer:
         raw: Dict[str, float] = {}
         comps: Dict[str, float] = {}
 
-        # --- 1. Conversion rate ------------------------------------------
-        active = behavior_status.get('active_count', 0)
-        passive = behavior_status.get('passive_count', 0)
-        total_obs = max(1, active + passive)
-        conversion = active / total_obs
-        # Normalise: 3% engagement maps to score 1.0 (calibrated for
-        # passive-heavy sidewalk where typical active ratio is 1-3%)
-        comps['conversion_rate'] = min(1.0, conversion / 0.03)
-        raw['active'] = active
-        raw['passive'] = passive
-        raw['conversion'] = conversion
+        # --- 1. Dynamic range (V6.5: replaces conversion_rate) -----------
+        # Measures how varied the light's actual output is within the current
+        # mode. Rewards expressive behavior, penalizes flat/stuck output.
+        current_params = behavior_status.get('driving_factors', {}).get('current_params', {})
+        mode = behavior_status.get('mode', 'idle')
+
+        # Record current output values
+        self._brightness_history.append(current_params.get('brightness_max', 15))
+        self._move_speed_history.append(current_params.get('move_speed', 20))
+        self._pulse_speed_history.append(current_params.get('pulse_speed', 2500))
+        self._falloff_history.append(current_params.get('falloff_radius', 50))
+        self._mode_history.append(mode)
+        # Position X from wander box center (approximate)
+        wander_box = behavior_status.get('driving_factors', {}).get('wander_box', {})
+        pos_x = (wander_box.get('min_x', -290) + wander_box.get('max_x', -30)) / 2
+        self._position_x_history.append(pos_x)
+
+        comps['dynamic_range'] = self._compute_dynamic_range()
+        raw['dynamic_range_brightness_cv'] = self._cv(self._brightness_history)
+        raw['dynamic_range_speed_cv'] = self._cv(self._move_speed_history)
 
         # --- 2. Dwell depth ----------------------------------------------
         dwell_phase = behavior_status.get('dwell_phase', 'notice')
@@ -204,10 +230,11 @@ class EngagementScorer:
         flow_info = behavior_status.get('flow', {})
         flow_strength = flow_info.get('strength', 0.0) if isinstance(flow_info, dict) else 0.0
         mode = behavior_status.get('mode', 'idle')
+        passive_count = behavior_status.get('passive_count', 0)
         passive_score = 0.0
         # Flow detection: system is aware of pedestrian movement
-        if passive > 0:
-            passive_score += min(0.4, passive / 50.0)  # some passive traffic = awareness
+        if passive_count > 0:
+            passive_score += min(0.4, passive_count / 50.0)  # some passive traffic = awareness
         # Flow strength: system is tracking directional movement
         passive_score += min(0.3, flow_strength * 0.5)
         # Mode variety: system is responding (not stuck in idle)
@@ -231,7 +258,7 @@ class EngagementScorer:
 
         # --- Weighted sum ------------------------------------------------
         score = (
-            self.w.conversion_rate     * comps['conversion_rate']
+            self.w.dynamic_range       * comps['dynamic_range']
             + self.w.dwell_depth       * comps['dwell_depth']
             + self.w.mode_diversity    * comps['mode_diversity']
             + self.w.passive_awareness * comps.get('passive_awareness', 0.0)
@@ -257,6 +284,91 @@ class EngagementScorer:
         if len(self._history) > self._max_history:
             self._history.pop(0)
         return snap
+
+    # ------------------------------------------------------------------
+    # V6.5: Dynamic range measurement
+    # ------------------------------------------------------------------
+
+    def _compute_dynamic_range(self) -> float:
+        """Compute a 0–1 score for how dynamically varied the light output is.
+
+        Uses coefficient of variation (CV = std/mean) across multiple output
+        dimensions, averaged together. Higher CV = more expressive output.
+
+        Each dimension is normalized to a 0–1 score using empirically
+        calibrated CV targets:
+        - brightness: CV of 0.30 = score 1.0 (good dynamic range)
+        - position_x: CV of 0.15 = score 1.0 (moving around the panel span)
+        - move_speed: CV of 0.25 = score 1.0 (varied movement)
+        - pulse_speed: CV of 0.20 = score 1.0 (varied pulse rhythm)
+        - falloff: CV of 0.20 = score 1.0 (varied spatial expression)
+
+        Minimum 5 samples needed for meaningful variance.
+        """
+        if len(self._brightness_history) < 5:
+            return 0.5  # neutral until we have data
+
+        # CV targets: what CV value maps to score 1.0 for each dimension
+        # These are tuned so that "healthy" variation scores ~0.7-0.8
+        cv_targets = {
+            'brightness': 0.30,
+            'position_x': 0.15,
+            'move_speed': 0.25,
+            'pulse_speed': 0.20,
+            'falloff': 0.20,
+        }
+
+        scores = []
+
+        # Brightness dynamic range
+        cv = self._cv(self._brightness_history)
+        scores.append(min(1.0, cv / cv_targets['brightness']))
+
+        # Position X dynamic range (using absolute values since X is negative)
+        cv = self._cv(self._position_x_history)
+        scores.append(min(1.0, cv / cv_targets['position_x']))
+
+        # Move speed dynamic range
+        cv = self._cv(self._move_speed_history)
+        scores.append(min(1.0, cv / cv_targets['move_speed']))
+
+        # Pulse speed dynamic range
+        cv = self._cv(self._pulse_speed_history)
+        scores.append(min(1.0, cv / cv_targets['pulse_speed']))
+
+        # Falloff radius dynamic range
+        cv = self._cv(self._falloff_history)
+        scores.append(min(1.0, cv / cv_targets['falloff']))
+
+        # Average across all dimensions
+        return sum(scores) / len(scores) if scores else 0.5
+
+    @staticmethod
+    def _cv(values) -> float:
+        """Coefficient of variation (std / |mean|). Returns 0 if insufficient data."""
+        if len(values) < 3:
+            return 0.0
+        vals = list(values)
+        mean = sum(vals) / len(vals)
+        if abs(mean) < 1e-6:
+            return 0.0
+        variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+        std = variance ** 0.5
+        return std / abs(mean)
+
+    def record_output_sample(self, brightness: float, pos_x: float,
+                             move_speed: float, pulse_speed: float,
+                             falloff_radius: float, mode: str):
+        """Manually record output values (alternative to extracting from behavior_status).
+
+        Can be called from the integration layer if more precise values are available.
+        """
+        self._brightness_history.append(brightness)
+        self._position_x_history.append(pos_x)
+        self._move_speed_history.append(move_speed)
+        self._pulse_speed_history.append(pulse_speed)
+        self._falloff_history.append(falloff_radius)
+        self._mode_history.append(mode)
 
     def smoothed_score(self, window: int = 8) -> float:
         """Exponentially-weighted mean of the last *window* scores.
@@ -315,11 +427,18 @@ class EngagementScorer:
         auto = report.get('auto_tuning', {})
         hourly = report.get('hourly_trends', [])
 
-        # 1. Conversion (normalised to 3% for passive-heavy installations)
-        active_total = sum(h.get('active_count', 0) for h in hourly)
-        passive_total = sum(h.get('passive_count', 0) for h in hourly)
-        total = max(1, active_total + passive_total)
-        conv = min(1.0, (active_total / total) / 0.03)
+        # 1. Dynamic range — estimate from param journey variance
+        # For historical reports, approximate from total_movement
+        journeys_for_dr = auto.get('param_journeys', {})
+        if journeys_for_dr:
+            total_movement = sum(
+                v.get('total_movement', 0) for v in journeys_for_dr.values()
+            )
+            # More movement (up to a point) = more dynamic range
+            # 2.0 total movement maps to score 1.0
+            dynamic_range_est = min(1.0, total_movement / 2.0)
+        else:
+            dynamic_range_est = 0.5  # unknown
 
         # 2. Dwell depth – not directly in reports, estimate from
         #    engaged mode fraction (higher engaged % ≈ deeper dwell)
@@ -366,7 +485,7 @@ class EngagementScorer:
         proactive = min(1.0, total_adjustments / 10000.0)  # 10k+ adjustments = active system
 
         score = (
-            self.w.conversion_rate     * conv
+            self.w.dynamic_range       * dynamic_range_est
             + self.w.dwell_depth       * dwell_est
             + self.w.mode_diversity    * diversity
             + self.w.passive_awareness * passive_awareness
@@ -400,7 +519,7 @@ class EngagementScorer:
                 dwell_est = 0.1
 
             scores[hour] = (
-                self.w.conversion_rate * conv
+                self.w.dynamic_range * 0.5  # no per-hour dynamic range data
                 + self.w.dwell_depth   * dwell_est
                 + self.w.mode_diversity * self._shannon_entropy(mode_dist)
                 + self.w.passive_awareness * (0.5 if passive > 0 else 0.0)

@@ -425,38 +425,11 @@ class SmartAutoTuner:
             for name in deltas:
                 deltas[name] *= damping
 
-        # Anti-passivity: when idle for extended periods, actively push
-        # engagement params UP to fight the self-reinforcing passivity spiral
-        # V6.5: Also act during FLOW with longer threshold — FLOW is the new
-        # common state and can still be "quiet" if only 2-3 passive/min
-        current_mode = behavior_status.get('mode', 'idle')
-        idle_duration = behavior_status.get('idle_duration', 0.0) if current_mode == 'idle' else 0.0
-        mode_duration = behavior_status.get('mode_duration', 0.0)
-
-        anti_passivity_active = False
-        push_strength = 0.0
-        if current_mode == 'idle' and idle_duration > 60.0:
-            anti_passivity_active = True
-            push_strength = 1.0
-        elif current_mode == 'flow' and mode_duration > 180.0:
-            # In FLOW for 3+ minutes without any engagements — gentle push
-            anti_passivity_active = True
-            push_strength = 0.5
-
-        if anti_passivity_active:
-            home = self._get_home_values()
-            push_offset = 0.10 * push_strength
-            for name in ('energy', 'responsiveness', 'sociability'):
-                home_val = home.get(name, 0.5)
-                current_val = self._get_values().get(name, 0.5)
-                target = min(home_val + push_offset, PARAM_RANGES.get(name, (0, 1))[1])
-                if current_val < target:
-                    push = min(0.005 * push_strength, (target - current_val) * 0.1)
-                    deltas[name] = deltas.get(name, 0) + push
-            # Also cap idle_trend_weight from climbing during long idle
-            itw = self._get_values().get('idle_trend_weight', 0.5)
-            if itw > 0.65:
-                deltas['idle_trend_weight'] = deltas.get('idle_trend_weight', 0) - 0.003 * push_strength
+        # V6.5: Anti-passivity spiral REMOVED.
+        # IDLE is a valid long-term mode — the system should express itself
+        # dynamically within each mode, not force transitions.
+        # Dynamic range in the engagement scorer now rewards varied output
+        # regardless of mode, replacing the conversion-focused push.
 
         # Cross-parameter linking: if two params are correlated and one
         # has a strong gradient, share the delta

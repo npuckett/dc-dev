@@ -854,6 +854,15 @@ class BehaviorSystem:
         }
         self.current_wander_box = dict(self.base_wander_box)
         
+        # V6.5: Hard limits — wander box NEVER exceeds these bounds
+        # Panels span X=-40 to X=-280; Z depth is -12 to +12 (panels 2/3 local Z)
+        # Z is locked to panel depth; X gets modest padding; Y bounded to panel height
+        self.WANDER_BOX_LIMITS = {
+            'min_x': -350, 'max_x': 10,     # ~70cm padding beyond panel edges
+            'min_y': -10,  'max_y': 200,     # Panels top at Y≈120, slight extra room
+            'min_z': -32,  'max_z': 28,      # FIXED to panel depth — never changes
+        }
+        
         # Animated wander box - smoothly transitions between base and engaged boxes
         self.animated_wander_box = dict(self.base_wander_box)
         self.target_wander_box = dict(self.base_wander_box)
@@ -1858,6 +1867,36 @@ class BehaviorSystem:
         
         return result
     
+    def _clamp_wander_box(self):
+        """V6.5: Enforce hard limits on wander box to keep light near panels.
+        
+        Called after all wander box modifications each frame.
+        Z is always locked to panel depth. X and Y are clamped to reasonable bounds.
+        Also ensures min < max with a minimum 60cm span on X.
+        """
+        limits = self.WANDER_BOX_LIMITS
+        wb = self.current_wander_box
+        
+        # Z is FIXED to panel depth — no code should change this
+        wb['min_z'] = limits['min_z']
+        wb['max_z'] = limits['max_z']
+        
+        # Clamp X
+        wb['min_x'] = max(limits['min_x'], wb['min_x'])
+        wb['max_x'] = min(limits['max_x'], wb['max_x'])
+        # Ensure minimum 60cm span (one panel width) on X
+        if wb['max_x'] - wb['min_x'] < 60:
+            mid = (wb['min_x'] + wb['max_x']) / 2
+            wb['min_x'] = max(limits['min_x'], mid - 30)
+            wb['max_x'] = min(limits['max_x'], mid + 30)
+        
+        # Clamp Y
+        wb['min_y'] = max(limits['min_y'], wb['min_y'])
+        wb['max_y'] = min(limits['max_y'], wb['max_y'])
+        if wb['max_y'] - wb['min_y'] < 30:
+            wb['min_y'] = limits['min_y']
+            wb['max_y'] = self.base_wander_box['max_y']
+
     def apply_time_of_day(self, params: Dict) -> Dict:
         """Apply time of day modifiers"""
         tod = self.get_time_of_day_modifier()
@@ -2312,12 +2351,13 @@ class BehaviorSystem:
         # V6.5: Much stronger position following in higher tiers
         momentum = trends.flow_momentum * weight
 
-        # Flow shift scales with tier: IDLE=50cm, FLOW=120cm, AWARE=180cm
+        # Flow shift scales with tier: IDLE=30cm, FLOW=60cm, AWARE=90cm
+        # V6.5b: Reduced from 50/120/180 — those shifts were too aggressive
         flow_shift_max = {
-            BehaviorMode.IDLE: 50,
-            BehaviorMode.FLOW: 120,
-            BehaviorMode.AWARE: 180,
-        }.get(self.state.mode, 50)
+            BehaviorMode.IDLE: 30,
+            BehaviorMode.FLOW: 60,
+            BehaviorMode.AWARE: 90,
+        }.get(self.state.mode, 30)
 
         if abs(momentum) > 0.2:  # V6.5: lower threshold (was 0.3)
             flow_shift = momentum * flow_shift_max
@@ -2579,10 +2619,7 @@ class BehaviorSystem:
             # Shift the entire wander box
             self.current_wander_box['min_x'] = self.base_wander_box['min_x'] + flow.x_offset
             self.current_wander_box['max_x'] = self.base_wander_box['max_x'] + flow.x_offset
-            
-            # Clamp to reasonable bounds (don't go off the panels)
-            self.current_wander_box['min_x'] = max(-350, self.current_wander_box['min_x'])
-            self.current_wander_box['max_x'] = min(30, self.current_wander_box['max_x'])
+            # Clamping handled centrally by _clamp_wander_box()
         
         return result
 
@@ -3335,6 +3372,9 @@ class BehaviorSystem:
             self.current_wander_box['min_x'] = self.base_wander_box['min_x'] + flow_bias
             self.current_wander_box['max_x'] = self.base_wander_box['max_x'] + flow_bias
         
+        # V6.5: Clamp wander box after ALL modifications — prevents runaway
+        self._clamp_wander_box()
+        
         # --- V5: Emit falloff shape params from gesture state ---
         params['falloff_scale_x'] = self.state.gesture_falloff_scale[0]
         params['falloff_scale_y'] = self.state.gesture_falloff_scale[1]
@@ -3788,6 +3828,9 @@ class BehaviorSystem:
             'z_near': self.PROXIMITY_Z_NEAR,
             'z_far': self.PROXIMITY_Z_FAR,
         }
+        
+        # V6.5: Expose wander box for dynamic range scoring
+        driving_factors['wander_box'] = dict(self.animated_wander_box)
         
         # Entry pulse state
         if self.state.entry_pulse_active:
