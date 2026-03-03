@@ -2219,8 +2219,9 @@ class PointLight:
     - falloff_scale: per-axis scale [sx, sy, sz] for ellipsoidal falloff
     - falloff_rotation: rotation angle (radians) around Y axis
     - Spring animation toward target values with configurable speed
-    - Automatic inertia return to spherical (scale=[1,1,1], rotation=0)
     """
+    # Class-level constant to avoid per-frame allocation
+    _NEUTRAL_SCALE = np.array([1.0, 1.0, 1.0])
     position: np.ndarray = field(default_factory=lambda: np.array([-160.0, 60.0, -10.0]))
     target_position: np.ndarray = field(default_factory=lambda: np.array([-160.0, 60.0, -10.0]))
     
@@ -2238,11 +2239,6 @@ class PointLight:
     # Spring animation speed (higher = faster convergence, ~2s at speed=2.0)
     scale_spring_speed: float = 2.5     # V5.1: faster spring for snappier gesture shapes
     rotation_spring_speed: float = 2.5
-    # Inertia: how fast scale/rotation return to neutral when no target is set
-    # V6.5b: Very slow inertia — behavior sets target_falloff_scale every frame,
-    # so inertia should NOT fight it. Only matters during brief gaps.
-    scale_inertia_speed: float = 0.08   # Was 0.4 — nearly no drift back to [1,1,1]
-    rotation_inertia_speed: float = 0.10 # Was 0.5 — rotation holds much longer
     
     move_speed: float = 50
     pulse_phase: float = 0.0
@@ -2270,14 +2266,9 @@ class PointLight:
         rot_factor = 1.0 - math.exp(-self.rotation_spring_speed * dt)
         self.falloff_rotation = self.falloff_rotation + rot_diff * rot_factor
         
-        # V5: Inertia — always drift target_falloff_scale toward [1,1,1]
-        # and target_falloff_rotation toward 0 (unless actively set by behavior)
-        neutral_scale = np.array([1.0, 1.0, 1.0])
-        inertia_factor = 1.0 - math.exp(-self.scale_inertia_speed * dt)
-        self.target_falloff_scale = self.target_falloff_scale + (neutral_scale - self.target_falloff_scale) * inertia_factor
-        
-        rot_inertia = 1.0 - math.exp(-self.rotation_inertia_speed * dt)
-        self.target_falloff_rotation = self.target_falloff_rotation * (1.0 - rot_inertia)
+        # V6.5b-opt: Inertia removed — behavior sets target_falloff_scale
+        # every frame, so inertia was fighting it (~0.3% per frame tax).
+        # Spring dynamics above provide all needed smoothing.
 
 
 class PanelSystem:
@@ -2381,6 +2372,10 @@ class WanderBehavior:
         self.wander_interval = 3.0
         self.enabled = True
         
+        # Pre-computed clip bounds (updated in update_wander_box)
+        self._box_min = np.array([wander_box['min_x'], wander_box['min_y'], wander_box['min_z']])
+        self._box_max = np.array([wander_box['max_x'], wander_box['max_y'], wander_box['max_z']])
+        
         # For behavior system integration
         self.follow_target = None
         self.follow_smoothing = 0.05
@@ -2397,6 +2392,12 @@ class WanderBehavior:
     def update_wander_box(self, new_box: dict):
         """Update wander box (called by behavior system)"""
         self.wander_box = new_box
+        self._box_min[0] = new_box['min_x']
+        self._box_min[1] = new_box['min_y']
+        self._box_min[2] = new_box['min_z']
+        self._box_max[0] = new_box['max_x']
+        self._box_max[1] = new_box['max_y']
+        self._box_max[2] = new_box['max_z']
     
     def set_follow_target(self, target: np.ndarray, smoothing: float = 0.05, x_only: bool = False):
         """Set a target to follow (from behavior system)
@@ -2431,15 +2432,11 @@ class WanderBehavior:
         if self.gesture_target is not None:
             self.light.target_position = self.gesture_target.copy()
             # V6.5b: Clamp gesture target to wander box — no escaping into active zone
-            self.light.target_position[0] = np.clip(self.light.target_position[0], self.wander_box['min_x'], self.wander_box['max_x'])
-            self.light.target_position[1] = np.clip(self.light.target_position[1], self.wander_box['min_y'], self.wander_box['max_y'])
-            self.light.target_position[2] = np.clip(self.light.target_position[2], self.wander_box['min_z'], self.wander_box['max_z'])
+            np.clip(self.light.target_position, self._box_min, self._box_max, out=self.light.target_position)
             return
         
         # Always clamp wander target to current box bounds (box may have moved)
-        self.wander_target[0] = np.clip(self.wander_target[0], self.wander_box['min_x'], self.wander_box['max_x'])
-        self.wander_target[1] = np.clip(self.wander_target[1], self.wander_box['min_y'], self.wander_box['max_y'])
-        self.wander_target[2] = np.clip(self.wander_target[2], self.wander_box['min_z'], self.wander_box['max_z'])
+        np.clip(self.wander_target, self._box_min, self._box_max, out=self.wander_target)
         
         # Update wander timer and check if we need a new target
         # Only pick new target when we reach current one or timer expires
@@ -2465,9 +2462,7 @@ class WanderBehavior:
         self.light.target_position = current + diff * smooth
         
         # V6.5b: Final clamp — target_position must stay within wander box
-        self.light.target_position[0] = np.clip(self.light.target_position[0], self.wander_box['min_x'], self.wander_box['max_x'])
-        self.light.target_position[1] = np.clip(self.light.target_position[1], self.wander_box['min_y'], self.wander_box['max_y'])
-        self.light.target_position[2] = np.clip(self.light.target_position[2], self.wander_box['min_z'], self.wander_box['max_z'])
+        np.clip(self.light.target_position, self._box_min, self._box_max, out=self.light.target_position)
 
 
 # =============================================================================
@@ -4910,11 +4905,10 @@ def main():
         light.falloff_radius = behavior_params.get('falloff_radius', 50)
         
         # V5: Apply anisotropic falloff shape from behavior gestures
-        light.target_falloff_scale = np.array([
-            behavior_params.get('falloff_scale_x', 1.0),
-            behavior_params.get('falloff_scale_y', 1.0),
-            behavior_params.get('falloff_scale_z', 1.0),
-        ])
+        # V6.5b-opt: Write directly into existing array (avoids per-frame allocation)
+        light.target_falloff_scale[0] = behavior_params.get('falloff_scale_x', 1.0)
+        light.target_falloff_scale[1] = behavior_params.get('falloff_scale_y', 1.0)
+        light.target_falloff_scale[2] = behavior_params.get('falloff_scale_z', 1.0)
         light.target_falloff_rotation = behavior_params.get('falloff_rotation', 0.0)
         
         # Update wander behavior based on behavior system

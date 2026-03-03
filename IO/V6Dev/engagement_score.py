@@ -97,8 +97,7 @@ class EngagementScorer:
         self.w = weights or ScoringWeights()
 
         # Rolling history for smoothing (last 60 samples ≈ 5 min)
-        self._history: List[EngagementSnapshot] = []
-        self._max_history = 60
+        self._history: deque = deque(maxlen=60)
 
         # Cache for param-stability (computed once per cycle from the
         # auto-tuner's own adjustment log; injected externally)
@@ -229,12 +228,12 @@ class EngagementScorer:
         # even when people don't enter the active zone
         flow_info = behavior_status.get('flow', {})
         flow_strength = flow_info.get('strength', 0.0) if isinstance(flow_info, dict) else 0.0
-        mode = behavior_status.get('mode', 'idle')
         passive_count = behavior_status.get('passive_count', 0)
         passive_score = 0.0
         # Flow detection: system is aware of pedestrian movement
+        # V6.5b-opt: Divisor 8.0 so typical sidewalk traffic (3-5 people) scores well
         if passive_count > 0:
-            passive_score += min(0.4, passive_count / 50.0)  # some passive traffic = awareness
+            passive_score += min(0.4, passive_count / 8.0)
         # Flow strength: system is tracking directional movement
         passive_score += min(0.3, flow_strength * 0.5)
         # Mode variety: system is responding (not stuck in idle)
@@ -281,8 +280,6 @@ class EngagementScorer:
             raw=raw,
         )
         self._history.append(snap)
-        if len(self._history) > self._max_history:
-            self._history.pop(0)
         return snap
 
     # ------------------------------------------------------------------
@@ -379,7 +376,9 @@ class EngagementScorer:
         """
         if not self._history:
             return 0.5
-        recent = self._history[-window:]
+        # deque doesn't support slicing — use islice from the right end
+        n = min(window, len(self._history))
+        recent = list(self._history)[-n:]
         if len(recent) == 1:
             return recent[0].score
         total_w = 0.0

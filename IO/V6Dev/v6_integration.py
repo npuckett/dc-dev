@@ -46,13 +46,14 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime as _dt
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .engagement_score import EngagementScorer
 from .predictive_context import PredictiveContextEngine
-from .strategy_bandit import StrategyBandit
-from .feedback_learning_v6 import FeedbackLearningV6
+from .strategy_bandit import StrategyBandit, BanditContext
+from .feedback_learning_v6 import FeedbackLearningV6, FeedbackContext
 from .falloff_strategies import FalloffStrategyManager
 from .smart_autotuner import SmartAutoTuner
 from .mode_intelligence import ModeIntelligence
@@ -206,7 +207,6 @@ class V6Integration:
         # Health monitoring
         self._last_health_check = 0.0
         self._health_check_interval = 300.0  # every 5 minutes
-        self._passivity_spiral_detected = False
 
         # Bandit outcome tracking (to pass context to record_outcome)
         self._last_bandit_strategy = None
@@ -325,8 +325,6 @@ class V6Integration:
         # ➄ Feedback learning (rate-limited)
         feedback_mods = None
         if self.feedback and apply_intents:
-            from .feedback_learning_v6 import FeedbackContext
-            from datetime import datetime as _dt
             _now_dt = _dt.now()
             ctx = FeedbackContext()
             ctx.timestamp = now
@@ -432,11 +430,6 @@ class V6Integration:
         if self.mode_intel:
             self.mode_intel.reset_session()
 
-        # V6.5: Passivity spiral detection REMOVED.
-        # IDLE is a valid long-term mode. The engagement scorer now rewards
-        # dynamic range within each mode rather than conversion metrics.
-        self._passivity_spiral_detected = False
-
     # ------------------------------------------------------------------
     # Hook: person events (chain after V5 behavior callbacks)
     # ------------------------------------------------------------------
@@ -471,14 +464,14 @@ class V6Integration:
     ) -> dict:
         """Use ModifierResolver to merge all V6 signals."""
         current_params = {
-            'brightness_global': getattr(self.meta, 'brightness_global', 1.0),
-            'speed_global': getattr(self.meta, 'speed_global', 1.0),
-            'pulse_global': getattr(self.meta, 'pulse_global', 1.0),
-            'responsiveness': getattr(self.meta, 'responsiveness', 0.5),
-            'energy': getattr(self.meta, 'energy', 0.5),
-            'sociability': getattr(self.meta, 'sociability', 0.5),
-            'exploration': getattr(self.meta, 'exploration', 0.5),
-            'attention_span': getattr(self.meta, 'attention_span', 0.5),
+            'brightness_global': self.meta.brightness_global,
+            'speed_global': self.meta.speed_global,
+            'pulse_global': self.meta.pulse_global,
+            'responsiveness': self.meta.responsiveness,
+            'energy': self.meta.energy,
+            'sociability': self.meta.sociability,
+            'exploration': self.meta.exploration,
+            'attention_span': self.meta.attention_span,
         }
 
         self.resolver.begin_frame(current_params)
@@ -491,10 +484,10 @@ class V6Integration:
 
         # Feedback intents
         if feedback_mods:
-            from dataclasses import asdict as _asdict
             if isinstance(feedback_mods, dict):
                 mods = feedback_mods
             elif hasattr(feedback_mods, '__dataclass_fields__'):
+                from dataclasses import asdict as _asdict
                 mods = _asdict(feedback_mods)
             else:
                 mods = {}
@@ -542,11 +535,13 @@ class V6Integration:
             self._total_adjustments += 1
 
         # Apply falloff shape to behavior_params (renderer-facing)
+        # V6.5b-opt: Multiply onto V5 pipeline output (not overwrite)
+        # so gesture shapes, ambient oscillation, and entry pulses are preserved.
         if falloff_shape:
-            params['falloff_scale_x'] = falloff_shape.scale_x
-            params['falloff_scale_y'] = falloff_shape.scale_y
-            params['falloff_scale_z'] = falloff_shape.scale_z
-            params['falloff_rotation'] = falloff_shape.rotation
+            params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * falloff_shape.scale_x
+            params['falloff_scale_y'] = params.get('falloff_scale_y', 1.0) * falloff_shape.scale_y
+            params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * falloff_shape.scale_z
+            params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + falloff_shape.rotation
 
         return params
 
@@ -577,76 +572,18 @@ class V6Integration:
         if mode_overlay and mode_overlay.intensity_mult != 1.0:
             params['brightness_max'] = params.get('brightness_max', 1.0) * mode_overlay.intensity_mult
 
-        # Falloff shape
+        # Falloff shape — multiply onto V5 pipeline output
         if falloff_shape:
-            params['falloff_scale_x'] = falloff_shape.scale_x
-            params['falloff_scale_y'] = falloff_shape.scale_y
-            params['falloff_scale_z'] = falloff_shape.scale_z
-            params['falloff_rotation'] = falloff_shape.rotation
+            params['falloff_scale_x'] = params.get('falloff_scale_x', 1.0) * falloff_shape.scale_x
+            params['falloff_scale_y'] = params.get('falloff_scale_y', 1.0) * falloff_shape.scale_y
+            params['falloff_scale_z'] = params.get('falloff_scale_z', 1.0) * falloff_shape.scale_z
+            params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + falloff_shape.rotation
 
         return params
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _time_period_from_status(self, status: dict) -> str:
-        """Map V5 time_of_day string to bandit time period."""
-        tod = status.get('time_of_day', 'active')
-        mapping = {
-            'sleepy': 'night',
-            'waking': 'morning',
-            'active': 'afternoon',
-            'rush': 'rush',
-            'evening': 'evening',
-        }
-        return mapping.get(tod, 'afternoon')
-
-    @staticmethod
-    def _speed_bucket(tracked_people: List[dict]) -> str:
-        """Classify avg speed of tracked people."""
-        if not tracked_people:
-            return 'still'
-        speeds = []
-        for p in tracked_people:
-            vx = p.get('vx', 0)
-            vz = p.get('vz', 0)
-            speeds.append((vx**2 + vz**2) ** 0.5)
-        avg = sum(speeds) / len(speeds) if speeds else 0
-        if avg < 10:
-            return 'still'
-        elif avg < 50:
-            return 'walking'
-        elif avg < 120:
-            return 'brisk'
-        else:
-            return 'running'
-
-    @staticmethod
-    def _speed_bucket_single(person: dict) -> str:
-        vx = person.get('vx', 0)
-        vz = person.get('vz', 0)
-        speed = (vx**2 + vz**2) ** 0.5
-        if speed < 10:
-            return 'still'
-        elif speed < 50:
-            return 'walking'
-        elif speed < 120:
-            return 'brisk'
-        return 'running'
-
-    @staticmethod
-    def _group_bucket(status: dict) -> str:
-        active = status.get('active_count', 0)
-        if active == 0:
-            return 'empty'
-        elif active == 1:
-            return 'solo'
-        elif active <= 3:
-            return 'pair'
-        elif active <= 8:
-            return 'group'
-        return 'crowd'
 
     def _log_status(self, status: dict, overlay, context):
         """Periodic status log."""
@@ -664,12 +601,10 @@ class V6Integration:
         parts.append(f"passive={passive_rate:.1f}/min({tier})")
         if self.autotuner:
             parts.append(f"budget={self.autotuner.budget:.0f}")
-        if self._passivity_spiral_detected:
-            parts.append("WARN:passivity_spiral")
         logger.info(', '.join(parts))
 
     # ------------------------------------------------------------------
-    # Health check & passivity spiral auto-reset
+    # Health check
     # ------------------------------------------------------------------
 
     def v6_health_check(self) -> dict:
@@ -703,15 +638,6 @@ class V6Integration:
             logger.debug("V6 health check: OK")
 
         return health
-
-    def _reset_passivity_spiral(self):
-        """V6.5: No-op — passivity spiral detection removed.
-
-        IDLE is a valid long-term mode. The engagement scorer now rewards
-        dynamic range within each mode rather than conversion metrics.
-        Kept as stub for API compatibility.
-        """
-        pass
 
     # ------------------------------------------------------------------
     # WebSocket state extension

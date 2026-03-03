@@ -556,6 +556,7 @@ class BehaviorState:
     ambient_falloff_phase_z: float = 0.0       # Phase for Z scale oscillation
     ambient_falloff_phase_y: float = 0.0       # V6.5: Phase for Y scale oscillation
     ambient_falloff_phase_rot: float = 0.0     # Phase for rotation wobble
+    ambient_falloff_phase_radius: float = 0.0  # V6.5b: Phase for radius breathing
     ambient_tempo_factor: float = 1.0          # V6.5: EMA-smoothed tempo multiplier
     
     # V5: Gesture-driven falloff shape (set by _compute_engaged_gesture_position)
@@ -1524,6 +1525,36 @@ class BehaviorSystem:
         
         return result
 
+    # Mode-keyed lookup tables for ambient falloff (built once, used every frame)
+    _AMBIENT_TEMPO_DEPTH = None  # Lazily populated from AMBIENT_FALLOFF_CONFIG
+
+    def _get_ambient_tempo_depth(self):
+        """Return (target_tempo, depth_mult, x_depth, z_depth, y_depth, r_depth) for current mode."""
+        if self._AMBIENT_TEMPO_DEPTH is None:
+            cfg = self.AMBIENT_FALLOFF_CONFIG
+            # Build lookup: mode -> (tempo, depth_mult, x, z, y, r)
+            idle_entry = (cfg['tempo_quiet'], cfg['depth_quiet_mult'],
+                          cfg['x_depth_idle'], cfg['z_depth_idle'],
+                          cfg['y_depth_idle'], cfg['radius_depth_idle'])
+            flow_entry = (cfg['tempo_flow'], cfg['depth_flow_mult'],
+                          cfg['x_depth_flow'], cfg['z_depth_flow'],
+                          cfg['y_depth_flow'], cfg['radius_depth_flow'])
+            aware_entry = (cfg['tempo_aware'], cfg['depth_aware_mult'],
+                           cfg['x_depth_aware'], cfg['z_depth_aware'],
+                           cfg['y_depth_aware'], cfg['radius_depth_aware'])
+            engaged_entry = (cfg['tempo_flow'], cfg['depth_flow_mult'],
+                             cfg['x_depth_engaged'], cfg['z_depth_engaged'],
+                             cfg['y_depth_engaged'], cfg['radius_depth_engaged'])
+            BehaviorSystem._AMBIENT_TEMPO_DEPTH = {
+                BehaviorMode.IDLE: idle_entry,
+                BehaviorMode.FLOW: flow_entry,
+                BehaviorMode.AWARE: aware_entry,
+                BehaviorMode.ENGAGED: engaged_entry,
+                BehaviorMode.CROWD: engaged_entry,
+            }
+        return self._AMBIENT_TEMPO_DEPTH.get(self.state.mode,
+                                              self._AMBIENT_TEMPO_DEPTH[BehaviorMode.IDLE])
+
     def _apply_ambient_falloff(self, params: Dict, dt: float):
         """
         V6.5b: Apply continuous ambient falloff shape oscillation.
@@ -1541,19 +1572,8 @@ class BehaviorSystem:
         cfg = self.AMBIENT_FALLOFF_CONFIG
         two_pi = math.pi * 2
 
-        # Compute target tempo and depth multipliers based on passive tier
-        if self.state.mode == BehaviorMode.AWARE:
-            target_tempo = cfg['tempo_aware']
-            depth_mult = cfg['depth_aware_mult']
-        elif self.state.mode == BehaviorMode.FLOW:
-            target_tempo = cfg['tempo_flow']
-            depth_mult = cfg['depth_flow_mult']
-        elif self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
-            target_tempo = cfg['tempo_flow']  # moderate in engaged modes
-            depth_mult = cfg['depth_flow_mult']
-        else:
-            target_tempo = cfg['tempo_quiet']
-            depth_mult = cfg['depth_quiet_mult']
+        # Single lookup for tempo, depth mult, and per-axis depths
+        target_tempo, depth_mult, x_depth, z_depth, y_depth, r_depth = self._get_ambient_tempo_depth()
 
         # Smooth tempo transition with EMA (no jarring speed changes)
         alpha = cfg['tempo_ema_alpha']
@@ -1561,45 +1581,24 @@ class BehaviorSystem:
         tempo = self.state.ambient_tempo_factor
 
         # Advance ambient phases (tempo-scaled)
-        self.state.ambient_falloff_phase_x += two_pi * dt * tempo / cfg['x_period']
-        self.state.ambient_falloff_phase_z += two_pi * dt * tempo / cfg['z_period']
-        self.state.ambient_falloff_phase_y += two_pi * dt * tempo / cfg['y_period']
-        self.state.ambient_falloff_phase_rot += two_pi * dt * tempo / cfg['rotation_period']
+        st = self.state
+        st.ambient_falloff_phase_x += two_pi * dt * tempo / cfg['x_period']
+        st.ambient_falloff_phase_z += two_pi * dt * tempo / cfg['z_period']
+        st.ambient_falloff_phase_y += two_pi * dt * tempo / cfg['y_period']
+        st.ambient_falloff_phase_rot += two_pi * dt * tempo / cfg['rotation_period']
+        st.ambient_falloff_phase_radius += two_pi * dt * tempo / cfg['radius_period']
 
-        # V6.5b: Advance radius phase (slightly offset tempo for organic feel)
-        if not hasattr(self.state, 'ambient_falloff_phase_radius'):
-            self.state.ambient_falloff_phase_radius = 0.0
-        self.state.ambient_falloff_phase_radius += two_pi * dt * tempo / cfg['radius_period']
-
-        # Wrap phases to avoid float overflow over long runtime
-        for attr in ('ambient_falloff_phase_x', 'ambient_falloff_phase_z',
-                     'ambient_falloff_phase_y', 'ambient_falloff_phase_rot',
-                     'ambient_falloff_phase_radius'):
-            val = getattr(self.state, attr, 0.0)
-            if val > two_pi:
-                setattr(self.state, attr, val - two_pi)
-
-        # Select base depth based on mode
-        if self.state.mode == BehaviorMode.AWARE:
-            x_depth = cfg['x_depth_aware']
-            z_depth = cfg['z_depth_aware']
-            y_depth = cfg['y_depth_aware']
-            r_depth = cfg['radius_depth_aware']
-        elif self.state.mode == BehaviorMode.FLOW:
-            x_depth = cfg['x_depth_flow']
-            z_depth = cfg['z_depth_flow']
-            y_depth = cfg['y_depth_flow']
-            r_depth = cfg['radius_depth_flow']
-        elif self.state.mode in (BehaviorMode.ENGAGED, BehaviorMode.CROWD):
-            x_depth = cfg['x_depth_engaged']
-            z_depth = cfg['z_depth_engaged']
-            y_depth = cfg['y_depth_engaged']
-            r_depth = cfg['radius_depth_engaged']
-        else:
-            x_depth = cfg['x_depth_idle']
-            z_depth = cfg['z_depth_idle']
-            y_depth = cfg['y_depth_idle']
-            r_depth = cfg['radius_depth_idle']
+        # Wrap phases to avoid float overflow over long runtime (direct access)
+        if st.ambient_falloff_phase_x > two_pi:
+            st.ambient_falloff_phase_x -= two_pi
+        if st.ambient_falloff_phase_z > two_pi:
+            st.ambient_falloff_phase_z -= two_pi
+        if st.ambient_falloff_phase_y > two_pi:
+            st.ambient_falloff_phase_y -= two_pi
+        if st.ambient_falloff_phase_rot > two_pi:
+            st.ambient_falloff_phase_rot -= two_pi
+        if st.ambient_falloff_phase_radius > two_pi:
+            st.ambient_falloff_phase_radius -= two_pi
 
         # Apply depth multiplier (quiet=calmer, busy=enhanced)
         x_depth *= depth_mult
@@ -1621,8 +1620,7 @@ class BehaviorSystem:
         wave_y = math.sin(self.state.ambient_falloff_phase_y)
         wave_rot = math.sin(self.state.ambient_falloff_phase_rot)
 
-        # V6.5b: Radius breathing — use sin² for always-positive modulation
-        # (radius grows and shrinks but never goes negative)
+        # V6.5b: Radius breathing — sin modulation with safety floor
         wave_radius = math.sin(self.state.ambient_falloff_phase_radius)
 
         # Multiply onto existing falloff scale (stacks with gesture shapes)
@@ -1631,7 +1629,8 @@ class BehaviorSystem:
         params['falloff_scale_y'] = params.get('falloff_scale_y', 1.0) * (1.0 + wave_y * y_depth)
 
         # V6.5b: Breathe the falloff radius — coordinated with scale for alive feel
-        params['falloff_radius'] = params.get('falloff_radius', 50) * (1.0 + wave_radius * r_depth)
+        # Safety floor: at extreme settings radius factor can go low; ensure min 5.0
+        params['falloff_radius'] = max(5.0, params.get('falloff_radius', 50) * (1.0 + wave_radius * r_depth))
 
         # Rotation wobble — visible enough to see shape turning
         params['falloff_rotation'] = params.get('falloff_rotation', 0.0) + wave_rot * cfg['rotation_depth']
@@ -1939,18 +1938,21 @@ class BehaviorSystem:
             wb['min_y'] = limits['min_y']
             wb['max_y'] = self.base_wander_box['max_y']
 
+    # Pre-computed clip bounds for _clamp_position_to_box (set once)
+    _BOX_CLIP_MIN = None
+    _BOX_CLIP_MAX = None
+
     def _clamp_position_to_box(self, pos: np.ndarray) -> np.ndarray:
         """V6.5b: Clamp a position to the WANDER_BOX_LIMITS hard bounds.
         
         Used on gesture targets and any position that could escape the panel area.
         Returns a new clamped array (does not modify input).
         """
-        limits = self.WANDER_BOX_LIMITS
-        clamped = pos.copy()
-        clamped[0] = max(limits['min_x'], min(limits['max_x'], clamped[0]))
-        clamped[1] = max(limits['min_y'], min(limits['max_y'], clamped[1]))
-        clamped[2] = max(limits['min_z'], min(limits['max_z'], clamped[2]))
-        return clamped
+        if BehaviorSystem._BOX_CLIP_MIN is None:
+            limits = self.WANDER_BOX_LIMITS
+            BehaviorSystem._BOX_CLIP_MIN = np.array([limits['min_x'], limits['min_y'], limits['min_z']], dtype=float)
+            BehaviorSystem._BOX_CLIP_MAX = np.array([limits['max_x'], limits['max_y'], limits['max_z']], dtype=float)
+        return np.clip(pos, BehaviorSystem._BOX_CLIP_MIN, BehaviorSystem._BOX_CLIP_MAX)
 
     def apply_time_of_day(self, params: Dict) -> Dict:
         """Apply time of day modifiers"""
@@ -3433,9 +3435,9 @@ class BehaviorSystem:
         # --- V5: Emit falloff shape params from gesture state ---
         # V6.5b: Start from per-mode base scale shape (already transition-interpolated
         # in base_params above), then multiply gesture on top
-        base_sx = params.get('base_scale_x', 1.0)
-        base_sy = params.get('base_scale_y', 1.0)
-        base_sz = params.get('base_scale_z', 1.0)
+        base_sx = params.pop('base_scale_x', 1.0)
+        base_sy = params.pop('base_scale_y', 1.0)
+        base_sz = params.pop('base_scale_z', 1.0)
         
         params['falloff_scale_x'] = base_sx * self.state.gesture_falloff_scale[0]
         params['falloff_scale_y'] = base_sy * self.state.gesture_falloff_scale[1]

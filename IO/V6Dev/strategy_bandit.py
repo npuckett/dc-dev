@@ -208,10 +208,13 @@ class BetaArm:
 
     @property
     def avg_quality(self) -> float:
-        """Average quality score (V6.5)."""
+        """Average quality score (V6.5).
+        
+        Uses Beta distribution mean which handles decay correctly.
+        """
         if self.attempts == 0:
             return 0.5
-        return (self.successes - 1) / max(1, self.attempts)  # subtract prior
+        return self.mean
 
     def to_dict(self) -> dict:
         return {'s': self.successes, 'f': self.failures, 'n': self.attempts}
@@ -294,25 +297,10 @@ class StrategyBandit:
     def get_effect(self, strategy: Strategy, **kwargs) -> StrategyEffect:
         """Return the effect for a strategy.
 
-        V6.5: Simplified — no candidate-based dynamic adjustments needed.
-        Expression strategies have fixed biases.
+        V6.5: Simplified — StrategyEffect instances are never mutated,
+        so return the shared reference directly.
         """
-        base = STRATEGY_EFFECTS[strategy]
-        return StrategyEffect(
-            strategy=base.strategy,
-            duration=base.duration,
-            brightness_boost=base.brightness_boost,
-            brightness_min_boost=base.brightness_min_boost,
-            move_speed_mult=base.move_speed_mult,
-            wander_interval_mult=base.wander_interval_mult,
-            wander_x_offset=base.wander_x_offset,
-            falloff_scale_x=base.falloff_scale_x,
-            falloff_scale_y=base.falloff_scale_y,
-            falloff_scale_z=base.falloff_scale_z,
-            falloff_rotation=base.falloff_rotation,
-            pulse_speed_mult=base.pulse_speed_mult,
-            exploration_mult=base.exploration_mult,
-        )
+        return STRATEGY_EFFECTS[strategy]
 
     # ------------------------------------------------------------------
     # Outcome recording — V6.5: quality-based, not boolean
@@ -441,8 +429,9 @@ class StrategyBandit:
         try:
             with open(self._persist_path, 'w') as f:
                 json.dump(data, f, indent=2)
-        except OSError:
-            pass
+        except OSError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to save bandit priors: {e}")
 
     def _load(self):
         if not os.path.exists(self._persist_path):
