@@ -561,6 +561,9 @@ class BehaviorState:
     ambient_falloff_phase_radius: float = 0.0  # V6.5b: Phase for radius breathing
     ambient_tempo_factor: float = 1.0          # V6.5: EMA-smoothed tempo multiplier
     
+    # V6.5c: Speed matching EMA (smoothed pedestrian speed ratio)
+    speed_match_ema: float = 1.0               # EMA of (avg_pedestrian_speed / 130.0)
+    
     # V5: Gesture-driven falloff shape (set by _compute_engaged_gesture_position)
     gesture_falloff_scale: Tuple = (1.0, 1.0, 1.0)   # (sx, sy, sz) from current gesture
     gesture_falloff_rotation: float = 0.0              # rotation from current gesture
@@ -606,6 +609,8 @@ class BehaviorSystem:
             'base_scale_x': 1.2,        # V6.5b: slightly wide ellipse
             'base_scale_y': 1.0,
             'base_scale_z': 0.9,        # V6.5b: slightly flattened forward
+            'rest_probability': 0.4,    # V6.5c: 40% chance of parking (falloff-only animation)
+            'speed_match_factor': 0.8,  # V6.5c: how much pedestrian speed influences move_speed
         },
         BehaviorMode.ENGAGED: {
             'move_speed': 60,           # V5.1: much faster initial response (was 40)
@@ -618,6 +623,8 @@ class BehaviorSystem:
             'base_scale_x': 1.1,        # V6.5b: wide enough to hit adjacent panels
             'base_scale_y': 1.15,       # V6.5b: taller — vertical emphasis
             'base_scale_z': 1.1,        # V6.5b: enough depth for panel pickup
+            'rest_probability': 0.0,    # V6.5c: never park — tight tracking
+            'speed_match_factor': 0.0,  # V6.5c: engaged uses dwell-driven speed
         },
         BehaviorMode.CROWD: {
             'move_speed': 60,
@@ -630,6 +637,8 @@ class BehaviorSystem:
             'base_scale_x': 1.3,        # V6.5b: wide to span multiple people
             'base_scale_y': 0.9,
             'base_scale_z': 1.1,
+            'rest_probability': 0.0,    # V6.5c: never park — continuous movement
+            'speed_match_factor': 0.0,  # V6.5c: crowd uses its own speed logic
         },
         BehaviorMode.FLOW: {
             'move_speed': 25,
@@ -642,6 +651,8 @@ class BehaviorSystem:
             'base_scale_x': 1.1,        # V6.5b: slightly wide
             'base_scale_y': 1.0,
             'base_scale_z': 1.15,       # V6.5b: deeper forward reach
+            'rest_probability': 0.25,   # V6.5c: 25% park chance (less than idle)
+            'speed_match_factor': 1.0,  # V6.5c: full pedestrian speed coupling
         },
         BehaviorMode.AWARE: {
             'move_speed': 35,           # V6.5: faster than FLOW — energetic
@@ -654,6 +665,8 @@ class BehaviorSystem:
             'base_scale_x': 1.4,        # V6.5b: wide lateral spread
             'base_scale_y': 0.85,       # V6.5b: compressed vertically
             'base_scale_z': 1.2,        # V6.5b: forward-reaching
+            'rest_probability': 0.1,    # V6.5c: 10% park (mostly moving)
+            'speed_match_factor': 1.0,  # V6.5c: full pedestrian speed coupling
         },
     }
     
@@ -3382,6 +3395,44 @@ class BehaviorSystem:
         
         return result
     
+    def apply_speed_matching(self, params: Dict) -> Dict:
+        """V6.5c: Scale move_speed based on pedestrian walking speed.
+        
+        Matches the light's pace to foot traffic rhythm:
+        - Fast foot traffic (rushers) → faster light movement
+        - Slow/no traffic → slower, more contemplative drift
+        - EMA-smoothed to avoid jerky transitions
+        
+        Only active in passive modes (IDLE/FLOW/AWARE) via speed_match_factor.
+        """
+        factor = params.get('speed_match_factor', 0.0)
+        if factor <= 0:
+            return params  # ENGAGED/CROWD skip this
+        
+        # Get recent avg pedestrian speed (all zones, 1-min window)
+        avg_speed = 0.0
+        if self.state.idle_trends:
+            avg_speed = self.state.idle_trends.recent_avg_speed
+        
+        # Compute ratio: 130 cm/s = typical adult walking speed → ratio 1.0
+        # Clamp to [0.3, 1.5] to prevent extremes
+        BASELINE_SPEED = 130.0
+        if avg_speed > 5.0:  # Need some minimum data
+            raw_ratio = max(0.3, min(1.5, avg_speed / BASELINE_SPEED))
+        else:
+            raw_ratio = 0.5  # No data = slow/quiet default
+        
+        # EMA smooth (alpha ~0.08 → ~12s settling time at 60fps)
+        alpha = 0.08
+        self.state.speed_match_ema += alpha * (raw_ratio - self.state.speed_match_ema)
+        
+        result = dict(params)
+        # Blend between unmodified speed and matched speed by factor
+        speed_mult = 1.0 + (self.state.speed_match_ema - 1.0) * factor
+        result['move_speed'] = result.get('move_speed', 20) * speed_mult
+        
+        return result
+    
     def calculate_parameters(self, active_count: int, passive_count: int,
                             current_pos: Tuple[float, float, float],
                             flow_balance: float = 0.0, dt: float = 0.016) -> Dict:
@@ -3426,6 +3477,26 @@ class BehaviorSystem:
         params = self.apply_almost_engaged_attraction(params, current_pos)  # Almost-engaged attraction (IDLE mode only)
         params = self.apply_feedback_learning(params)     # Learned behavior weights
         params = self.apply_proximity_modifiers(params)   # Z proximity response
+        params = self.apply_speed_matching(params)        # V6.5c: pedestrian speed → move_speed
+        
+        # V6.5c: Scale rest_probability by passive traffic activity
+        # More foot traffic → less parking (more spatially active)
+        # Quiet street → more parking (falloff oscillation carries animation)
+        base_rest = params.get('rest_probability', 0.0)
+        if base_rest > 0:
+            passive_rate = self.state.last_passive_rate
+            if passive_rate > 5.0:
+                params['rest_probability'] = base_rest * 0.5   # Busy: halve park chance
+            elif passive_rate < 1.0:
+                params['rest_probability'] = min(0.6, base_rest * 1.25)  # Quiet: 25% more parking
+        
+        # V6.5c: Expose flow data for wander target biasing in controller
+        if self.state.flow:
+            params['flow_direction'] = self.state.flow.direction  # -1..+1
+            params['flow_strength'] = self.state.flow.strength    # 0..1
+        else:
+            params['flow_direction'] = 0.0
+            params['flow_strength'] = 0.0
         
         # Apply flow bias to wander box
         if self.state.mode in (BehaviorMode.IDLE, BehaviorMode.FLOW):

@@ -2383,10 +2383,45 @@ class WanderBehavior:
         self.follow_smoothing = 0.05
         self.follow_x_only = False  # If True, only X follows target, Y/Z wander
         self.gesture_target = None
+        
+        # V6.5c: Data-driven movement
+        self.flow_direction = 0.0   # -1..+1 from behavior system
+        self.flow_strength = 0.0    # 0..1 confidence in flow direction
+        self.rest_probability = 0.0 # 0..1 chance of parking instead of moving
+        self.parked = False         # True when light is deliberately stationary
     
     def _random_point(self) -> np.ndarray:
         return np.array([
             random.uniform(self.wander_box['min_x'], self.wander_box['max_x']),
+            random.uniform(self.wander_box['min_y'], self.wander_box['max_y']),
+            random.uniform(self.wander_box['min_z'], self.wander_box['max_z']),
+        ])
+    
+    def _biased_point(self) -> np.ndarray:
+        """V6.5c: Pick a target biased toward the flow direction.
+        
+        Uses triangular distribution so targets cluster toward the side
+        people are coming from, while still staying within wander box.
+        Falls back to uniform random when flow data is weak.
+        """
+        min_x = self.wander_box['min_x']
+        max_x = self.wander_box['max_x']
+        
+        if self.flow_strength > 0.15 and max_x > min_x:
+            # flow_direction: +1 = L→R traffic, -1 = R→L traffic
+            # Bias the light toward incoming side (opposite of flow direction)
+            # so it "greets" approaching pedestrians
+            half_width = (max_x - min_x) / 2.0
+            center = (min_x + max_x) / 2.0
+            # Shift center toward incoming side (clamped to box)
+            bias = -self.flow_direction * self.flow_strength * 0.6
+            mode_x = max(min_x, min(max_x, center + bias * half_width))
+            x = random.triangular(min_x, max_x, mode_x)
+        else:
+            x = random.uniform(min_x, max_x)
+        
+        return np.array([
+            x,
             random.uniform(self.wander_box['min_y'], self.wander_box['max_y']),
             random.uniform(self.wander_box['min_z'], self.wander_box['max_z']),
         ])
@@ -2435,6 +2470,7 @@ class WanderBehavior:
             self.light.target_position = self.gesture_target.copy()
             # V6.5b: Clamp gesture target to wander box — no escaping into active zone
             np.clip(self.light.target_position, self._box_min, self._box_max, out=self.light.target_position)
+            self.parked = False
             return
         
         # Always clamp wander target to current box bounds (box may have moved)
@@ -2449,10 +2485,23 @@ class WanderBehavior:
         min_interval = max(3.0, self.wander_interval)  # At least 3 seconds
         
         if dist < 10 or self.wander_timer > min_interval:
-            self.wander_target = self._random_point()
-            self.wander_timer = 0
-            # Randomize around the base interval
-            self.wander_interval = random.uniform(min_interval, min_interval + 3)
+            # V6.5c: Park state — chance to hold position and let falloff oscillate
+            if self.rest_probability > 0 and random.random() < self.rest_probability:
+                # Park: target = current position, longer dwell
+                self.wander_target = self.light.position.copy()
+                self.wander_timer = 0
+                self.wander_interval = random.uniform(4.0, 8.0)  # 4–8s park
+                self.parked = True
+            else:
+                # V6.5c: Use flow-biased target selection
+                self.wander_target = self._biased_point()
+                self.wander_timer = 0
+                self.wander_interval = random.uniform(min_interval, min_interval + 3)
+                self.parked = False
+        
+        # V6.5c: When parked, skip smooth movement (hold position)
+        if self.parked:
+            return
         
         # Smoothly move toward wander target (already clamped to box)
         current = self.light.target_position
@@ -4916,6 +4965,11 @@ def main():
         # Update wander behavior based on behavior system
         wander.update_wander_box(behavior.get_wander_box())
         wander.wander_interval = behavior_params.get('wander_interval', 3.0)
+        
+        # V6.5c: Wire data-driven movement params
+        wander.rest_probability = behavior_params.get('rest_probability', 0.0)
+        wander.flow_direction = behavior_params.get('flow_direction', 0.0)
+        wander.flow_strength = behavior_params.get('flow_strength', 0.0)
         
         # Animated wander box handles tracking - no follow target needed
         # The box contracts tightly around people, so normal wandering
