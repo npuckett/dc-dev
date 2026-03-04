@@ -1,436 +1,205 @@
 {
   "date": "2026-02-25",
-  "generated_at": "2026-02-26T00:01:22.947802",
+  "generated_at": "2026-03-04T11:14:10.257820",
+  "data_source": "hourly_stats",
   "summary": {
-    "total_unique_people": 10475,
-    "total_active_zone_visits": 24240,
-    "total_passive_zone_count": 265866,
-    "overall_avg_speed": 1086.4
+    "total_unique_people": 5953,
+    "total_events": 271455,
+    "total_active_zone_visits": 341,
+    "total_passive_zone_count": 143132,
+    "total_blooms": 0,
+    "overall_avg_speed": 1126.2,
+    "avg_brightness": 15.26,
+    "hours_with_data": 13
   },
   "peak_times": {
-    "peak_hour": 16,
-    "peak_hour_count": 2512,
-    "quietest_hour": 0,
-    "quietest_hour_count": 0
+    "peak_hour": 8,
+    "peak_hour_count": 1409,
+    "quietest_hour": 2,
+    "quietest_hour_count": 5
   },
   "flow": {
-    "dominant_flow": "left_to_right",
-    "flow_balance": 0.45
+    "total_left_to_right": 53867,
+    "total_right_to_left": 69475,
+    "dominant_flow": "balanced",
+    "flow_balance": -0.127
   },
   "hourly_trends": [
     {
       "hour": 0,
-      "total_people": 0,
+      "total_events": 4332,
+      "total_people": 79,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 1859,
+      "avg_speed": 794.3,
+      "flow_ltr": 699,
+      "flow_rtl": 845,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.65
     },
     {
       "hour": 1,
-      "total_people": 0,
+      "total_events": 1800,
+      "total_people": 22,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 402,
+      "avg_speed": 334.8,
+      "flow_ltr": 111,
+      "flow_rtl": 271,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.2
     },
     {
       "hour": 2,
-      "total_people": 0,
+      "total_events": 241,
+      "total_people": 5,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 120,
+      "avg_speed": 944.8,
+      "flow_ltr": 99,
+      "flow_rtl": 0,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.13
     },
     {
       "hour": 3,
-      "total_people": 0,
+      "total_events": 631,
+      "total_people": 12,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 305,
+      "avg_speed": 445.7,
+      "flow_ltr": 174,
+      "flow_rtl": 99,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.24
     },
     {
       "hour": 4,
-      "total_people": 0,
+      "total_events": 913,
+      "total_people": 18,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 527,
+      "avg_speed": 1196.2,
+      "flow_ltr": 119,
+      "flow_rtl": 342,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.41
     },
     {
       "hour": 5,
-      "total_people": 0,
+      "total_events": 2106,
+      "total_people": 47,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 1094,
+      "avg_speed": 678.3,
+      "flow_ltr": 661,
+      "flow_rtl": 251,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 6.44
     },
     {
       "hour": 6,
-      "total_people": 0,
+      "total_events": 7704,
+      "total_people": 179,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 4142,
+      "avg_speed": 757.9,
+      "flow_ltr": 1359,
+      "flow_rtl": 2076,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 12.38
     },
     {
       "hour": 7,
-      "total_people": 0,
+      "total_events": 26027,
+      "total_people": 499,
       "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "passive_count": 14323,
+      "avg_speed": 873.5,
+      "flow_ltr": 3925,
+      "flow_rtl": 8671,
+      "bloom_count": 0,
+      "dominant_mode": "idle",
+      "avg_brightness": 16.38
     },
     {
       "hour": 8,
-      "total_people": 0,
-      "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "total_events": 72353,
+      "total_people": 1409,
+      "active_count": 17,
+      "passive_count": 40235,
+      "avg_speed": 1058.6,
+      "flow_ltr": 12074,
+      "flow_rtl": 22442,
+      "bloom_count": 0,
+      "dominant_mode": "flow",
+      "avg_brightness": 20.74
     },
     {
       "hour": 9,
-      "total_people": 0,
-      "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "total_events": 51283,
+      "total_people": 1004,
+      "active_count": 110,
+      "passive_count": 27934,
+      "avg_speed": 1556.6,
+      "flow_ltr": 8538,
+      "flow_rtl": 15932,
+      "bloom_count": 0,
+      "dominant_mode": "flow",
+      "avg_brightness": 29.09
     },
     {
       "hour": 10,
-      "total_people": 0,
-      "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "total_events": 31583,
+      "total_people": 590,
+      "active_count": 6,
+      "passive_count": 15401,
+      "avg_speed": 1692.7,
+      "flow_ltr": 7191,
+      "flow_rtl": 5682,
+      "bloom_count": 0,
+      "dominant_mode": "flow",
+      "avg_brightness": 27.27
     },
     {
       "hour": 11,
-      "total_people": 0,
-      "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
+      "total_events": 29933,
+      "total_people": 581,
+      "active_count": 66,
+      "passive_count": 15292,
+      "avg_speed": 2015.6,
+      "flow_ltr": 6952,
+      "flow_rtl": 6295,
+      "bloom_count": 0,
+      "dominant_mode": "flow",
+      "avg_brightness": 25.7
     },
     {
       "hour": 12,
-      "total_people": 0,
-      "active_count": 0,
-      "passive_count": 0,
-      "avg_speed": 0.0,
-      "flow_ltr": 0,
-      "flow_rtl": 0
-    },
-    {
-      "hour": 13,
-      "total_people": 61,
-      "active_count": 0,
-      "passive_count": 1243,
-      "avg_speed": 629.8,
-      "flow_ltr": 719,
-      "flow_rtl": 350
-    },
-    {
-      "hour": 14,
-      "total_people": 857,
-      "active_count": 829,
-      "passive_count": 21392,
-      "avg_speed": 654.8,
-      "flow_ltr": 12767,
-      "flow_rtl": 5691
-    },
-    {
-      "hour": 15,
-      "total_people": 1358,
-      "active_count": 151,
-      "passive_count": 34366,
-      "avg_speed": 629.3,
-      "flow_ltr": 22957,
-      "flow_rtl": 6350
-    },
-    {
-      "hour": 16,
-      "total_people": 2512,
-      "active_count": 2119,
-      "passive_count": 63875,
-      "avg_speed": 653.9,
-      "flow_ltr": 44493,
-      "flow_rtl": 9834
-    },
-    {
-      "hour": 17,
-      "total_people": 2031,
-      "active_count": 834,
-      "passive_count": 52359,
-      "avg_speed": 797.6,
-      "flow_ltr": 34580,
-      "flow_rtl": 10158
-    },
-    {
-      "hour": 18,
-      "total_people": 1500,
-      "active_count": 19476,
-      "passive_count": 35843,
-      "avg_speed": 826.1,
-      "flow_ltr": 20187,
-      "flow_rtl": 9433
-    },
-    {
-      "hour": 19,
-      "total_people": 855,
-      "active_count": 163,
-      "passive_count": 20931,
-      "avg_speed": 1206.3,
-      "flow_ltr": 12466,
-      "flow_rtl": 4477
-    },
-    {
-      "hour": 20,
-      "total_people": 354,
-      "active_count": 51,
-      "passive_count": 9360,
-      "avg_speed": 1719.0,
-      "flow_ltr": 4916,
-      "flow_rtl": 2962
-    },
-    {
-      "hour": 21,
-      "total_people": 341,
-      "active_count": 310,
-      "passive_count": 9247,
-      "avg_speed": 1649.6,
-      "flow_ltr": 4505,
-      "flow_rtl": 3224
-    },
-    {
-      "hour": 22,
-      "total_people": 478,
-      "active_count": 307,
-      "passive_count": 13121,
-      "avg_speed": 1428.2,
-      "flow_ltr": 3419,
-      "flow_rtl": 7378
-    },
-    {
-      "hour": 23,
-      "total_people": 132,
-      "active_count": 0,
-      "passive_count": 4129,
-      "avg_speed": 1755.4,
-      "flow_ltr": 1482,
-      "flow_rtl": 2109
+      "total_events": 42549,
+      "total_people": 860,
+      "active_count": 142,
+      "passive_count": 21498,
+      "avg_speed": 2291.3,
+      "flow_ltr": 11965,
+      "flow_rtl": 6569,
+      "bloom_count": 0,
+      "dominant_mode": "flow",
+      "avg_brightness": 28.71
     }
   ],
   "light_behavior": {
     "mode_distribution": {
-      "crowd": 0.061,
-      "engaged": 0.154,
-      "flow": 0.483,
-      "idle": 0.302
-    },
-    "position_entropy": 0.134
+      "idle": 0.615,
+      "flow": 0.385
+    }
   },
-  "auto_tuning": {
-    "total_adjustments": 6818,
-    "param_journeys": {
-      "responsiveness": {
-        "start": 0.532,
-        "end": 0.455,
-        "min": 0.377,
-        "max": 0.694,
-        "net_change": -0.077,
-        "total_movement": 15.529,
-        "direction": "down"
-      },
-      "energy": {
-        "start": 0.478,
-        "end": 0.323,
-        "min": 0.3,
-        "max": 0.645,
-        "net_change": -0.156,
-        "total_movement": 14.542,
-        "direction": "down"
-      },
-      "attention_span": {
-        "start": 0.501,
-        "end": 0.577,
-        "min": 0.41,
-        "max": 0.693,
-        "net_change": 0.076,
-        "total_movement": 16.022,
-        "direction": "up"
-      },
-      "sociability": {
-        "start": 0.501,
-        "end": 0.376,
-        "min": 0.331,
-        "max": 0.673,
-        "net_change": -0.125,
-        "total_movement": 15.169,
-        "direction": "down"
-      },
-      "exploration": {
-        "start": 0.415,
-        "end": 0.761,
-        "min": 0.341,
-        "max": 0.798,
-        "net_change": 0.346,
-        "total_movement": 19.866,
-        "direction": "up"
-      },
-      "memory": {
-        "start": 0.214,
-        "end": 0.095,
-        "min": 0.069,
-        "max": 0.372,
-        "net_change": -0.119,
-        "total_movement": 22.9,
-        "direction": "down"
-      },
-      "brightness_global": {
-        "start": 0.949,
-        "end": 0.724,
-        "min": 0.724,
-        "max": 1.984,
-        "net_change": -0.226,
-        "total_movement": 23.763,
-        "direction": "down"
-      },
-      "speed_global": {
-        "start": 0.572,
-        "end": 0.451,
-        "min": 0.36,
-        "max": 1.312,
-        "net_change": -0.121,
-        "total_movement": 20.039,
-        "direction": "down"
-      },
-      "pulse_global": {
-        "start": 0.597,
-        "end": 0.529,
-        "min": 0.529,
-        "max": 1.405,
-        "net_change": -0.068,
-        "total_movement": 21.346,
-        "direction": "down"
-      },
-      "follow_speed_global": {
-        "start": 0.721,
-        "end": 0.747,
-        "min": 0.661,
-        "max": 0.887,
-        "net_change": 0.026,
-        "total_movement": 16.518,
-        "direction": "up"
-      },
-      "dwell_influence": {
-        "start": 0.404,
-        "end": 0.249,
-        "min": 0.217,
-        "max": 0.708,
-        "net_change": -0.154,
-        "total_movement": 20.253,
-        "direction": "down"
-      },
-      "idle_trend_weight": {
-        "start": 0.866,
-        "end": 0.924,
-        "min": 0.675,
-        "max": 0.993,
-        "net_change": 0.059,
-        "total_movement": 24.694,
-        "direction": "up"
-      }
-    },
-    "hourly_activity": {
-      "13": {
-        "adjustments": 55,
-        "avg_short_activity": 0.086,
-        "avg_energy": 0.32,
-        "avg_aggression": 0.031
-      },
-      "14": {
-        "adjustments": 701,
-        "avg_short_activity": 0.23,
-        "avg_energy": 0.443,
-        "avg_aggression": 0.037
-      },
-      "15": {
-        "adjustments": 682,
-        "avg_short_activity": 0.299,
-        "avg_energy": 0.503,
-        "avg_aggression": 0.04
-      },
-      "16": {
-        "adjustments": 612,
-        "avg_short_activity": 0.442,
-        "avg_energy": 0.602,
-        "avg_aggression": 0.026
-      },
-      "17": {
-        "adjustments": 612,
-        "avg_short_activity": 0.397,
-        "avg_energy": 0.584,
-        "avg_aggression": 0.027
-      },
-      "18": {
-        "adjustments": 599,
-        "avg_short_activity": 0.383,
-        "avg_energy": 0.563,
-        "avg_aggression": 0.022
-      },
-      "19": {
-        "adjustments": 711,
-        "avg_short_activity": 0.219,
-        "avg_energy": 0.473,
-        "avg_aggression": 0.03
-      },
-      "20": {
-        "adjustments": 717,
-        "avg_short_activity": 0.124,
-        "avg_energy": 0.37,
-        "avg_aggression": 0.037
-      },
-      "21": {
-        "adjustments": 716,
-        "avg_short_activity": 0.119,
-        "avg_energy": 0.353,
-        "avg_aggression": 0.019
-      },
-      "22": {
-        "adjustments": 713,
-        "avg_short_activity": 0.148,
-        "avg_energy": 0.374,
-        "avg_aggression": 0.029
-      },
-      "23": {
-        "adjustments": 700,
-        "avg_short_activity": 0.058,
-        "avg_energy": 0.273,
-        "avg_aggression": 0.076
-      }
-    },
-    "most_tuned_params": [
-      "idle_trend_weight",
-      "brightness_global",
-      "memory",
-      "pulse_global",
-      "dwell_influence"
-    ],
-    "strategy_summary": "Idle Trend Weight increased 0.87 \u2192 0.92 (range 0.68\u20130.99); Brightness Global decreased 0.95 \u2192 0.72 (range 0.72\u20131.98); Memory decreased 0.21 \u2192 0.10 (range 0.07\u20130.37); Pulse Global decreased 0.60 \u2192 0.53 (range 0.53\u20131.41); Dwell Influence decreased 0.40 \u2192 0.25 (range 0.22\u20130.71)"
-  }
+  "auto_tuning": {}
 }

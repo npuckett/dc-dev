@@ -1,108 +1,533 @@
 {
   "explore_wide|idle_afternoon": {
+    "s": 3.5,
+    "f": 2.5,
+    "n": 4
+  },
+  "pulse_varied|idle_afternoon": {
+    "s": 2.992182651428473,
+    "f": 2.007817348571527,
+    "n": 3
+  },
+  "shape_shift|idle_afternoon": {
+    "s": 5.45441242837018,
+    "f": 1.54558757162982,
+    "n": 5
+  },
+  "energy_burst|idle_afternoon": {
+    "s": 3.9690954207190536,
+    "f": 2.0309045792809464,
+    "n": 4
+  },
+  "settle_deep|idle_afternoon": {
+    "s": 2.5,
+    "f": 2.5,
+    "n": 3
+  },
+  "explore_wide|engaged_afternoon": {
+    "s": 112.8340455202477,
+    "f": 13.165954479752319,
+    "n": 124
+  },
+  "pulse_varied|engaged_afternoon": {
+    "s": 30.78826987537189,
+    "f": 5.211730124628112,
+    "n": 34
+  },
+  "shape_shift|engaged_afternoon": {
+    "s": 11.86406763236953,
+    "f": 3.135932367630472,
+    "n": 13
+  },
+  "energy_burst|engaged_afternoon": {
+    "s": 50.94202276536155,
+    "f": 7.057977234638418,
+    "n": 56
+  },
+  "settle_deep|engaged_afternoon": {
+    "s": 41.473325509388765,
+    "f": 6.526674490611217,
+    "n": 46
+  },
+  "explore_wide|flow_afternoon": {
+    "s": 89.49802734562353,
+    "f": 6.501972654376431,
+    "n": 94
+  },
+  "pulse_varied|flow_afternoon": {
+    "s": 25.49791041816829,
+    "f": 3.502089581831717,
+    "n": 27
+  },
+  "shape_shift|flow_afternoon": {
+    "s": 86.06377827583125,
+    "f": 6.936221724168709,
+    "n": 91
+  },
+  "energy_burst|flow_afternoon": {
+    "s": 115.49325883419118,
+    "f": 7.506741165808837,
+    "n": 121
+  },
+  "settle_deep|flow_afternoon": {
+    "s": 50.757588150935646,
+    "f": 4.242411849064359,
+    "n": 53
+  },
+  "explore_wide|aware_afternoon": {
+    "s": 158.9154439648956,
+    "f": 19.08455603510439,
+    "n": 176
+  },
+  "pulse_varied|aware_afternoon": {
+    "s": 87.18399049166962,
+    "f": 12.816009508330408,
+    "n": 98
+  },
+  "shape_shift|aware_afternoon": {
+    "s": 96.52815900374938,
+    "f": 13.471840996250593,
+    "n": 108
+  },
+  "energy_burst|aware_afternoon": {
+    "s": 103.20495422710555,
+    "f": 13.795045772894419,
+    "n": 115
+  },
+  "settle_deep|aware_afternoon": {
+    "s": 129.27656782108937,
+    "f": 16.723432178910663,
+    "n": 144
+  },
+  "explore_wide|flow_evening": {
+    "s": 115.61008249241118,
+    "f": 4.389917507588795,
+    "n": 118
+  },
+  "pulse_varied|flow_evening": {
+    "s": 122.23505116019557,
+    "f": 4.76494883980436,
+    "n": 125
+  },
+  "shape_shift|flow_evening": {
+    "s": 111.92046783672613,
+    "f": 4.079532163273912,
+    "n": 114
+  },
+  "energy_burst|flow_evening": {
+    "s": 73.48320972389293,
+    "f": 3.5167902761070753,
+    "n": 75
+  },
+  "settle_deep|flow_evening": {
+    "s": 78.69798896981337,
+    "f": 3.3020110301866334,
+    "n": 80
+  },
+  "explore_wide|engaged_evening": {
+    "s": 49.40905469619611,
+    "f": 2.590945303803888,
+    "n": 50
+  },
+  "pulse_varied|engaged_evening": {
+    "s": 9.969396849506033,
+    "f": 1.0306031504939677,
+    "n": 9
+  },
+  "shape_shift|engaged_evening": {
+    "s": 26.369460366830005,
+    "f": 1.6305396331699926,
+    "n": 26
+  },
+  "energy_burst|engaged_evening": {
+    "s": 15.618020208228307,
+    "f": 1.3819797917716934,
+    "n": 15
+  },
+  "settle_deep|engaged_evening": {
+    "s": 29.352296916801997,
+    "f": 1.647703083198004,
+    "n": 29
+  },
+  "explore_wide|aware_evening": {
+    "s": 25.77526465097563,
+    "f": 2.2247353490243684,
+    "n": 26
+  },
+  "pulse_varied|aware_evening": {
+    "s": 40.39555951309053,
+    "f": 2.6044404869094646,
+    "n": 41
+  },
+  "shape_shift|aware_evening": {
+    "s": 26.977067181797405,
+    "f": 2.02293281820259,
+    "n": 27
+  },
+  "energy_burst|aware_evening": {
+    "s": 22.513254568676988,
+    "f": 2.486745431323005,
+    "n": 23
+  },
+  "settle_deep|aware_evening": {
+    "s": 34.76418941307633,
+    "f": 2.235810586923672,
+    "n": 35
+  },
+  "explore_wide|idle_evening": {
+    "s": 36.27295830271204,
+    "f": 1.7270416972879548,
+    "n": 36
+  },
+  "pulse_varied|idle_evening": {
+    "s": 30.236593125279963,
+    "f": 1.7634068747200344,
+    "n": 30
+  },
+  "shape_shift|idle_evening": {
+    "s": 40.638670950742245,
+    "f": 2.361329049257753,
+    "n": 41
+  },
+  "energy_burst|idle_evening": {
+    "s": 52.666438210622516,
+    "f": 2.333561789377484,
+    "n": 53
+  },
+  "settle_deep|idle_evening": {
+    "s": 3.0,
+    "f": 1.0,
+    "n": 2
+  },
+  "explore_wide|crowd_evening": {
+    "s": 2.0,
+    "f": 1.0,
+    "n": 1
+  },
+  "pulse_varied|crowd_evening": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "shape_shift|crowd_evening": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "energy_burst|crowd_evening": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|crowd_evening": {
+    "s": 2.0,
+    "f": 1.0,
+    "n": 1
+  },
+  "explore_wide|engaged_night": {
+    "s": 10.861136385649644,
+    "f": 1.1388636143503565,
+    "n": 10
+  },
+  "pulse_varied|engaged_night": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "shape_shift|engaged_night": {
+    "s": 2.9824983228142927,
+    "f": 1.0175016771857073,
+    "n": 2
+  },
+  "energy_burst|engaged_night": {
+    "s": 31.563474549353494,
+    "f": 2.4365254506465024,
+    "n": 32
+  },
+  "settle_deep|engaged_night": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "explore_wide|flow_night": {
+    "s": 90.78477867967007,
+    "f": 9.215221320329901,
+    "n": 98
+  },
+  "pulse_varied|flow_night": {
+    "s": 18.322183046315782,
+    "f": 2.6778169536842182,
+    "n": 19
+  },
+  "shape_shift|flow_night": {
+    "s": 64.71737578825099,
+    "f": 7.2826242117490105,
+    "n": 70
+  },
+  "energy_burst|flow_night": {
+    "s": 33.028745138490144,
+    "f": 4.97125486150986,
+    "n": 36
+  },
+  "settle_deep|flow_night": {
+    "s": 76.79977706709593,
+    "f": 8.200222932904078,
+    "n": 83
+  },
+  "explore_wide|aware_night": {
+    "s": 20.80587905994184,
+    "f": 1.1941209400581592,
+    "n": 20
+  },
+  "pulse_varied|aware_night": {
+    "s": 4.0,
+    "f": 1.0,
+    "n": 3
+  },
+  "shape_shift|aware_night": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "energy_burst|aware_night": {
+    "s": 5.9203247928752045,
+    "f": 1.079675207124796,
+    "n": 5
+  },
+  "settle_deep|aware_night": {
+    "s": 3.9797390711988023,
+    "f": 1.0202609288011977,
+    "n": 3
+  },
+  "explore_wide|idle_night": {
+    "s": 331.38572302272576,
+    "f": 201.6142769772737,
+    "n": 531
+  },
+  "pulse_varied|idle_night": {
+    "s": 161.54804030815964,
+    "f": 105.45195969184037,
+    "n": 265
+  },
+  "shape_shift|idle_night": {
+    "s": 266.48696497183096,
+    "f": 168.51303502816904,
+    "n": 433
+  },
+  "energy_burst|idle_night": {
+    "s": 80.32832071641297,
+    "f": 58.67167928358706,
+    "n": 137
+  },
+  "settle_deep|idle_night": {
+    "s": 103.1155218451989,
+    "f": 69.88447815480109,
+    "n": 171
+  },
+  "explore_wide|idle_morning": {
+    "s": 33.325008865354945,
+    "f": 4.674991134645047,
+    "n": 36
+  },
+  "pulse_varied|idle_morning": {
+    "s": 49.25417775595197,
+    "f": 5.745822244048029,
+    "n": 53
+  },
+  "shape_shift|idle_morning": {
+    "s": 45.51390726584844,
+    "f": 4.486092734151559,
+    "n": 48
+  },
+  "energy_burst|idle_morning": {
+    "s": 46.24018867061278,
+    "f": 4.759811329387221,
+    "n": 49
+  },
+  "settle_deep|idle_morning": {
+    "s": 39.05423261212389,
+    "f": 4.945767387876105,
+    "n": 42
+  },
+  "explore_wide|engaged_morning": {
+    "s": 67.66767212636283,
+    "f": 4.33232787363716,
+    "n": 70
+  },
+  "pulse_varied|engaged_morning": {
+    "s": 12.376361921438795,
+    "f": 1.6236380785612052,
+    "n": 12
+  },
+  "shape_shift|engaged_morning": {
+    "s": 45.98729665501258,
+    "f": 3.0127033449874188,
+    "n": 47
+  },
+  "energy_burst|engaged_morning": {
+    "s": 22.8487915736937,
+    "f": 2.1512084263063,
+    "n": 23
+  },
+  "settle_deep|engaged_morning": {
+    "s": 30.013151123621203,
+    "f": 2.9868488763787933,
+    "n": 31
+  },
+  "explore_wide|flow_morning": {
+    "s": 66.9624266380983,
+    "f": 4.037573361901705,
+    "n": 69
+  },
+  "pulse_varied|flow_morning": {
+    "s": 201.89187801012613,
+    "f": 7.108121989873857,
+    "n": 207
+  },
+  "shape_shift|flow_morning": {
+    "s": 90.1786681993008,
+    "f": 4.821331800699176,
+    "n": 93
+  },
+  "energy_burst|flow_morning": {
+    "s": 180.39677969954184,
+    "f": 6.603220300458176,
+    "n": 185
+  },
+  "settle_deep|flow_morning": {
+    "s": 84.62369296102068,
+    "f": 4.376307038979293,
+    "n": 87
+  },
+  "explore_wide|aware_morning": {
+    "s": 48.8397894905002,
+    "f": 4.160210509499791,
+    "n": 51
+  },
+  "pulse_varied|aware_morning": {
+    "s": 67.17800774049562,
+    "f": 4.821992259504402,
+    "n": 70
+  },
+  "shape_shift|aware_morning": {
+    "s": 42.6281080652408,
+    "f": 3.3718919347591854,
+    "n": 44
+  },
+  "energy_burst|aware_morning": {
+    "s": 49.59948378340459,
+    "f": 4.400516216595411,
+    "n": 52
+  },
+  "settle_deep|aware_morning": {
+    "s": 101.94567788621971,
+    "f": 7.0543221137803025,
+    "n": 107
+  },
+  "explore_wide|idle_late_morning": {
+    "s": 1.7,
+    "f": 1.3,
+    "n": 1
+  },
+  "pulse_varied|idle_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "shape_shift|idle_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "energy_burst|idle_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|idle_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "explore_wide|flow_late_morning": {
+    "s": 1.9435161975644974,
+    "f": 1.0564838024355026,
+    "n": 1
+  },
+  "pulse_varied|flow_late_morning": {
     "s": 1.5,
     "f": 1.5,
     "n": 1
   },
-  "pulse_varied|idle_afternoon": {
-    "s": 2.0,
-    "f": 2.0,
-    "n": 2
+  "shape_shift|flow_late_morning": {
+    "s": 11.98855692240638,
+    "f": 3.01144307759362,
+    "n": 13
   },
-  "shape_shift|idle_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "energy_burst|idle_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "settle_deep|idle_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "explore_wide|engaged_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "pulse_varied|engaged_afternoon": {
-    "s": 2.446638372425105,
-    "f": 1.5533616275748947,
-    "n": 2
-  },
-  "shape_shift|engaged_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "energy_burst|engaged_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "settle_deep|engaged_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "explore_wide|flow_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "pulse_varied|flow_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "shape_shift|flow_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "energy_burst|flow_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "settle_deep|flow_afternoon": {
-    "s": 1.9252416998048256,
-    "f": 1.0747583001951744,
-    "n": 1
-  },
-  "explore_wide|aware_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "pulse_varied|aware_afternoon": {
-    "s": 3.7140522201647643,
-    "f": 1.285947779835236,
+  "energy_burst|flow_late_morning": {
+    "s": 3.2041135115970425,
+    "f": 1.795886488402958,
     "n": 3
   },
-  "shape_shift|aware_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
+  "settle_deep|flow_late_morning": {
+    "s": 5.316690158782429,
+    "f": 1.6833098412175707,
+    "n": 5
   },
-  "energy_burst|aware_afternoon": {
-    "s": 1.0,
-    "f": 1.0,
-    "n": 0
-  },
-  "settle_deep|aware_afternoon": {
-    "s": 1.885494894133328,
-    "f": 1.114505105866672,
+  "explore_wide|engaged_late_morning": {
+    "s": 1.7870687156436866,
+    "f": 1.2129312843563134,
     "n": 1
   },
+  "pulse_varied|engaged_late_morning": {
+    "s": 3.398466976822797,
+    "f": 1.6015330231772034,
+    "n": 3
+  },
+  "shape_shift|engaged_late_morning": {
+    "s": 3.8531083185996957,
+    "f": 1.1468916814003043,
+    "n": 3
+  },
+  "energy_burst|engaged_late_morning": {
+    "s": 1.9570398004733038,
+    "f": 1.0429601995266962,
+    "n": 1
+  },
+  "settle_deep|engaged_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "explore_wide|aware_late_morning": {
+    "s": 5.763713938825506,
+    "f": 1.2362860611744937,
+    "n": 5
+  },
+  "pulse_varied|aware_late_morning": {
+    "s": 5.724293499579154,
+    "f": 1.2757065004208452,
+    "n": 5
+  },
+  "shape_shift|aware_late_morning": {
+    "s": 5.717855704047291,
+    "f": 1.2821442959527096,
+    "n": 5
+  },
+  "energy_burst|aware_late_morning": {
+    "s": 1.0,
+    "f": 1.0,
+    "n": 0
+  },
+  "settle_deep|aware_late_morning": {
+    "s": 3.8265413024218096,
+    "f": 1.1734586975781904,
+    "n": 3
+  },
   "_meta": {
-    "total_attempts": 10,
-    "total_quality_sum": 7.471427186528022,
+    "total_attempts": 5620,
+    "total_quality_sum": 4756.478874330804,
     "version": "6.5",
-    "saved_at": 1772558917.5471146
+    "saved_at": 1772643769.6826408
   }
 }

@@ -4,4 +4,3 @@ The new system has several of the parameters working better with the light, but 
 ## Updateing current method
 - Keep the wander box as the main bounds, but make the movement of the light within it much more related to the movement data instead of random points.
 - Also, now that the oscillation of the falloff is working, it opens up an opportunity for the light to not necessarily move all the time. The oscilating falloff can still animate the lights.
-- These new methods are not for the engaged tracking methods, just the new flow, idle, etc
