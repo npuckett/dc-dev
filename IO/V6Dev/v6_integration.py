@@ -301,7 +301,8 @@ class V6Integration:
                 regime=context.regime if context else 'steady',
             )
             # Switch strategy when timer expires
-            if self.bandit.should_switch_strategy(now):
+            # V6.5c: Pass mode so idle gets longer cycle (reduces exploration waste)
+            if self.bandit.should_switch_strategy(now, mode=bandit_ctx.mode):
                 # Record outcome of previous strategy (if any)
                 if self.bandit.current_strategy and self.bandit.current_context and self.scorer:
                     # Score based on dynamic range from the scorer

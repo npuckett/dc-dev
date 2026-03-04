@@ -727,10 +727,12 @@ TRACKZONE = {
 
 # Passive trackzone (cm) - people passing by on sidewalk, not engaging
 # Starts at back of active trackzone, extends further out
-# OPTIMIZED: Narrowed width and reduced depth for reliable detection
+# V6.5c: Widened X from 400→650 and depth 270→350 to reduce "unknown" zone events
+# Data showed 48.5% of events (562K/day) fell outside the old narrower bounds:
+#   284K events at x < -350, 200K at x > 50, 113K at z > 553
 PASSIVE_TRACKZONE = {
-    'width': 400,           # Narrowed from 650 to 400 for better coverage
-    'depth': 270,           # Reduced from 330 to 270 (ends at ~Z=553)
+    'width': 650,           # V6.5c: restored from 400 to capture full sidewalk width
+    'depth': 350,           # V6.5c: extended from 270 to 350 (ends at ~Z=633)
     'height': 300,
     'offset_z': 78 + 205,   # Starts at back of active zone (283cm)
     'offset_y': -66,        # Same street level

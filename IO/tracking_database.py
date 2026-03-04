@@ -1219,6 +1219,15 @@ class TrackingDatabase:
             mode_row = cursor.fetchone()
             dominant_mode = mode_row[0] if mode_row else 'unknown'
             
+            # V6.5c: Count bloom gestures (was missing — bloom_count always 0)
+            cursor.execute('''
+                SELECT COUNT(*) FROM light_behavior
+                WHERE timestamp >= ? AND timestamp < ?
+                AND gesture_type = 'bloom'
+            ''', (start_ts, end_ts))
+            bloom_row = cursor.fetchone()
+            bloom_count = bloom_row[0] if bloom_row else 0
+            
             # Build stats dict
             stats = {
                 'date': date_str,
@@ -1232,18 +1241,20 @@ class TrackingDatabase:
                 'right_to_left': tracking[6] or 0,
                 'dominant_mode': dominant_mode,
                 'avg_brightness': behavior[1] or 0.0 if behavior else 0.0,
+                'bloom_count': bloom_count,
             }
             
             # Insert or update hourly stats
             cursor.execute('''
                 INSERT OR REPLACE INTO hourly_stats 
                 (date, hour, total_events, unique_people, active_count, passive_count,
-                 avg_speed, left_to_right, right_to_left, dominant_mode, avg_brightness)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 avg_speed, left_to_right, right_to_left, dominant_mode, avg_brightness,
+                 bloom_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (stats['date'], stats['hour'], stats['total_events'], 
                   stats['unique_people'], stats['active_count'], stats['passive_count'],
                   stats['avg_speed'], stats['left_to_right'], stats['right_to_left'],
-                  stats['dominant_mode'], stats['avg_brightness']))
+                  stats['dominant_mode'], stats['avg_brightness'], stats['bloom_count']))
             
             self.conn.commit()
             return stats

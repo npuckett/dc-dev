@@ -63,10 +63,13 @@ class Strategy(str, Enum):
 # ---------------------------------------------------------------------------
 
 class TimePeriod(str, Enum):
-    MORNING   = 'morning'     # 6–12
-    AFTERNOON = 'afternoon'   # 12–18
-    EVENING   = 'evening'     # 18–22
-    NIGHT     = 'night'       # 22–6
+    # V6.5c: Finer granularity — 5 periods instead of 4
+    # Splits morning into early/late, merges old evening+night boundary
+    EARLY_MORNING = 'early_morning'   # 6–9   (commuter ramp-up)
+    LATE_MORNING  = 'late_morning'    # 9–12  (mid-morning steady)
+    AFTERNOON     = 'afternoon'       # 12–17 (lunch through rush)
+    EVENING       = 'evening'         # 17–21 (wind-down)
+    NIGHT         = 'night'           # 21–6  (low traffic)
 
 class ModeBucket(str, Enum):
     IDLE    = 'idle'
@@ -86,11 +89,14 @@ class BanditContext:
 
     @property
     def time_period(self) -> TimePeriod:
-        if 6 <= self.hour < 12:
-            return TimePeriod.MORNING
-        elif 12 <= self.hour < 18:
+        # V6.5c: 5 periods for finer bandit context
+        if 6 <= self.hour < 9:
+            return TimePeriod.EARLY_MORNING
+        elif 9 <= self.hour < 12:
+            return TimePeriod.LATE_MORNING
+        elif 12 <= self.hour < 17:
             return TimePeriod.AFTERNOON
-        elif 18 <= self.hour < 22:
+        elif 17 <= self.hour < 21:
             return TimePeriod.EVENING
         else:
             return TimePeriod.NIGHT
@@ -313,29 +319,50 @@ class StrategyBandit:
         V6.5: Uses continuous quality score (0–1) from the dynamic range
         metric. Quality > 0.5 increases successes, < 0.5 increases failures.
         The `converted` param is kept for API compat but ignored.
+        
+        V6.5c: In idle mode, quality is scaled up by 1.4x (capped at 1.0)
+        so the bandit converges faster. Idle has weak engagement signals
+        (no people in active zone), so raw quality is artificially low.
         """
         bucket = context.bucket_key
         arm = self._get_arm(strategy.value, bucket)
         arm.attempts += 1
         self._total_attempts += 1
-        self._total_quality_sum += quality
+        
+        # V6.5c: Boost quality for idle contexts so bandit converges faster
+        # Without this, idle arms record ~60% win rate due to weak signal,
+        # making Thompson Sampling over-explore idle arms indefinitely.
+        effective_quality = quality
+        if context.mode_bucket == ModeBucket.IDLE:
+            effective_quality = min(1.0, quality * 1.4)
+        
+        self._total_quality_sum += effective_quality
 
         # Map quality to Beta updates:
         # quality=1.0 → +1.0 success, quality=0.0 → +1.0 failure
         # quality=0.5 → +0.5 each (neutral)
-        arm.successes += quality
-        arm.failures += (1.0 - quality)
+        arm.successes += effective_quality
+        arm.failures += (1.0 - effective_quality)
 
         # Persist periodically (every 10 outcomes)
         if self._total_attempts % 10 == 0:
             self._save()
 
-    def should_switch_strategy(self, now: float) -> bool:
-        """Check if it's time to switch to a new strategy."""
+    def should_switch_strategy(self, now: float, mode: str = '') -> bool:
+        """Check if it's time to switch to a new strategy.
+        
+        V6.5c: In idle mode, strategies run 2x longer to reduce exploration
+        waste. Data showed idle_night consuming 28% of pulls (1,537/5,470)
+        with only 60% win rate due to weak engagement signal.
+        """
         if self._current_strategy is None:
             return True
         elapsed = now - self._strategy_start_time
-        return elapsed >= self._strategy_min_duration
+        # V6.5c: Double minimum duration in idle mode to reduce pull waste
+        min_dur = self._strategy_min_duration
+        if mode == 'idle':
+            min_dur *= 2.0  # 30s instead of 15s
+        return elapsed >= min_dur
 
     def set_active_strategy(self, strategy: Strategy, context: BanditContext, now: float):
         """Mark a strategy as currently active."""

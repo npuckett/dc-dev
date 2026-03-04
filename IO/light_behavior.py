@@ -259,8 +259,10 @@ class AlmostEngagedState:
     candidates: Dict[int, AlmostEngagedCandidate] = field(default_factory=dict)
     
     # Detection thresholds
-    slow_speed_threshold: float = 50.0      # Below 50 cm/s = slowing down
-    near_active_threshold: float = 100.0    # Within 100cm of active zone
+    # V6.5c: Raised speed from 50→120 cm/s (pedestrians walk ~130 cm/s, slowing ≈ 80-120)
+    # V6.5c: Raised distance from 100→180 cm (wider catch radius for passive→active transition)
+    slow_speed_threshold: float = 120.0     # Below 120 cm/s = slowing down
+    near_active_threshold: float = 180.0    # Within 180cm of active zone
     min_detection_time: float = 1.0         # Must be slow for 1+ seconds
     
     # Current attraction state
@@ -2958,8 +2960,10 @@ class BehaviorSystem:
         if not state or not state.active_attraction:
             return params
         
-        # Only apply in IDLE mode
-        if self.state.mode != BehaviorMode.IDLE:
+        # V6.5c: Apply in IDLE, FLOW, and AWARE modes (not just IDLE)
+        # Data showed 0 triggers in 24h because people near the active zone
+        # cause FLOW/AWARE mode, making the IDLE-only check always skip.
+        if self.state.mode not in (BehaviorMode.IDLE, BehaviorMode.FLOW, BehaviorMode.AWARE):
             return params
         
         result = dict(params)
@@ -3494,6 +3498,13 @@ class BehaviorSystem:
             params['falloff_scale_y'] = params['falloff_scale_y'] * (1 - bp) + 1.0 * bp
             params['falloff_scale_z'] = params['falloff_scale_z'] * (1 - bp) + 1.0 * bp
             params['falloff_rotation'] = params['falloff_rotation'] * (1 - bp)
+        
+        # V6.5c: Hard cap brightness_max after ALL modifiers to prevent outlier spikes
+        # Data showed crowd mode avg brightness reaching 551 (breathing + falloff multipliers).
+        # Cap at 600 to allow peaks but prevent runaway values.
+        BRIGHTNESS_MAX_CAP = 600
+        if params.get('brightness_max', 0) > BRIGHTNESS_MAX_CAP:
+            params['brightness_max'] = BRIGHTNESS_MAX_CAP
         
         # Store proximity info in params for display/debugging
         params['proximity_factor'] = self.state.proximity_factor
