@@ -129,18 +129,14 @@ async function init() {
     showLoading(true);
     try {
         reportIndex = await fetchJSON(`${REPORTS_BASE}/_index.json`);
-        // Filter to only include reports from 2/13 through 2/23
+        // Filter to only include reports from first reliable day onward
         const MIN_DATE = '2026-02-13';
-        const MAX_DATE = '2026-02-23';
-        reportIndex.reports = reportIndex.reports.filter(r => r.date >= MIN_DATE && r.date <= MAX_DATE);
+        reportIndex.reports = reportIndex.reports.filter(r => r.date >= MIN_DATE);
         buildDateNav();
         setupEventListeners();
-        // Select initial date — 2/13 is first full day of reliable data
-        const targetDate = '2026-02-13';
+        // Default to the most recent available date
         const availableDates = reportIndex.reports.map(r => r.date);
-        const initialDate = availableDates.includes(targetDate)
-            ? targetDate
-            : availableDates[availableDates.length - 1];
+        const initialDate = availableDates[availableDates.length - 1];
         await selectDate(initialDate);
     } catch (err) {
         console.error('Failed to load report index:', err);
