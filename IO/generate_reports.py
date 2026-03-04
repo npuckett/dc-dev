@@ -373,13 +373,15 @@ def main():
         try:
             with open(json_file) as f:
                 r = json.load(f)
+            summary = r.get('summary', {})
+            peak_times = r.get('peak_times', {})
             index['reports'].append({
                 'date': r['date'],
                 'file': json_file.name,
-                'total_people': r['summary']['total_unique_people'],
-                'total_events': r['summary']['total_events'],
-                'peak_hour': r['peak_times']['peak_hour'],
-                'dominant_flow': r['flow']['dominant_flow'],
+                'total_people': summary.get('total_unique_people', summary.get('unique_people', 0)),
+                'total_events': summary.get('total_events', summary.get('total_passive_zone_count', 0)),
+                'peak_hour': peak_times.get('peak_hour', 0),
+                'dominant_flow': r.get('flow', {}).get('dominant_flow', 'unknown'),
             })
         except Exception as e:
             print(f"   ⚠️  Error reading {json_file.name}: {e}")
