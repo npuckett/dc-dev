@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-12T06:00:11.977976",
+  "generated_at": "2026-03-13T00:16:34.472077",
   "total_reports": 0,
   "database": "/home/nick/Documents/Github/dc-dev/IO/tracking_history.db",
   "date_range": {
@@ -340,6 +340,14 @@
       "file": "2026-03-11.json",
       "total_people": 14572,
       "total_events": 372158,
+      "peak_hour": 17,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-12",
+      "file": "2026-03-12.json",
+      "total_people": 17787,
+      "total_events": 447074,
       "peak_hour": 17,
       "dominant_flow": "balanced"
     }
