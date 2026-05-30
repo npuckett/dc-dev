@@ -1,0 +1,9 @@
+flowchart LR
+  refill["refill = max / restore_seconds (600 s)"] --> budget([budget . max 200])
+  engaged["+ bonus when engaged"] --> budget
+  budget --> check{"total cost gt budget?"}
+  spend["spend = sum abs(delta) x cost_scale (30)"] --> check
+  check -->|"yes"| throttle["scale all delta down (throttle)"]
+  check -->|"no"| apply["apply delta . subtract cost"]
+  throttle --> budget
+  apply --> budget

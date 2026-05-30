@@ -1,0 +1,22 @@
+stateDiagram-v2
+  [*] --> IDLE
+  IDLE --> FLOW: >=2 ppl/min (5s)
+  FLOW --> IDLE: <2/min (10s)
+  FLOW --> AWARE: >=10 ppl/min (10s)
+  AWARE --> FLOW: <10/min (8s)
+  IDLE --> AWARE: >=10/min (8s)
+  AWARE --> IDLE: quiet (12s)
+  IDLE --> ENGAGED: active entry (0s fast)
+  FLOW --> ENGAGED: active entry (0s fast)
+  AWARE --> ENGAGED: active entry (0s fast)
+  ENGAGED --> CROWD: 2+ active (3s)
+  CROWD --> ENGAGED: crowd thins (5s)
+  ENGAGED --> IDLE: empty (5s slow fade)
+  CROWD --> IDLE: empty (5s slow fade)
+  note right of ENGAGED
+    Min mode duration 8 s.
+    Engage = fast in (0.4 s),
+    disengage = slow out (3 s).
+    Dwell phases while engaged:
+    notice-greet-engage-bond
+  end note

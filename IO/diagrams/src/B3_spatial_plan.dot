@@ -1,0 +1,31 @@
+graph plan {
+  layout=neato;
+  node [shape=box, fontname="Helvetica", fontsize=9, style=filled];
+  edge [style=invis];
+
+  // LED panel units (Z = 0)
+  U0 [label="U0", pos="-0.6,0!",  fillcolor="#c9d4ff"];
+  U1 [label="U1", pos="-2.2,0!",  fillcolor="#c9d4ff"];
+  U2 [label="U2", pos="-3.8,0!",  fillcolor="#c9d4ff"];
+  U3 [label="U3", pos="-5.4,0!",  fillcolor="#c9d4ff"];
+
+  // Cameras (Z = 78)
+  C1 [label="Cam 1\n(-30, 78)",  pos="-0.6,1.56!", shape=diamond, fillcolor="#ffd0d0"];
+  C2 [label="Cam 2\n(-270, 78)", pos="-5.4,1.56!", shape=diamond, fillcolor="#d0d0ff"];
+
+  // ArUco markers (front row Z=168, back row Z=219)
+  M0 [label="0", pos="-0.6,3.36!", shape=circle, fillcolor="#fff0c0"];
+  M1 [label="1", pos="-3.0,3.36!", shape=circle, fillcolor="#fff0c0"];
+  M2 [label="2", pos="-5.4,3.36!", shape=circle, fillcolor="#fff0c0"];
+  M3 [label="3", pos="-0.6,4.38!", shape=circle, fillcolor="#fff0c0"];
+  M6 [label="6", pos="-3.0,4.38!", shape=circle, fillcolor="#fff0c0"];
+  M4 [label="4", pos="-5.4,4.38!", shape=circle, fillcolor="#fff0c0"];
+  M5 [label="5 . subway wall\n(-150, 628)", pos="-3.0,12.56!", shape=circle, fillcolor="#fff0c0"];
+
+  // Light home position
+  L  [label="light\n(home)", pos="-3.0,0.4!", shape=octagon, fillcolor="#fff39a"];
+
+  // Zone reference labels
+  AZ [label="ACTIVE ZONE\nX -350..50 . Z 78..283", pos="0.9,2.0!", shape=plaintext, fillcolor=none];
+  PZ [label="PASSIVE ZONE\nX -475..175 . Z 283..633", pos="1.2,5.5!", shape=plaintext, fillcolor=none];
+}

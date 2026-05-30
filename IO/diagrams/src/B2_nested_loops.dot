@@ -1,0 +1,17 @@
+digraph loops {
+  compound=true; rankdir=TB; fontname="Helvetica";
+
+  subgraph cluster_L3 {
+    label="LOOP 3 . SELF-TUNING . hours to days\n(meta-review 3x/day + daily learning . friction = interaction budget)";
+    style=filled; fillcolor="#e8ecff"; fontname="Helvetica-Bold";
+    subgraph cluster_L2 {
+      label="LOOP 2 . ANTICIPATION . seconds to hours\n(trends 1/5/30/60 min + 30 s flow . pre-position light)";
+      style=filled; fillcolor="#dff0e6";
+      subgraph cluster_L1 {
+        label="LOOP 1 . REACTION . ~33 ms\n(mode + gestures follow who is present NOW . 30 Hz)";
+        style=filled; fillcolor="#ffe9d6";
+        core [label="LIGHT", shape=circle, style=filled, fillcolor="#fff3b0", width=0.9];
+      }
+    }
+  }
+}

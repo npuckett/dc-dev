@@ -1,0 +1,13 @@
+flowchart LR
+  cam["2x Reolink cameras"] -->|"RTSP 25 fps"| tracker["camera_tracker_osc.py<br/>YOLO to floor x,y"]
+  tracker -->|"OSC/UDP :7000<br/>/tracker/count . /tracker/person"| ctrl["lightController_osc.py<br/>behaviour + tuning + DB + WS"]
+  ctrl -->|"Art-Net/UDP :6454"| panels["LED panels"]
+  ctrl -->|"WebSocket :8765"| web["Three.js web viewer"]
+  ctrl -->|"writes"| db[("SQLite DB")]
+  db -->|"reads 8 h history"| meta["autotune_meta_review.py<br/>scheduled 3x/day"]
+  meta -->|"autotune_overrides.json<br/>hot-reload"| ctrl
+
+  classDef proc fill:#1f2a44,stroke:#9db2ff,color:#fff;
+  classDef io fill:#33291f,stroke:#ffcf9d,color:#fff;
+  class tracker,ctrl,meta proc;
+  class cam,panels,web,db io;

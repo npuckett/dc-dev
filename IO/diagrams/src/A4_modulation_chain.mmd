@@ -1,0 +1,10 @@
+flowchart LR
+  base["MODE base value<br/>(MODE_PARAMS)"] --> p["x personality<br/>(meta-param)"]
+  p --> t["x time-of-day<br/>(TIME_CONFIGS)"]
+  t --> z["x proximity<br/>(Z distance)"]
+  z --> i["interpolate"] --> light["LIGHT<br/>position . brightness . pulse . falloff . speed"]
+
+  ex1["e.g. pulse 2500 ms"] -.-> p
+  ex2["x energy 0.77 to x0.86"] -.-> p
+  ex3["x evening x1.3"] -.-> t
+  ex4["near x1.4 brightness"] -.-> z

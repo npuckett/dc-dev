@@ -1,0 +1,5 @@
+flowchart LR
+  light["light output"] --> rec["record own state<br/>(light_behavior table)"]
+  rec --> read["read it back"]
+  read --> metrics["position entropy 1 h . response similarity 24 h<br/>mode distribution 24 h . position cooldown 30 s"]
+  metrics -->|"bias to unexplored space . force more variety"| light

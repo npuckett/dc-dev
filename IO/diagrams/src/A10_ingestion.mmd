@@ -1,0 +1,8 @@
+flowchart LR
+  rtsp["2x Reolink RTSP"] --> yolo["batched YOLO . CUDA . 25 fps"]
+  yolo --> proj["ArUco-calibrated foot to floor projection (cm)"]
+  proj --> fuse["cross-camera fusion<br/>EMA smoothing . velocity coasting"]
+  fuse -->|"OSC :7000<br/>/tracker/count . /tracker/person"| ctrl["controller<br/>zone-classify (active/passive) . velocity . callbacks"]
+  ctrl --> beh["behaviour system"]
+  ctrl --> dbw[("DB write")]
+  ctrl -->|"Art-Net :6454 . per-panel DMX"| panels["LED panels (distance-falloff)"]

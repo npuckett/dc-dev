@@ -1,0 +1,12 @@
+flowchart TB
+  push["live presence + short-term trends"] -->|"PUSH"| tuner
+  tuner["per-frame tuner . SmartAutoTuner ~8 s<br/>gradient ascent on engagement score"]
+  resist["RESIST<br/>budget + mean-reversion to home + caps"] -.->|"throttle delta"| tuner
+  tuner -->|"writes delta"| metap["meta-parameters<br/>(light personality)"]
+  tuner -->|"logs every change"| dba[("behavior_adjustments")]
+  metap --> light["light output"]
+  dba -->|"reads 8 h history"| review["meta-review 3x/day<br/>diagnose: stuck . static . starved<br/>budget too tight / loose"]
+  review -->|"META: rewrite home/floors/caps/budget<br/>autotune_overrides.json hot-reload"| resist
+
+  classDef force fill:#3a1f1f,stroke:#ff9d9d,color:#fff;
+  class push,resist,review force;

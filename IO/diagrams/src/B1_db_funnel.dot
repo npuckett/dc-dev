@@ -1,0 +1,33 @@
+digraph db {
+  rankdir=LR;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fillcolor="#eef2ff"];
+  edge [fontname="Helvetica", fontsize=10];
+
+  subgraph cluster_ingest {
+    label="INGEST . per OSC msg . 48 h"; style=filled; color="#f5f5f5";
+    te  [label="tracking_events\nx,z,vel,zone,flow"];
+    lb  [label="light_behavior\nmode,pos,bright,gesture"];
+    ba  [label="behavior_adjustments\n+budget before/after/cost"];
+    ps  [label="person_sessions"];
+  }
+  subgraph cluster_agg {
+    label="AGGREGATE . hourly / midnight"; style=filled; color="#f5f5f5";
+    hs  [label="hourly_stats  (inf)", fillcolor="#e6ffe6"];
+    adl [label="autotune_daily_learnings  (inf)", fillcolor="#e6ffe6"];
+  }
+  subgraph cluster_forever {
+    label="KEPT FOREVER"; style=filled; color="#f5f5f5";
+    ds  [label="daily_stats_v2  (inf)", fillcolor="#e6ffe6"];
+    mtr [label="meta_tuning_reviews  (inf)", fillcolor="#e6ffe6"];
+  }
+
+  te -> hs -> ds;
+  ba -> adl;
+  ba -> mtr;
+  lb -> sa [label="self-analysis", style=dashed];
+  sa [label="anti-repetition\nmetrics", shape=note, fillcolor="#fff6e6"];
+
+  { rank=same; te; lb; ba; ps; }
+  { rank=same; hs; adl; }
+  { rank=same; ds; mtr; }
+}

@@ -1,0 +1,12 @@
+flowchart LR
+  ctrl["controller"]
+  ctrl -->|"WebSocket :8765 . ~15 fps"| imm["IMMEDIATE plane . Three.js live<br/>light . people . mode . gesture . status"]
+  ctrl --> gen["generate_reports.py . nightly<br/>reports/daily/*.json + _index"]
+  gen --> pages["GitHub Pages"]
+  pages -->|"reports.js fetch + charts"| trends["TRENDS plane . charts page<br/>hourly curves . peak/quiet . flow balance . mode mix"]
+  funnel["transport: Tailscale Funnel exposes :8765 as wss:// for HTTPS"] -.-> ctrl
+
+  classDef live fill:#1f3a2a,stroke:#9dffc0,color:#fff;
+  classDef slow fill:#2a2a3a,stroke:#b0b0ff,color:#fff;
+  class imm live;
+  class trends slow;

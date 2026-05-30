@@ -1,0 +1,5 @@
+flowchart TB
+  inflow["ignored time + passers-by who don't stop"] -->|"raise"| tank([aggression level 0-1])
+  engage["someone engages"] -->|"lower"| tank
+  cap["time-of-day cap (hourly curve)<br/>~0 at night . peak at lunch"] -.->|"ceiling valve"| tank
+  tank --> out["wider/faster wander . more BORED gestures . brighter pulses"]

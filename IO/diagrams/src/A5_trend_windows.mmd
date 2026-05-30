@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph Q["DB queries . background thread"]
+    r["Recent . 1 min"]
+    s["Short . 5 min"]
+    m["Medium . 30 min"]
+    l["Long . 60 min"]
+  end
+  r --> fold
+  s --> fold
+  m --> fold
+  l --> fold
+  fold{{"fold + weight by<br/>idle_trend_weight"}}
+  fold --> aa["activity_anticipation 0-1"]
+  fold --> fm["flow_momentum -1 to +1"]
+  fold --> en["energy_level 0-1"]
+  aa --> o1["idle brightness . wander interval"]
+  fm --> o2["wander-box X shift"]
+  en --> o3["idle pulse / speed"]
