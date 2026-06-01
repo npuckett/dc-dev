@@ -1,0 +1,24 @@
+---
+title: "A7.2  TUNER  —  SmartAutoTuner.update() pipeline"
+---
+flowchart TB
+  gate{"now - last_update >= interval?<br/>base 8 s, context-dependent"}
+  gate -->|"no"| skip["return None . hold values"]
+  gate -->|"yes"| hot["hot-reload overrides (every 30 s)"]
+  hot --> rb["restore budget"]
+  rb --> sc["compute engagement score"]
+  sc --> snap["snapshot current 12-param vector"]
+  snap --> gs["append gradient sample (params, score, regime)"]
+  gs --> eg["estimate gradients<br/>Pearson/OLS over window of 30 samples"]
+  eg --> corr["detect cross-param correlations (every 5 min)"]
+  corr --> cd["compute deltas =<br/>gradient ascent (grad x lr 0.004)<br/>+ regime rules (dead/trickle/steady/rush/event)<br/>+ aggression damping + cross-param linking"]
+  cd --> cur["curiosity perturbation (every 120 s)"]
+  cur --> mr["mean reversion toward home  (RESIST: A7.3)"]
+  mr --> cl["clamp steps . personality 0.012 . output 0.03  (RESIST)"]
+  cl --> eb["enforce budget  (RESIST)"]
+  eb --> thr{"any |delta| >= 0.006?"}
+  thr -->|"no"| skip
+  thr -->|"yes"| ap["apply to MetaParameters + GUI sliders<br/>update journey . log adjustment (A7.5)"]
+
+  classDef resist fill:#2a2030,stroke:#c9a0ff,color:#fff;
+  class mr,cl,eb resist;

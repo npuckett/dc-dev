@@ -1,0 +1,31 @@
+digraph adjustments {
+  rankdir=LR; fontname="Helvetica";
+  label="A7.5  behavior_adjustments  —  one row logged per tuning cycle (the audit trail)";
+  labelloc=t; fontsize=14;
+  node [fontname="Helvetica", fontsize=10];
+
+  producer [shape=box, style="rounded,filled", fillcolor="#dff0e6",
+            label="PRODUCER\nSmartAutoTuner, each cycle\ndb.record_behavior_adjustment()"];
+
+  rec [shape=plaintext, label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="3">
+    <tr><td bgcolor="#eef2ff" colspan="2"><b>behavior_adjustments (row)</b></td></tr>
+    <tr><td align="left">timestamp / datetime</td><td align="left">when</td></tr>
+    <tr><td align="left">enabled / reason</td><td align="left">was tuning active, why</td></tr>
+    <tr><td align="left">short / medium / long_activity</td><td align="left">trend context</td></tr>
+    <tr><td align="left">energy_level / aggression_level</td><td align="left">state context</td></tr>
+    <tr><td bgcolor="#fff6e6" align="left" colspan="2"><b>adjustments_json</b></td></tr>
+    <tr><td align="left">old_values / new_values</td><td align="left">12-param before/after</td></tr>
+    <tr><td align="left">deltas / gradients</td><td align="left">what moved + estimated slope</td></tr>
+    <tr><td align="left">budget_before / after / cost</td><td align="left">friction accounting</td></tr>
+  </table>>];
+
+  c1 [shape=box, style="rounded,filled", fillcolor="#ffe6e6",
+      label="CONSUMER\nmeta-review (A7.7), 8 h window\nget_param_values / floor-ceiling %\nget_budget_stats"];
+  c2 [shape=box, style="rounded,filled", fillcolor="#e8ecff",
+      label="CONSUMER\ndaily report\nget_daily_adjustments()\n-> param journeys"];
+
+  producer -> rec [label="INSERT"];
+  rec -> c1 [label="reads 8 h"];
+  rec -> c2 [label="reads 24 h"];
+}

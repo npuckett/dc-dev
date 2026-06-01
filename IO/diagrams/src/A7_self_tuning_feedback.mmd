@@ -1,12 +1,16 @@
+---
+title: "A7  Self-tuning feedback loop  (each node expanded in A7.1 - A7.7)"
+---
 flowchart TB
-  push["live presence + short-term trends"] -->|"PUSH"| tuner
-  tuner["per-frame tuner . SmartAutoTuner ~8 s<br/>gradient ascent on engagement score"]
-  resist["RESIST<br/>budget + mean-reversion to home + caps"] -.->|"throttle delta"| tuner
-  tuner -->|"writes delta"| metap["meta-parameters<br/>(light personality)"]
-  tuner -->|"logs every change"| dba[("behavior_adjustments")]
-  metap --> light["light output"]
-  dba -->|"reads 8 h history"| review["meta-review 3x/day<br/>diagnose: stuck . static . starved<br/>budget too tight / loose"]
+  push["<b>A7.1</b> . live presence + short-term trends"] -->|"PUSH"| tuner
+  tuner["<b>A7.2</b> . per-frame tuner . SmartAutoTuner ~8 s<br/>gradient ascent on engagement score"]
+  resist["<b>A7.3</b> . RESIST<br/>budget + mean-reversion to home + caps"] -.->|"throttle delta"| tuner
+  tuner -->|"writes delta"| metap["<b>A7.4</b> . meta-parameters<br/>(light personality)"]
+  tuner -->|"logs every change"| dba[("<b>A7.5</b><br/>behavior_adjustments")]
+  metap --> light["<b>A7.6</b> . light output"]
+  dba -->|"reads 8 h history"| review["<b>A7.7</b> . meta-review 3x/day<br/>diagnose: stuck . static . starved<br/>budget too tight / loose"]
   review -->|"META: rewrite home/floors/caps/budget<br/>autotune_overrides.json hot-reload"| resist
 
   classDef force fill:#3a1f1f,stroke:#ff9d9d,color:#fff;
+  classDef tag stroke-dasharray:0,stroke-width:2px;
   class push,resist,review force;

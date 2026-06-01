@@ -1,0 +1,25 @@
+---
+title: "C3  Light state to one panel value  —  get_panel_brightness() (runs x12 per frame)"
+---
+flowchart TB
+  inL["LIGHT state in:<br/>position (x,y,z) . current_brightness<br/>falloff_radius . falloff_scale (sx,sy,sz) . falloff_rotation"]
+  inP["PANEL in (fixed):<br/>panel_pos (x,y,z)"]
+  inL --> s1
+  inP --> s1
+  s1["1 . displacement<br/>d = panel_pos - light.position  ->  (dx, dy, dz)"]
+  s1 --> s2["2 . rotate dx,dz around Y by falloff_rotation<br/>(beam can be steered: SWEEP / FOCUS gestures)"]
+  s2 --> s3["3 . anisotropic scale (stretch the field per axis)<br/>sdx = dx/sx . sdy = dy/sy . sdz = dz/sz"]
+  s3 --> s4["4 . scaled distance<br/>r = sqrt(sdx^2 + sdy^2 + sdz^2)"]
+  s4 --> s5["5 . linear falloff<br/>f = max(0, 1 - r / falloff_radius)"]
+  s5 --> s6["6 . apply intensity<br/>brightness = current_brightness x f"]
+  s6 --> s7["7 . clamp to DMX byte<br/>int( max(0, min(255, brightness)) )"]
+  s7 --> out(["one panel value: 0-255"])
+  out -.->|"repeat for all 12 panels"| frame["dmx_data[0..11]"]
+
+  note["current_brightness = brightness_min<br/>+ (brightness_max - brightness_min) x (sin(pulse_phase)+1)/2<br/>(the pulse / breathing, updated each frame)"]
+  note -.-> inL
+
+  classDef io fill:#1f2a44,stroke:#9db2ff,color:#fff;
+  classDef res fill:#1f3a2a,stroke:#9dffc0,color:#fff;
+  class inL,inP io;
+  class out,frame res;

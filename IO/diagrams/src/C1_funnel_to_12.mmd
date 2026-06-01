@@ -1,0 +1,46 @@
+---
+title: "C1  The funnel  —  a whole adaptive system collapses to 12 light values"
+---
+flowchart TB
+  subgraph many["MANY  .  the full system (everything in diagrams A and B)"]
+    direction LR
+    m1["2 cameras . YOLO tracking"]
+    m2["short-term trends 1/5/30/60 min + flow"]
+    m3["SQLite memory + daily reports"]
+    m4["meta-review 3x/day + interaction budget"]
+    m5["12 meta-parameters (personality)"]
+    m6["5 modes + 16 gestures + dwell phases"]
+    m7["V6 modules: scorer, bandit, context, falloff"]
+  end
+
+  many ==> calc["BehaviorSystem.calculate_parameters()<br/>+ V6Integration.tick()<br/>(all influence merges here, every frame)"]
+
+  calc ==> pinch
+
+  subgraph pinch["FEW  .  the PointLight state at this instant (the pinch point)"]
+    direction LR
+    p1["position x, y, z"]
+    p2["intensity<br/>(current_brightness)"]
+    p3["falloff<br/>(radius + shape sx,sy,sz + rotation)"]
+  end
+
+  pinch ==> render["PanelGrid.update_panels(light)<br/>loop over 12 fixed panels:<br/>get_panel_brightness(panel_pos)"]
+
+  render ==> twelve["12  .  one DMX byte per panel (0-255)"]
+
+  subgraph twelve_grid["12 panel values"]
+    direction LR
+    g0["U0: ch0 ch1 ch2"]
+    g1["U1: ch3 ch4 ch5"]
+    g2["U2: ch6 ch7 ch8"]
+    g3["U3: ch9 ch10 ch11"]
+  end
+  twelve --> twelve_grid
+  twelve_grid ==> art["Art-Net universe 0 -> LED fixtures"]
+
+  classDef many fill:#2a2030,stroke:#c9a0ff,color:#fff;
+  classDef few fill:#fff39a,stroke:#b8860b,color:#000;
+  classDef out fill:#1f3a2a,stroke:#9dffc0,color:#fff;
+  class m1,m2,m3,m4,m5,m6,m7 many;
+  class p1,p2,p3 few;
+  class g0,g1,g2,g3,art out;

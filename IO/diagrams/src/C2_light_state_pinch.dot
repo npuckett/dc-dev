@@ -1,0 +1,31 @@
+digraph pinch {
+  rankdir=LR; fontname="Helvetica";
+  label="C2  The pinch point  —  the PointLight state read at render time, and who writes each field";
+  labelloc=t; fontsize=14;
+  node [fontname="Helvetica", fontsize=10];
+
+  writers [shape=plaintext, label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+    <tr><td bgcolor="#2a2030"><font color="white"><b>UPSTREAM SYSTEM writes...</b></font></td></tr>
+    <tr><td align="left">mode + wander + follow + gestures&nbsp;&rarr; position / target</td></tr>
+    <tr><td align="left">mode base x brightness_global x time-of-day x proximity<br align="left"/>x dwell x breathing x bloom x entry-pulse (cap 600)&nbsp;&rarr; brightness</td></tr>
+    <tr><td align="left">mode base x pulse_global x time-of-day&nbsp;&rarr; pulse_speed</td></tr>
+    <tr><td align="left">mode base x breathing&nbsp;&rarr; falloff_radius</td></tr>
+    <tr><td align="left">gestures (SWEEP/FOCUS) x ambient osc x V6 falloff mgr&nbsp;&rarr; scale + rotation</td></tr>
+    <tr><td align="left">mode base x speed_global x proximity x speed-match&nbsp;&rarr; move_speed</td></tr>
+  </table>>];
+
+  light [shape=plaintext, label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+    <tr><td bgcolor="#fff39a" colspan="2"><b>PointLight  (the few values that matter at this instant)</b></td></tr>
+    <tr><td bgcolor="#e8ecff" align="left"><b>POSITION</b></td><td align="left">position [x, y, z]  (cm)</td></tr>
+    <tr><td bgcolor="#ffe6cc" align="left"><b>INTENSITY</b></td><td align="left">current_brightness<br align="left"/>= brightness_min + (max-min) x (sin(pulse_phase)+1)/2</td></tr>
+    <tr><td bgcolor="#e6ffe6" align="left"><b>FALLOFF</b></td><td align="left">falloff_radius (cm)<br align="left"/>falloff_scale [sx, sy, sz]<br align="left"/>falloff_rotation (rad)</td></tr>
+  </table>>];
+
+  consumer [shape=box, style="rounded,filled", fillcolor="#dff0e6",
+            label="read by get_panel_brightness()\n(C3) for each of 12 panels"];
+
+  writers -> light [label="every frame"];
+  light -> consumer;
+}

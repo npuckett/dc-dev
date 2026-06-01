@@ -1,0 +1,17 @@
+---
+title: "A7.3  RESIST  —  the friction stack applied to every delta"
+---
+flowchart TB
+  din["proposed deltas (gradient + regime rules)"] --> f1
+  f1["1 . MEAN REVERSION toward home<br/>pull = (base 0.015 + progressive 0.04 x dist) x ctx<br/>output params x 0.8"] --> f2
+  f2["2 . STEP CLAMP<br/>personality +/- 0.012 . output +/- 0.03<br/>zero if < 0.006"] --> f3
+  f3{"3 . BUDGET<br/>cost = sum abs(delta) x 30<br/>cost > budget?"}
+  f3 -->|"yes"| thr["scale ALL deltas down . budget = 0 (throttle)"]
+  f3 -->|"no"| pay["budget -= cost"]
+  thr --> f4
+  pay --> f4
+  f4["4 . VALUE CLAMP per param<br/>max( max(lo, floor), min( min(hi, cap), value ) )"] --> out(["net applied delta . small + bounded"])
+  refill["budget refill = 200 / 600 s<br/>+ engagement bonus 1.5/s when active"] -.->|"regenerates"| f3
+
+  classDef resist fill:#2a2030,stroke:#c9a0ff,color:#fff;
+  class f1,f2,f3,f4 resist;

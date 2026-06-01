@@ -1,0 +1,24 @@
+---
+title: "C5  One frame (~30 Hz)  —  the funnel runs from scratch every frame"
+---
+sequenceDiagram
+    autonumber
+    participant OSC as OSC in (people)
+    participant BEH as BehaviorSystem
+    participant V6 as V6Integration
+    participant L as PointLight
+    participant PG as PanelGrid
+    participant ART as Art-Net / LEDs
+    participant DB as SQLite + WebSocket
+
+    OSC->>BEH: tracked people + zones (async)
+    BEH->>BEH: determine_mode + gestures + trends
+    BEH->>V6: behavior_params + status
+    V6->>V6: tune meta-params (A7) + falloff shape
+    V6-->>L: set brightness_min/max, pulse_speed,<br/>falloff_radius, scale, rotation, move target
+    L->>L: update(dt): move toward target + advance pulse<br/>-> current_brightness
+    L->>PG: (light state)
+    PG->>PG: x12 get_panel_brightness() -> dmx_data[0..11]
+    PG->>ART: set 12 channels + show() (universe 0)
+    PG-->>DB: record_light_state (0.5-2 s) + broadcast (~15 fps)
+    Note over OSC,DB: entire path repeats next frame

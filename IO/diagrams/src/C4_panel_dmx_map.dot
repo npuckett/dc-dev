@@ -1,0 +1,39 @@
+digraph panelmap {
+  rankdir=TB; fontname="Helvetica";
+  label="C4  The 12 panels  —  4 units x 3 panels, fixed positions, mapped to 12 DMX channels";
+  labelloc=t; fontsize=14;
+  node [fontname="Helvetica", fontsize=9];
+
+  grid [shape=plaintext, label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+    <tr>
+      <td bgcolor="#eef2ff"><b>unit (X cm)</b></td>
+      <td bgcolor="#c9d4ff"><b>panel 1 (up)</b></td>
+      <td bgcolor="#c9d4ff"><b>panel 2 (+22.5&deg;)</b></td>
+      <td bgcolor="#c9d4ff"><b>panel 3 (-22.5&deg;)</b></td>
+    </tr>
+    <tr><td align="left">U0 (x=-30)</td>  <td>ch 0<br/>y=24 z=0</td>   <td>ch 1<br/>y=-36 z=12</td>  <td>ch 2<br/>y=-36 z=-12</td></tr>
+    <tr><td align="left">U1 (x=-110)</td> <td>ch 3</td> <td>ch 4</td> <td>ch 5</td></tr>
+    <tr><td align="left">U2 (x=-190)</td> <td>ch 6</td> <td>ch 7</td> <td>ch 8</td></tr>
+    <tr><td align="left">U3 (x=-270)</td> <td>ch 9</td> <td>ch 10</td> <td>ch 11</td></tr>
+  </table>>];
+
+  light [shape=octagon, style=filled, fillcolor="#fff39a", label="PointLight\n(C2 state)"];
+  calc  [shape=box, style="rounded,filled", fillcolor="#dff0e6",
+         label="update_panels(light):\nfor each panel -> get_panel_brightness()"];
+
+  frame [shape=plaintext, label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="3">
+    <tr><td bgcolor="#1f3a2a"><font color="white"><b>DMX frame (bytearray 512)</b></font></td></tr>
+    <tr><td align="left">bytes 0..11 = the 12 panel values&nbsp;&nbsp;(13..511 unused)</td></tr>
+  </table>>];
+
+  art [shape=box, style="rounded,filled", fillcolor="#1f2a44", fontcolor="white",
+       label="StupidArtnet.set_single_value(i, dmx[i])  i=0..11\nshow()  ->  Art-Net/UDP :6454  universe 0\ntarget 10.42.0.200  @ 30 fps"];
+  leds [shape=box, style="rounded,filled", fillcolor="#c9d4ff", label="LED panels (physical)"];
+
+  light -> calc -> grid [style=invis];
+  light -> calc;
+  calc -> frame [label="writes 12 bytes"];
+  frame -> art -> leds;
+}

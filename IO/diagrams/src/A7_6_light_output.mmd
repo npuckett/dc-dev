@@ -1,0 +1,12 @@
+---
+title: "A7.6  LIGHT OUTPUT  —  meta-parameters become light"
+---
+flowchart LR
+  mp["meta-parameters (personality)"] --> calc["BehaviorSystem.calculate_parameters()"]
+  mode["mode base values (MODE_PARAMS)"] --> calc
+  calc --> chain["x personality lerp   x time-of-day   x proximity"]
+  chain --> phys["physical outputs:<br/>move_speed . brightness min/max<br/>pulse_speed . falloff radius + shape"]
+  phys --> interp["PointLight . interpolate toward target"]
+  interp --> dmx["Art-Net :6454<br/>per-panel DMX (distance falloff)"]
+  interp --> rec["record to light_behavior table"]
+  rec -.->|"observed behaviour"| sa["self-analysis (A9) + meta-review reads"]

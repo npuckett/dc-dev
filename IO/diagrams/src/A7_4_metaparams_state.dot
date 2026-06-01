@@ -1,0 +1,42 @@
+digraph metaparams {
+  rankdir=LR; fontname="Helvetica";
+  label="A7.4  META-PARAMETERS  —  the 12-value state the tuner mutates (defaults shown)";
+  labelloc=t; fontsize=14;
+  node [shape=plaintext, fontname="Helvetica", fontsize=10];
+
+  P [label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+    <tr><td bgcolor="#dde6ff"><b>PERSONALITY (gradient-UP with activity)</b></td><td bgcolor="#dde6ff"><b>range</b></td><td bgcolor="#dde6ff"><b>floor</b></td></tr>
+    <tr><td align="left">responsiveness</td><td>0.00 - 0.85</td><td>0.30</td></tr>
+    <tr><td align="left">energy</td><td>0.00 - 0.80</td><td>0.25</td></tr>
+    <tr><td align="left">attention_span</td><td>0.00 - 0.90</td><td>0.10</td></tr>
+    <tr><td align="left">sociability</td><td>0.00 - 0.85</td><td>0.20</td></tr>
+    <tr><td align="left">exploration</td><td>0.00 - 0.75</td><td>0.15</td></tr>
+    <tr><td align="left">memory</td><td>0.00 - 0.80</td><td>-</td></tr>
+    <tr><td align="left">follow_speed_global</td><td>0.50 - 2.00</td><td>0.60</td></tr>
+  </table>>];
+
+  O [label=<
+  <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+    <tr><td bgcolor="#ffe6cc"><b>OUTPUT MULTIPLIERS (inverse-adjust)</b></td><td bgcolor="#ffe6cc"><b>range</b></td><td bgcolor="#ffe6cc"><b>floor</b></td></tr>
+    <tr><td align="left">brightness_global</td><td>0.20 - 2.50</td><td>0.60</td></tr>
+    <tr><td align="left">speed_global</td><td>0.20 - 1.50</td><td>0.35</td></tr>
+    <tr><td align="left">pulse_global</td><td>0.30 - 2.00</td><td>0.35</td></tr>
+    <tr><td align="left">dwell_influence</td><td>0.00 - 1.50</td><td>-</td></tr>
+    <tr><td align="left">idle_trend_weight</td><td>0.00 - 0.75</td><td>0.20</td></tr>
+  </table>>];
+
+  tuner [shape=box, style="rounded,filled", fillcolor="#f0f0f0", label="TUNER writes\n(clamped delta)"];
+  meta  [shape=box, style="rounded,filled", fillcolor="#fff39a", label="MetaParameters\nobject (shared)"];
+  sliders [shape=box, style="rounded,filled", fillcolor="#e8ecff", label="GUI sliders\n(kept in sync)"];
+  beh   [shape=box, style="rounded,filled", fillcolor="#dff0e6", label="BehaviorSystem\nreads every frame -> A7.6"];
+  jrny  [shape=note, fillcolor="#fff6e6", style=filled, label="journey per param:\nstart / min / max / total_movement\n(daily learning)"];
+
+  tuner -> meta;
+  meta -> sliders [dir=both, label="sync"];
+  meta -> beh [label="read"];
+  tuner -> jrny [style=dashed];
+  P -> meta [style=invis];
+  O -> meta [style=invis];
+  { rank=same; P; O; }
+}

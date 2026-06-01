@@ -1,0 +1,14 @@
+---
+title: "A7.7  META  —  meta-review retunes the rules (3x/day)"
+---
+flowchart TB
+  trig["systemd timer . 06:00 / 14:00 / 22:00<br/>analysis window = 8 h"] --> read
+  read["read DB (last 8 h):<br/>adjustment stats . activity distribution<br/>param stats (avg/median/p10/p90)<br/>floor + ceiling % . mode distribution . budget stats"] --> diag
+  diag{"diagnose():<br/>floor/ceiling-stuck >80% . activity too low<br/>mode starvation (engaged <1%) . over-engaged >30%<br/>budget full/depleted/throttled . static params"} --> comp
+  comp["compute_adjustments() . max 25 changes:<br/>home_values . safe_floors . caps<br/>curiosity . reversion . budget (once/day)"] --> write
+  write["write autotune_overrides.json<br/>(atomic: tmp + rename)"] --> log
+  log["save_meta_tuning_review -> DB<br/>(full audit: diagnosis, old->new config)"]
+  write -.->|"tuner hot-reloads every 30 s"| back(["back to TUNER (A7.2)"])
+
+  classDef meta fill:#3a1f1f,stroke:#ff9d9d,color:#fff;
+  class trig,diag,back meta;

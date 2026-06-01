@@ -1,0 +1,27 @@
+---
+title: "A7.1  PUSH  —  what the tuner senses each cycle"
+---
+flowchart LR
+  subgraph live["live presence . OSC :7000"]
+    a1["active_count"]
+    a2["passive_count / passive_rate"]
+    a3["zones: active / passive"]
+  end
+  subgraph trends["short-term trends"]
+    t1["nested windows 1 / 5 / 30 / 60 min"]
+    t2["flow tracker (30 s, EMA 0.25)"]
+    t3["aggression level 0-1"]
+  end
+  t1 --> infl["activity_anticipation . flow_momentum . energy_level"]
+  live --> bs["behavior_status dict<br/>(active/passive, passive_rate,<br/>aggression, idle_trends, mode)"]
+  t2 --> bs
+  t3 --> bs
+  infl --> bs
+  bs --> scorer["EngagementScorer.compute()"]
+  scorer --> snap["snapshot . components incl. dynamic_range"]
+  snap --> score["smoothed_score (window 8)<br/>= engagement score 0-1"]
+  bs --> out(["to TUNER (A7.2): behavior_status + score"])
+  score --> out
+
+  classDef sig fill:#3a1f1f,stroke:#ff9d9d,color:#fff;
+  class out sig;
