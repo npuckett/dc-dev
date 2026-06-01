@@ -6,6 +6,7 @@ Editable sources are in [`src/`](src). Re-render everything with `./build.sh`.
 
 | ID | File | Figure | Engine |
 |----|------|--------|--------|
+| A0 | `A0_master_overview` | **Master overview** — combines A1 + A2: pipeline + the three nested loops + the actual output parameters; indexes into A3/A4, A5, A7. Output box has an icon placeholder (TBD). | Mermaid flowchart |
 | A1 | `A1_pipeline` | Top-level pipeline (3 processes, 2 channels) | Mermaid flowchart |
 | A2 | `A2_nested_loops` | Three nested loops (subgraph form) | Mermaid flowchart |
 | A3 | `A3_mode_state_machine` | Behaviour mode state machine | Mermaid state diagram |
@@ -20,8 +21,18 @@ Editable sources are in [`src/`](src). Re-render everything with `./build.sh`.
 | B1 | `B1_db_funnel` | Tiered database funnel | Graphviz `dot` |
 | B2 | `B2_nested_loops` | Concentric nested loops (filled rings) | Graphviz `dot` |
 | B3 | `B3_spatial_plan` | Installation plan, to scale (cm) | Graphviz `neato` |
-| D1 | `D1_run_totals` | Estimated run totals over 54 days (log-scale bars) | matplotlib |
-| D2 | `D2_eval_cadence` | Fast vs slow evaluations per day (the friction argument) | matplotlib |
+| D1 | `D1_run_totals` | Run totals over 54 days (log-scale bars), greyscale | matplotlib |
+| D2 | `D2_eval_cadence` | Fast vs slow evaluations per day (the friction argument), greyscale | matplotlib |
+
+### Submission-ready (black/white/grey, matches A0)
+
+Restyled versions of the two most narrative-critical figures, for the ACADIA submission. The
+detailed originals (`C1_funnel_to_12`, `A7_self_tuning_feedback`) remain for the guide.
+
+| ID | File | Figure | Engine |
+|----|------|--------|--------|
+| C1‑bw | `C1_funnel_to_12_bw` | **The funnel** — whole adaptive system collapses to 12 light values (the strongest single idea); greyscale | Mermaid flowchart |
+| A7‑bw | `A7_self_tuning_feedback_bw` | **Self-tuning loop** — PUSH / RESIST / META; "adapts but never runs away"; greyscale | Mermaid flowchart |
 
 > **D-series (scale charts)** are rendered by `src/D_scale_charts.py` with the project
 > venv: `../.venv/bin/python src/D_scale_charts.py`. Values are the §15-0 *estimates*

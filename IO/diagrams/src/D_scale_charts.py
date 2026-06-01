@@ -16,17 +16,25 @@ from matplotlib.ticker import FuncFormatter
 OUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # diagrams/
 plt.rcParams.update({
     "font.family": "DejaVu Sans",
+    "font.family": "Helvetica",
     "font.size": 11,
-    "axes.edgecolor": "#555555",
+    "axes.edgecolor": "#000000",
     "axes.linewidth": 0.8,
     "svg.fonttype": "none",
 })
 
-INK = "#2a2030"      # dark plum (matches RESIST nodes)
-ACCENT = "#9db2ff"   # blue (process)
-WARM = "#ffcf9d"     # warm (io)
-GREEN = "#1f3a2a"    # result green
-RED = "#3a1f1f"      # meta/force
+# ---- Black / white / grey palette (matches the A0 master diagram) ----
+INK = "#000000"        # text, edges
+GREY_LIGHT = "#dcdcdc"  # "fast" bars (light grey, like the inner loop)
+GREY_MID = "#bdbdbd"    # neutral / output bars
+GREY_DARK = "#7a7a7a"   # "slow" bars (dark grey, like the outer loop)
+GRID = "#e0e0e0"
+SUBTLE = "#555555"      # captions
+# legacy aliases (so the rest of the script need not change names)
+ACCENT = GREY_LIGHT
+WARM = GREY_MID
+GREEN = GREY_MID
+RED = GREY_DARK
 
 
 def human(n):
@@ -57,7 +65,7 @@ labels = [
     "Daily-learning cycles",
 ]
 values = [3_100_000, 15_000_000, 580_000, 1_000_000, 162, 54]
-colors = [ACCENT, WARM, ACCENT, "#fff39a", RED, RED]
+colors = [GREY_LIGHT, GREY_MID, GREY_LIGHT, GREY_MID, GREY_DARK, GREY_DARK]
 
 # sort ascending for a clean ladder
 order = sorted(range(len(values)), key=lambda i: values[i])
@@ -70,20 +78,16 @@ bars = ax.barh(labels, values, color=colors, edgecolor=INK, linewidth=0.6)
 ax.set_xscale("log")
 ax.set_xlim(10, 5e7)
 ax.set_xlabel("count over the 54-day run  (log scale)")
-ax.set_title("D1  Drop Ceiling — run totals over 54 days, 24/7  (estimated)",
+ax.set_title("D1  Drop Ceiling — run totals over 54 days, 24/7",
              fontsize=12, fontweight="bold", loc="left", color=INK)
 for b, v in zip(bars, values):
     ax.text(v * 1.15, b.get_y() + b.get_height() / 2, human(v),
             va="center", ha="left", fontsize=10, fontweight="bold", color=INK)
 ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: human(x) if x >= 1000 else str(int(x))))
-ax.grid(axis="x", color="#dddddd", linewidth=0.6, zorder=0)
+ax.grid(axis="x", color=GRID, linewidth=0.6, zorder=0)
 ax.set_axisbelow(True)
 for s in ("top", "right"):
     ax.spines[s].set_visible(False)
-fig.text(0.01, -0.04,
-         "Estimated from 34 surviving daily reports (stable, repeatable day/week patterns), "
-         "scaled to 54 days. Rounded.",
-         fontsize=8, color="#666666")
 save(fig, "D1_run_totals")
 
 
@@ -94,7 +98,7 @@ fig, ax = plt.subplots(figsize=(7.6, 4.0))
 names = ["Flow update\n(~1.5 s)", "Short-term eval\n(~8 s)",
          "Meta-review\n(3×/day)", "Daily learning\n(midnight)"]
 perday = [57_600, 10_800, 3, 1]
-bar_colors = [ACCENT, ACCENT, RED, RED]
+bar_colors = [GREY_LIGHT, GREY_LIGHT, GREY_DARK, GREY_DARK]
 bars = ax.bar(names, perday, color=bar_colors, edgecolor=INK, linewidth=0.6, width=0.62)
 ax.set_yscale("log")
 ax.set_ylim(0.5, 1.2e6)
@@ -105,20 +109,16 @@ for b, v in zip(bars, perday):
     ax.text(b.get_x() + b.get_width() / 2, v * 1.3, f"{v:,}",
             ha="center", va="bottom", fontsize=10, fontweight="bold", color=INK)
 # annotate the two regimes (placed in the headroom above all bars)
-ax.axvspan(-0.5, 1.5, color=ACCENT, alpha=0.07)
-ax.axvspan(1.5, 3.5, color=RED, alpha=0.06)
+ax.axvspan(-0.5, 1.5, color="#000000", alpha=0.04)
+ax.axvspan(1.5, 3.5, color="#000000", alpha=0.09)
 ax.text(0.5, 6e5, "FAST  ·  reaction + anticipation", ha="center", fontsize=9,
-        color="#3b4a7a", fontweight="bold")
+        color=INK, fontweight="bold")
 ax.text(2.5, 6e5, "SLOW  ·  self-tuning", ha="center", fontsize=9,
-        color="#7a3b3b", fontweight="bold")
-ax.grid(axis="y", color="#dddddd", linewidth=0.6)
+        color=INK, fontweight="bold")
+ax.grid(axis="y", color=GRID, linewidth=0.6)
 ax.set_axisbelow(True)
 for s in ("top", "right"):
     ax.spines[s].set_visible(False)
-fig.text(0.01, -0.06,
-         "The friction argument visualised: ~10^4–10^5 fast adjustments a day are governed "
-         "by a handful of slow, deliberate reviews. Estimated.",
-         fontsize=8, color="#666666")
 save(fig, "D2_eval_cadence")
 
 print("done.")
