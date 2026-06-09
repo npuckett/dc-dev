@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-03-04T11:14:10.296796",
-  "total_reports": 1,
+  "generated_at": "2026-06-08T13:15:41.495426",
+  "total_reports": 0,
   "database": "/home/nick/Documents/Github/dc-dev/IO/tracking_history.db",
   "date_range": {
-    "first": "2026-02-25",
-    "last": "2026-02-25"
+    "first": null,
+    "last": null
   },
   "reports": [
     {
@@ -276,6 +276,110 @@
       "file": "2026-03-03.json",
       "total_people": 14366,
       "total_events": 584674,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-04",
+      "file": "2026-03-04.json",
+      "total_people": 21245,
+      "total_events": 585542,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-05",
+      "file": "2026-03-05.json",
+      "total_people": 17853,
+      "total_events": 451656,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-06",
+      "file": "2026-03-06.json",
+      "total_people": 14299,
+      "total_events": 364608,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-07",
+      "file": "2026-03-07.json",
+      "total_people": 16176,
+      "total_events": 415058,
+      "peak_hour": 17,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-08",
+      "file": "2026-03-08.json",
+      "total_people": 15991,
+      "total_events": 413708,
+      "peak_hour": 13,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-09",
+      "file": "2026-03-09.json",
+      "total_people": 17880,
+      "total_events": 461936,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-10",
+      "file": "2026-03-10.json",
+      "total_people": 22381,
+      "total_events": 579904,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-11",
+      "file": "2026-03-11.json",
+      "total_people": 14572,
+      "total_events": 372158,
+      "peak_hour": 17,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-12",
+      "file": "2026-03-12.json",
+      "total_people": 17787,
+      "total_events": 447074,
+      "peak_hour": 17,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-13",
+      "file": "2026-03-13.json",
+      "total_people": 11116,
+      "total_events": 273362,
+      "peak_hour": 17,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-14",
+      "file": "2026-03-14.json",
+      "total_people": 11149,
+      "total_events": 293123,
+      "peak_hour": 16,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-15",
+      "file": "2026-03-15.json",
+      "total_people": 7485,
+      "total_events": 190037,
+      "peak_hour": 18,
+      "dominant_flow": "balanced"
+    },
+    {
+      "date": "2026-03-16",
+      "file": "2026-03-16.json",
+      "total_people": 13837,
+      "total_events": 366976,
       "peak_hour": 16,
       "dominant_flow": "balanced"
     }

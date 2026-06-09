@@ -1,0 +1,254 @@
+{
+  "date": "2026-03-11",
+  "generated_at": "2026-03-12T00:01:24.171828",
+  "summary": {
+    "total_unique_people": 14572,
+    "total_active_zone_visits": 32710,
+    "total_passive_zone_count": 372158,
+    "overall_avg_speed": 19606.5
+  },
+  "peak_times": {
+    "peak_hour": 17,
+    "peak_hour_count": 2443,
+    "quietest_hour": 4,
+    "quietest_hour_count": 13
+  },
+  "flow": {
+    "dominant_flow": "balanced",
+    "flow_balance": 0.17
+  },
+  "hourly_trends": [
+    {
+      "hour": 0,
+      "total_people": 54,
+      "active_count": 0,
+      "passive_count": 1072,
+      "avg_speed": 19907.7,
+      "flow_ltr": 596,
+      "flow_rtl": 341
+    },
+    {
+      "hour": 1,
+      "total_people": 34,
+      "active_count": 0,
+      "passive_count": 853,
+      "avg_speed": 14270.9,
+      "flow_ltr": 206,
+      "flow_rtl": 423
+    },
+    {
+      "hour": 2,
+      "total_people": 46,
+      "active_count": 13,
+      "passive_count": 990,
+      "avg_speed": 18985.3,
+      "flow_ltr": 210,
+      "flow_rtl": 629
+    },
+    {
+      "hour": 3,
+      "total_people": 14,
+      "active_count": 0,
+      "passive_count": 338,
+      "avg_speed": 20833.6,
+      "flow_ltr": 11,
+      "flow_rtl": 230
+    },
+    {
+      "hour": 4,
+      "total_people": 13,
+      "active_count": 0,
+      "passive_count": 333,
+      "avg_speed": 25180.8,
+      "flow_ltr": 114,
+      "flow_rtl": 141
+    },
+    {
+      "hour": 5,
+      "total_people": 82,
+      "active_count": 0,
+      "passive_count": 1714,
+      "avg_speed": 21939.8,
+      "flow_ltr": 985,
+      "flow_rtl": 366
+    },
+    {
+      "hour": 6,
+      "total_people": 74,
+      "active_count": 203,
+      "passive_count": 1602,
+      "avg_speed": 24435.3,
+      "flow_ltr": 566,
+      "flow_rtl": 746
+    },
+    {
+      "hour": 7,
+      "total_people": 393,
+      "active_count": 207,
+      "passive_count": 10465,
+      "avg_speed": 21798.9,
+      "flow_ltr": 2736,
+      "flow_rtl": 6617
+    },
+    {
+      "hour": 8,
+      "total_people": 1412,
+      "active_count": 370,
+      "passive_count": 38657,
+      "avg_speed": 18420.4,
+      "flow_ltr": 10367,
+      "flow_rtl": 24326
+    },
+    {
+      "hour": 9,
+      "total_people": 1029,
+      "active_count": 1303,
+      "passive_count": 27502,
+      "avg_speed": 18854.0,
+      "flow_ltr": 8770,
+      "flow_rtl": 15865
+    },
+    {
+      "hour": 10,
+      "total_people": 545,
+      "active_count": 50,
+      "passive_count": 14674,
+      "avg_speed": 20993.1,
+      "flow_ltr": 6485,
+      "flow_rtl": 6620
+    },
+    {
+      "hour": 11,
+      "total_people": 749,
+      "active_count": 162,
+      "passive_count": 18699,
+      "avg_speed": 19356.1,
+      "flow_ltr": 9028,
+      "flow_rtl": 7617
+    },
+    {
+      "hour": 12,
+      "total_people": 676,
+      "active_count": 917,
+      "passive_count": 16454,
+      "avg_speed": 20094.6,
+      "flow_ltr": 8047,
+      "flow_rtl": 6740
+    },
+    {
+      "hour": 13,
+      "total_people": 535,
+      "active_count": 1172,
+      "passive_count": 12330,
+      "avg_speed": 20656.7,
+      "flow_ltr": 6178,
+      "flow_rtl": 4802
+    },
+    {
+      "hour": 14,
+      "total_people": 455,
+      "active_count": 1913,
+      "passive_count": 10675,
+      "avg_speed": 19529.2,
+      "flow_ltr": 5589,
+      "flow_rtl": 3984
+    },
+    {
+      "hour": 15,
+      "total_people": 970,
+      "active_count": 4991,
+      "passive_count": 23885,
+      "avg_speed": 17796.0,
+      "flow_ltr": 15099,
+      "flow_rtl": 6134
+    },
+    {
+      "hour": 16,
+      "total_people": 1989,
+      "active_count": 3919,
+      "passive_count": 46835,
+      "avg_speed": 17045.0,
+      "flow_ltr": 33345,
+      "flow_rtl": 8079
+    },
+    {
+      "hour": 17,
+      "total_people": 2443,
+      "active_count": 7192,
+      "passive_count": 59104,
+      "avg_speed": 14875.7,
+      "flow_ltr": 38381,
+      "flow_rtl": 13874
+    },
+    {
+      "hour": 18,
+      "total_people": 1081,
+      "active_count": 1386,
+      "passive_count": 27209,
+      "avg_speed": 20102.5,
+      "flow_ltr": 14036,
+      "flow_rtl": 10118
+    },
+    {
+      "hour": 19,
+      "total_people": 677,
+      "active_count": 565,
+      "passive_count": 17459,
+      "avg_speed": 19532.0,
+      "flow_ltr": 9968,
+      "flow_rtl": 5262
+    },
+    {
+      "hour": 20,
+      "total_people": 371,
+      "active_count": 61,
+      "passive_count": 10899,
+      "avg_speed": 20443.4,
+      "flow_ltr": 6550,
+      "flow_rtl": 2742
+    },
+    {
+      "hour": 21,
+      "total_people": 626,
+      "active_count": 7470,
+      "passive_count": 22093,
+      "avg_speed": 10960.8,
+      "flow_ltr": 10217,
+      "flow_rtl": 7647
+    },
+    {
+      "hour": 22,
+      "total_people": 202,
+      "active_count": 6,
+      "passive_count": 5275,
+      "avg_speed": 22579.0,
+      "flow_ltr": 3185,
+      "flow_rtl": 1397
+    },
+    {
+      "hour": 23,
+      "total_people": 107,
+      "active_count": 810,
+      "passive_count": 3041,
+      "avg_speed": 21965.5,
+      "flow_ltr": 1830,
+      "flow_rtl": 860
+    }
+  ],
+  "light_behavior": {
+    "mode_distribution": {
+      "aware": 0.094,
+      "crowd": 0.013,
+      "engaged": 0.126,
+      "flow": 0.331,
+      "idle": 0.436
+    },
+    "position_entropy": 0.051
+  },
+  "auto_tuning": {
+    "total_adjustments": 0,
+    "param_journeys": {},
+    "hourly_activity": {},
+    "strategy_summary": "No auto-tuning adjustments recorded."
+  }
+}
