@@ -10,3 +10,11 @@ __pycache__/
 *.pt
 .venv/
 node_modules/
+
+# OS / editor cruft
+.DS_Store
+**/.DS_Store
+~$*
+*.tmp
+# analysis artifacts (DB ignored via *.db; keep the markdown)
+IO/analysis/*.pkl

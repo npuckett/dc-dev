@@ -34,6 +34,35 @@ detailed originals (`C1_funnel_to_12`, `A7_self_tuning_feedback`) remain for the
 | C1‑bw | `C1_funnel_to_12_bw` | **The funnel** — whole adaptive system collapses to 12 light values (the strongest single idea); greyscale | Mermaid flowchart |
 | A7‑bw | `A7_self_tuning_feedback_bw` | **Self-tuning loop** — PUSH / RESIST / META; "adapts but never runs away"; greyscale | Mermaid flowchart |
 
+### E-series (TEI 2027 pictorial — greyscale + warm light accent)
+
+New figures for the TEI pictorial (see `../TEI_2027_PICTORIAL_PLAN.docx`). Rendered by
+`src/E_personality_radar.py` and `src/E_gesture_plate.py` via the project venv:
+`../.venv/bin/python src/E_personality_radar.py`.
+
+| ID | File | Figure | Engine |
+|----|------|--------|--------|
+| E1 | `E1_gesture_plate` | **Gesture vocabulary** — 8 motion glyphs (nod, lean, sway, orbit, settle, breathe, sweep, focus) with real cm amplitudes + dwell phase; the embodiment centrepiece | matplotlib |
+| E3 | `E3_personality_radar` | **Personality drift** — 6-axis radar, neutral start vs as-deployed after 54 days (responsiveness/energy/exploration the big movers); real values | matplotlib |
+| E4 | `E4_daily_rhythm` | **One day in the life** — 24h activity (people/hr) with rush-hour peak + a mode lane (idle/flow/aware/engaged); real data, Tue Mar 10 | matplotlib |
+
+*Still to build for the pictorial (need data/photos): E2 dwell photo-response strip, E5 week-1-vs-7 comparison, E6 greyscale recolour pass — see the plan doc.*
+
+### F-series (the run-data story — §18 of the guide)
+
+Real-data figures documenting the software/data co-evolution, the calibration artifact, and
+the gap recovery. Rendered from `analysis/merged_run.db` (`hourly_stats_filled`).
+
+| ID | File | Figure | Engine |
+|----|------|--------|--------|
+| F1 | `F1_software_data_timeline` | **Software vs capture** — events/day (measured / partial / estimated / report-recovered) over the version milestones (V2→V6.5c, DB fix, AWARE-in-data); shared date axis | matplotlib |
+| F2 | `F2_calibration_artifact` | **The artifact** — active-zone share: the impossible ~97% pre-fix plateau collapsing to a realistic ~1–12%, with corrected/measured points | matplotlib |
+| F3 | `F3_report_recovery` | **Tiered-retention recovery** — raw (48h) → hourly → daily report; how Feb 3–9 survived in the reports after being pruned from the DB | Mermaid flowchart |
+
+> F1/F2 re-render via `../.venv/bin/python src/F_software_data_timeline.py` and
+> `src/F2_calibration_artifact.py` (F2 reads `/tmp/f2data.pkl`; regenerate it from the merged
+> DB if missing). F3 via `mmdc`.
+
 > **D-series (scale charts)** are rendered by `src/D_scale_charts.py` with the project
 > venv: `../.venv/bin/python src/D_scale_charts.py`. Values are the §15-0 *estimates*
 > (extrapolated from 34 surviving daily reports); update the arrays in that script if the

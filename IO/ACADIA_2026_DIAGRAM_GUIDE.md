@@ -1270,3 +1270,132 @@ verifiable anchors. (Also maintained standalone in
 *"[+N]" = additional authors truncated in ACM's list view; expand on the article page
 before final citation. All DOIs verified resolvable on dl.acm.org; pages/years copied from
 ACM catalogue entries on 2026-05-31.*
+
+---
+
+## 18. The run-data story — software, capture, gaps & recovery
+
+*This section documents the actual 54-day deployment as it shows up **in the data**: when
+the software changed, what the database captured, where it broke, and how it was recovered.
+It is a key part of the project's story — not a caveat to hide but a narrative about an
+adaptive system that was **built while it ran**, whose own reporting pipeline became the
+backup that saved data its database discarded. Full working notes and the merge/estimation
+methods live in [`analysis/DATA_TIMELINE_AND_MERGE.md`](analysis/DATA_TIMELINE_AND_MERGE.md);
+the rendered figure is `diagrams/F1_software_data_timeline`.*
+
+### 18a. Headline
+
+Across the run the installation generated **~23.3 million tracking events over 48 days of
+coverage (Jan 29 – Mar 17 2026)**. The software was under continuous development the entire
+time — versions **V2 → V4 → V5 → V6 → V6.5c** — so **what the database captured changed as
+the software changed**. The data is therefore not a flat log; it is a record of a system
+and its instrument co-evolving in public.
+
+### 18b. Two databases, complementary not duplicate
+
+The full record survived as **two intact SQLite files** (both pass integrity checks,
+identical schemas), each covering a different stretch:
+
+| Copy | Size | Covers |
+|---|---|---|
+| "early" (`IO/tracking_history.db`) | 487 MB | Feb 12–25 |
+| "late" (`tracking_history.db`) | 628 MB | late-Jan, Feb 25 – Mar 17 |
+
+They were merged into a single read-only analysis database
+(`analysis/merged_run.db`), de-duplicated, with every row tagged by source. The early copy
+fills exactly the window the late copy was missing.
+
+### 18c. The software/data timeline (Figure F1)
+
+![Figure F1 — two-lane timeline: daily tracking events (measured, partial, estimated, and report-recovered days) above the software-version milestones (V2 to V6.5c, the Feb 12 DB fix, and AWARE mode entering the data on Mar 15), on one shared date axis](diagrams/png/F1_software_data_timeline.png)
+*Figure F1 — capture volume and quality (top) aligned to the software versions (bottom):
+what the database recorded tracked what the software could do.*
+
+The data records the software's evolution; cross-checked against git commit dates:
+
+| Date | What the data shows | Software event |
+|---|---|---|
+| Jan 27–29 | run begins | `V2`, active/passive fixes |
+| **Feb 12** | capture stabilises after trace days | **`fixed corrupt database`** (calibration/DB fix) |
+| Feb 23 | `light_behavior` logging begins; 13 gestures + 4 modes first appear | V5-era behaviour system |
+| Feb 25 | `sweep` gesture appears | `V5` (anisotropic falloff, SWEEP/FOCUS) |
+| Mar 2–4 | redeploy churn, then stabilises | `the big v6 update` → `V6.1*` → `V6.5c` |
+| Mar 3 | three-tier passive behaviour | `V6.5: passive-flow, three tiers` |
+| **Mar 15** | **`aware` mode first appears in the data**; `playful` gesture | V6.5 three-tier reaching steady logging |
+| Mar 16 | `focus` gesture appears | late V6.5 gesture set complete |
+
+**Consequences for any longitudinal claim:**
+- The **mode vocabulary is not constant** — `aware` only exists from **Mar 15**; before
+  that the light had **four** modes, not five.
+- The **gesture vocabulary grew** over the run (13 → +sweep → +playful → +focus). "16
+  gestures" describes the **final** system, not the whole run.
+- **`light_behavior`** (the light's own state log) is **sparse** — only ~8 substantial days
+  (Feb 23–25, Mar 15–17) — so light-state/self-analysis figures are windowed, not run-wide.
+
+### 18d. The calibration artifact (Jan 29 – Feb 2)
+
+An **uncorrected tracking offset** early in the run mapped nearly every pedestrian into the
+**active** zone. The active-share is the tell:
+
+| Window | Active share |
+|---|---|
+| Jan 29 – Feb 2 (offset uncorrected) | **97.1%** |
+| Feb 13 – Mar 17 (after the fix) | **3.6%** |
+
+A 97% active rate is physically impossible for this site (the alcove is a minority
+destination off a busy sidewalk). Those five days' **active/passive labels are invalid** —
+people were detected, but mis-zoned.
+
+![Figure F2 — active-zone share of detections across the run: a red ~95-98% plateau before Feb 12 (offset uncorrected, physically impossible) collapsing to a realistic ~1-12% band after the calibration fix, with re-estimated (warm) and measured (black) points](diagrams/png/F2_calibration_artifact.png)
+*Figure F2 — the artifact made visible: the impossible early "active" spike and its
+correction.* The split was **re-estimated** (clearly flagged) by
+matching each early hour to the measured active share of the **same weekday + hour** in the
+valid post-fix window, which yields a believable 2.4–3.9%. Stored as
+`hourly_stats_corrected`, preserving the originals in `active_orig`/`passive_orig` plus an
+`estimated` flag. *(A separate pre-V6 bug produced impossible raw `z` values up to 26 km on
+Feb 23–24 — filtered by the zone logic, but a reason to trust aggregated ratios over raw
+coordinates for early dates.)*
+
+### 18e. The Feb 3–9 gap — pruned from the DB, recovered from the reports
+
+Both databases were missing **Feb 3–9** entirely (raw events self-prune at 48 h). But the
+**daily-report JSON files** generated at the time preserved full **24-hour breakdowns** for
+every one of those days. The reports are a frozen snapshot of data the database no longer
+holds — the **tiered-retention design** (raw → hourly aggregate → daily report) doing
+exactly what it was meant to. Those 7 days were ingested back in (168 hours, **~3.0 M
+events**, tagged `src='report'`), giving **continuous coverage with no gaps**:
+
+![Figure F3 — tiered retention recovered the lost week: raw events (48h) roll up to hourly_stats (in DB) and a nightly daily-report JSON (on disk); Feb 3-9 were pruned from the DB but survived in the reports and were re-ingested into a continuous run](diagrams/png/F3_report_recovery.png)
+*Figure F3 — how the lost week was recovered: the daily reports outlived the raw data they
+were derived from.*
+
+| Source | Days | Events |
+|---|---|---|
+| early (DB) | 14 | 2.47 M |
+| **report (recovered)** | **7** | **3.04 M** |
+| late (DB) | 29 | 17.80 M |
+| **total** | **48** | **23.3 M** |
+
+The authoritative run-wide table is **`hourly_stats_filled`** (continuous,
+provenance-tagged, artifact-corrected).
+
+### 18f. What this means for claims & figures
+
+- **Solid:** "~23 million tracking events"; "ran continuously for ~54 days"; the
+  software-version timeline; the personality drift (E3, from config not DB).
+- **Estimated (label it):** the Jan 29–Feb 12 active/passive split; the Feb 3–9 day values
+  (from reports, not live DB).
+- **Do not claim from this data:** the "162 meta-reviews" count (`meta_tuning_reviews` is
+  empty in both DBs); per-visit dwell sessions (`person_sessions` empty).
+- **Before/after evolution (E5):** use **Feb 13–24 (early, V4/V5)** vs **Mar 5–16 (late,
+  V6.5)** — both valid windows. Note the change reflects **both learning and version
+  evolution**; that is the honest story of a live, developing system, not a flaw.
+
+### 18g. Why it belongs in the narrative
+
+The cleanest framing is not to apologise for the gaps but to foreground them: this was an
+**adaptive installation built while it ran**, where the instrument matured alongside the
+artwork, where a calibration error was caught and corrected mid-run, and where the system's
+own daily reporting **recovered data its database had pruned**. For a project about a system
+that learns and evolves in public, the data's own messy, self-healing history is part of
+the contribution — evidence of a real deployment, not a demo.
