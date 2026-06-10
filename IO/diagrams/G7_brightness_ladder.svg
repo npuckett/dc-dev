@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="693.723375pt" height="297.681641pt" viewBox="0 0 693.723375 297.681641" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-06-10T14:01:03.735678</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 297.681641 
+L 693.723375 297.681641 
+L 693.723375 0 
+L 0 0 
+L 0 297.681641 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 46.965625 236.545891 
+L 579.477625 236.545891 
+L 579.477625 27.457891 
+L 46.965625 27.457891 
+L 46.965625 236.545891 
+z
+" style="fill: none"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path id="m81b0744a0f" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m81b0744a0f" x="103.653738" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="103.653738" y="251.144328" transform="rotate(-0 103.653738 251.144328)">idle</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use xlink:href="#m81b0744a0f" x="208.437682" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="208.437682" y="251.144328" transform="rotate(-0 208.437682 251.144328)">flow</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <g>
+       <use xlink:href="#m81b0744a0f" x="313.221625" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="313.221625" y="251.144328" transform="rotate(-0 313.221625 251.144328)">aware</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_4">
+      <g>
+       <use xlink:href="#m81b0744a0f" x="418.005568" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="418.005568" y="251.144328" transform="rotate(-0 418.005568 251.144328)">engaged</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_5">
+      <g>
+       <use xlink:href="#m81b0744a0f" x="522.789512" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="522.789512" y="251.144328" transform="rotate(-0 522.789512 251.144328)">crowd</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_6">
+      <path d="M 46.965625 236.545891 
+L 579.477625 236.545891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_7">
+      <defs>
+       <path id="m03e4881cfb" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="236.545891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_6">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="240.345109" transform="rotate(-0 39.965625 240.345109)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_8">
+      <path d="M 46.965625 203.875891 
+L 579.477625 203.875891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_9">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="203.875891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="207.675109" transform="rotate(-0 39.965625 207.675109)">100</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_10">
+      <path d="M 46.965625 171.205891 
+L 579.477625 171.205891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_11">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="171.205891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_8">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="175.005109" transform="rotate(-0 39.965625 175.005109)">200</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_12">
+      <path d="M 46.965625 138.535891 
+L 579.477625 138.535891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_13">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="138.535891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="142.335109" transform="rotate(-0 39.965625 142.335109)">300</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_14">
+      <path d="M 46.965625 105.865891 
+L 579.477625 105.865891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_15">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="105.865891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_10">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="109.665109" transform="rotate(-0 39.965625 109.665109)">400</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_16">
+      <path d="M 46.965625 73.195891 
+L 579.477625 73.195891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_17">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="73.195891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_11">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="76.995109" transform="rotate(-0 39.965625 76.995109)">500</text>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_18">
+      <path d="M 46.965625 40.525891 
+L 579.477625 40.525891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke: #eeeeee; stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_19">
+      <g>
+       <use xlink:href="#m03e4881cfb" x="46.965625" y="40.525891" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_12">
+      <text style="font: 10px 'DejaVu Sans'; text-anchor: end" x="39.965625" y="44.325109" transform="rotate(-0 39.965625 44.325109)">600</text>
+     </g>
+    </g>
+    <g id="text_13">
+     <text style="font: 10px 'DejaVu Sans'; text-anchor: middle" x="14.798438" y="132.001891" transform="rotate(-90 14.798438 132.001891)">average brightness (DMX-scale units)</text>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 71.170716 236.545891 
+L 136.136761 236.545891 
+L 136.136761 226.810231 
+L 71.170716 226.810231 
+z
+" clip-path="url(#pdf7dbdd299)" style="fill: #d9d9d9; stroke: #1a1a1a; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 175.954659 236.545891 
+L 240.920704 236.545891 
+L 240.920704 206.489491 
+L 175.954659 206.489491 
+z
+" clip-path="url(#pdf7dbdd299)" style="fill: #bdbdbd; stroke: #1a1a1a; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 280.738603 236.545891 
+L 345.704647 236.545891 
+L 345.704647 184.959961 
+L 280.738603 184.959961 
+z
+" clip-path="url(#pdf7dbdd299)" style="fill: #e8a23d; stroke: #1a1a1a; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 385.522546 236.545891 
+L 450.488591 236.545891 
+L 450.488591 164.345191 
+L 385.522546 164.345191 
+z
+" clip-path="url(#pdf7dbdd299)" style="fill: #c47f1d; stroke: #1a1a1a; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 490.306489 236.545891 
+L 555.272534 236.545891 
+L 555.272534 109.753621 
+L 490.306489 109.753621 
+z
+" clip-path="url(#pdf7dbdd299)" style="fill: #8a5a00; stroke: #1a1a1a; stroke-width: 0.6; stroke-linejoin: miter"/>
+   </g>
+   <g id="line2d_20">
+    <path d="M 46.965625 40.525891 
+L 579.477625 40.525891 
+" clip-path="url(#pdf7dbdd299)" style="fill: none; stroke-dasharray: 4,3; stroke-dashoffset: 0; stroke: #9a9a9a"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 46.965625 236.545891 
+L 46.965625 27.457891 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 46.965625 236.545891 
+L 579.477625 236.545891 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_14">
+    <text style="fill: #1a1a1a; font: 700 10px 'DejaVu Sans'; text-anchor: middle" x="103.653738" y="224.196631" transform="rotate(-0 103.653738 224.196631)">30</text>
+   </g>
+   <g id="text_15">
+    <text style="fill: #1a1a1a; font: 700 10px 'DejaVu Sans'; text-anchor: middle" x="208.437682" y="203.875891" transform="rotate(-0 208.437682 203.875891)">92</text>
+   </g>
+   <g id="text_16">
+    <text style="fill: #1a1a1a; font: 700 10px 'DejaVu Sans'; text-anchor: middle" x="313.221625" y="182.346361" transform="rotate(-0 313.221625 182.346361)">158</text>
+   </g>
+   <g id="text_17">
+    <text style="fill: #1a1a1a; font: 700 10px 'DejaVu Sans'; text-anchor: middle" x="418.005568" y="161.731591" transform="rotate(-0 418.005568 161.731591)">221</text>
+   </g>
+   <g id="text_18">
+    <text style="fill: #1a1a1a; font: 700 10px 'DejaVu Sans'; text-anchor: middle" x="522.789512" y="107.140021" transform="rotate(-0 522.789512 107.140021)">388</text>
+   </g>
+   <g id="text_19">
+    <text style="fill: #9a9a9a; font: 8px 'DejaVu Sans'; text-anchor: end" x="564.703089" y="37.912291" transform="rotate(-0 564.703089 37.912291)">cap 600</text>
+   </g>
+   <g id="text_20">
+    <text style="fill: #1a1a1a; font: 700 13.5px 'DejaVu Sans'; text-anchor: start" x="46.965625" y="17.457891" transform="rotate(-0 46.965625 17.457891)">G7   The brightness ladder — the panels display attention</text>
+   </g>
+  </g>
+  <g id="text_21">
+   <text style="fill: #555555; font: 8px 'DejaVu Sans'; text-anchor: start" x="28.389625" y="288.817891" transform="rotate(-0 28.389625 288.817891)">Average brightness by behaviour mode, V6.5 era. Monotonic from idle (30) to crowd (388): the window's glow encodes how much attention is present in the alcove.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pdf7dbdd299">
+   <rect x="46.965625" y="27.457891" width="532.512" height="209.088"/>
+  </clipPath>
+ </defs>
+</svg>

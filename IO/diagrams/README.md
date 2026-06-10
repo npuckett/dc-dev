@@ -63,6 +63,56 @@ the gap recovery. Rendered from `analysis/merged_run.db` (`hourly_stats_filled`)
 > `src/F2_calibration_artifact.py` (F2 reads `/tmp/f2data.pkl`; regenerate it from the merged
 > DB if missing). F3 via `mmdc`.
 
+### H-series (the second-reading figures — DROPCEILING_FINDINGS_H.md)
+
+A second, independent reading of the run data — 10 figures that the G-series
+didn't build, from per-cycle tuner behaviour, the surviving meta-review, the
+48-day brightness curve, the mode entropy timeline, the spatial footprint of
+each mode, the gesture spatial map, the parameter correlation structure, and
+the empirical regime-conditional tuner deltas. House style: greyscale + warm
+accent (same as E and G). Data prep: `analysis/h_data_prep.py` writes
+`analysis/h_data.json`.
+
+| ID | File | Figure | Engine |
+|----|------|--------|--------|
+| H1 | `H1_regime_deltas` | **Regime-conditional param deltas** — 4×12 heatmap: mean per-cycle Δparam split by activity regime (dead/trickle/steady/rush); RUSH row is the only one with strong colour | matplotlib |
+| H2 | `H2_meta_review` | **The first self-diagnosis** — every parameter at a wall, Feb 13 10:23 (8 of 12 parameters at 96.6% clamp, memory at 100%) | matplotlib |
+| H3 | `H3_aggression_heatmap` | **Per-cycle aggression × day × hour** — the same data as G4 un-averaged; the 4 AM dark band and 14:00 light band visible on every day | matplotlib |
+| H4 | `H4_param_clusters` | **The 12-dial personality is a 3-factor system** — daily net-change heatmap with the 3 clusters (outputs r=0.99, personality r=0.99, trade-offs r=−0.94) boxed | matplotlib |
+| H5 | `H5_mode_entropy` | **Behavioural richness tripled when the vocabulary did** — Shannon entropy of per-day mode distribution, normalised; the Mar 3 V6 step is a discontinuity | matplotlib |
+| H6 | `H6_episode_grid` | **Where the 758 episodes happened** — 3 days × 24 hours, the 03-16 17:00 cell is hottest (56 episodes) | matplotlib |
+| H7 | `H7_mode_footprints` | **The spatial footprint of each mode** — density of light (x, z) per mode in V6.5; ENGAGED pulls forward 9 cm, CROWD pulls forward 14 cm and off-centre | matplotlib |
+| H8 | `H8_gesture_spatial` | **Motion vs posture** — mean target (x, z) per gesture; sway/orbit/sweep at z=+20, the others at z=0 | matplotlib |
+| H9 | `H9_brightness_timeline` | **The light took a week to come on** — 48-day daily-mean brightness from hourly_stats_filled; first 5 days = 0 DMX, V6 deployment = the cliff | matplotlib |
+| H10 | `H10_step_distribution` | **Per-param step-size distribution, by regime** — 8 small multiples of std and mean per cycle, the spread grows in RUSH | matplotlib |
+
+> Re-render from `diagrams/`: `../../.venv/bin/python src/H_findings_figures.py`
+> (reads `../analysis/h_data.json`; regenerate with
+> `../analysis/h_data_prep.py` if missing).
+
+### G-series (the fresh-findings figures — DROPCEILING_FINDINGS.md)
+
+The ten figures that carry Findings 1–11 of
+[`../DROPCEILING_FINDINGS.md`](../DROPCEILING_FINDINGS.md). Real data, greyscale + warm
+accent (same house style as the E-series). Data prep: `analysis/g_data_prep.py` writes
+`analysis/g_data.json` from `analysis/merged_run.db` + the two source DBs.
+
+| ID | File | Figure | Engine |
+|----|------|--------|--------|
+| G1 | `G1_personality_trajectories` | **Punctuated personality** — 19 daily snapshots of 5 meta-parameters, version steps (Feb 13, Feb 25) as warm rules; replaces/extends E3 | matplotlib |
+| G2 | `G2_breathing_street` | **The breathing street** — diverging flow-by-hour, 08:00 inhales (warm) / 16:00 exhales (warm); 10.4M directional events | matplotlib |
+| G3 | `G3_engagement_episodes` | **The fleeting 758** — log-scale episode-duration histogram with the four dwell-phase boundaries and the twelve 30 s+ bonds as warm dots | matplotlib |
+| G4 | `G4_loneliest_hour` | **Loneliest at 4 AM** — aggression (warm) vs people (grey) over 24 h, opposite phase | matplotlib |
+| G5 | `G5_gesture_economy` | **Solitary → social** — two ranked gesture bars (V5 / V6.5), `welcome` highlighted in the warm accent | matplotlib |
+| G6 | `G6_mode_budget` | **Restructured waiting** — two stacked mode-time bars (V5 / V6.5), idle redistributed to flow/aware | matplotlib |
+| G7 | `G7_brightness_ladder` | **Brightness ladder** — average DMX brightness by mode (idle 30 → crowd 388, cap 600) | matplotlib |
+| G8 | `G8_desire_line` | **The desire line** — Z-occupancy histogram with active/passive zone bands, peak at z 350–400 cm | matplotlib |
+| G9 | `G9_friction_regimes` | **Two friction regimes** — budget level + %-depleted over the run, cliff at the V5 update | matplotlib |
+| G10 | `G10_diary` | **The diary** — verbatim `strategy_summary` excerpts (Day 1, first self-review, V5, V6) anchored on the energy trajectory | matplotlib |
+
+> Re-render from `diagrams/`: `../../.venv/bin/python src/G_findings_figures.py` (reads
+> `../analysis/g_data.json`; regenerate that with `../analysis/g_data_prep.py` if missing).
+
 > **D-series (scale charts)** are rendered by `src/D_scale_charts.py` with the project
 > venv: `../.venv/bin/python src/D_scale_charts.py`. Values are the §15-0 *estimates*
 > (extrapolated from 34 surviving daily reports); update the arrays in that script if the

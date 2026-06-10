@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="802.14625pt" height="220.897641pt" viewBox="0 0 802.14625 220.897641" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-06-10T14:01:03.666268</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 220.897641 
+L 802.14625 220.897641 
+L 802.14625 0 
+L 0 0 
+L 0 220.897641 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 75.24 137.529319 
+L 369.026139 137.529319 
+L 369.026139 106.415033 
+L 75.24 106.415033 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #ededed; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 369.026139 137.529319 
+L 581.284947 137.529319 
+L 581.284947 106.415033 
+L 369.026139 106.415033 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #bdbdbd; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 581.284947 137.529319 
+L 621.893674 137.529319 
+L 621.893674 106.415033 
+L 581.284947 106.415033 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #e8a23d; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 621.893674 137.529319 
+L 673.274338 137.529319 
+L 673.274338 106.415033 
+L 621.893674 106.415033 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #c47f1d; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 673.274338 137.529319 
+L 680.04 137.529319 
+L 680.04 106.415033 
+L 673.274338 106.415033 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #8a5a00; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 75.24 80.957891 
+L 496.540666 80.957891 
+L 496.540666 49.843605 
+L 75.24 49.843605 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #ededed; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 496.540666 80.957891 
+L 625.264281 80.957891 
+L 625.264281 49.843605 
+L 496.540666 49.843605 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #bdbdbd; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 625.264281 80.957891 
+L 678.936906 80.957891 
+L 678.936906 49.843605 
+L 625.264281 49.843605 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #c47f1d; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 678.936906 80.957891 
+L 680.04 80.957891 
+L 680.04 49.843605 
+L 678.936906 49.843605 
+z
+" clip-path="url(#p078c3f01d6)" style="fill: #8a5a00; stroke: #ffffff; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(214.458499 119.558575)">idle</text>
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(212.686781 129.076715)">49%</text>
+   </g>
+   <g id="text_2">
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(466.402535 119.558575)">flow</text>
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(465.709254 129.076715)">35%</text>
+   </g>
+   <g id="text_3">
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(588.638099 119.558575)">aware</text>
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(594.847084 129.076715)">7%</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(628.961701 119.558575)">engaged</text>
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(640.841779 129.076715)">8%</text>
+   </g>
+   <g id="text_5">
+    <text style="fill: #1a1a1a; font: 9.5px 'DejaVu Sans'" transform="translate(25.969641 119.274622)">V6.5 era</text>
+    <text style="fill: #1a1a1a; font: 9.5px 'DejaVu Sans'" transform="translate(8.884484 129.912544)">(Mar 15–17)</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(278.215763 62.987146)">idle</text>
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(276.444044 72.505287)">70%</text>
+   </g>
+   <g id="text_7">
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(552.149466 62.987146)">flow</text>
+    <text style="fill: #1a1a1a; font: 8.5px 'DejaVu Sans'" transform="translate(551.456185 72.505287)">21%</text>
+   </g>
+   <g id="text_8">
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(633.478289 62.987146)">engaged</text>
+    <text style="fill: #ffffff; font: 8.5px 'DejaVu Sans'" transform="translate(645.358367 72.505287)">9%</text>
+   </g>
+   <g id="text_9">
+    <text style="fill: #1a1a1a; font: 9.5px 'DejaVu Sans'" transform="translate(35.033234 62.703193)">V5 era</text>
+    <text style="fill: #1a1a1a; font: 9.5px 'DejaVu Sans'" transform="translate(9.990344 73.341115)">(Feb 23–25)</text>
+   </g>
+   <g id="text_10">
+    <text style="fill: #1a1a1a; font: 700 13.5px 'DejaVu Sans'; text-anchor: start" x="75.24" y="17.457891" transform="rotate(-0 75.24 17.457891)">G6   A life of waiting, restructured — engagement constant, idle redistributed</text>
+   </g>
+  </g>
+  <g id="text_11">
+   <text style="fill: #555555; font: 8px 'DejaVu Sans'; text-anchor: start" x="7.2" y="212.033891" transform="rotate(-0 7.2 212.033891)">Share of the light's recorded ticks by mode. Engaged+crowd stays ~9–10% across eras; V6.5 turned twenty points of idle into flow/aware — attending to passing traffic instead of wandering alone.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p078c3f01d6">
+   <rect x="75.24" y="31.457891" width="604.8" height="118.8"/>
+  </clipPath>
+ </defs>
+</svg>
