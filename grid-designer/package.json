@@ -1,0 +1,26 @@
+{
+  "name": "grid-designer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Whole-grid folded-surface ideation tool for the Drop Ceiling V2 installation (6x5 ceiling light panel grid)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "immer": "^11.1.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "three": "^0.183.1",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "playwright": "^1.61.1",
+    "vite": "^7.3.1"
+  }
+}
