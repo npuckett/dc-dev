@@ -21,6 +21,12 @@
  * against one. (Example: `setColumnFold(c, k, 20)` on a joint a vertical plate
  * removed is rejected by E_FOLD_ON_REMOVED_JOINT — that plate cannot bend.)
  *
+ * The GROUNDED-END rule is deliberately OUTSIDE that gate: a config whose last
+ * panels float is perfectly valid and committable (dragging a fold slider passes
+ * through such states constantly) — it just carries `violations` in its derived
+ * layout. `groundColumn(c)` / `groundAllColumns()` solve them away on demand, and
+ * report E_UNGROUNDABLE through `lastErrors` when the last hinge cannot reach.
+ *
  * =============================================================================
  * DERIVED DATA MEMOIZATION
  * =============================================================================
@@ -46,6 +52,7 @@ import {
 } from './core/schema.js'
 import { buildPreset } from './core/presets.js'
 import { solveLayout } from './core/placement.js'
+import { groundAllFolds, solveGroundingFold } from './core/ground.js'
 import { jointReport } from './core/report.js'
 
 // -----------------------------------------------------------------------------
@@ -56,15 +63,20 @@ const derivedCache = new WeakMap()
 /**
  * Solve + measure a config, memoized on the config's object identity.
  *
+ * `violations` is `layout.violations` hoisted to the top level — the grounded-end
+ * rule (E_END_FLOATING, see core/placement.js) is a property of the whole design
+ * rather than of any one panel, and four components read it.
+ *
  * @param {object} config a validated, normalized config
- * @returns {{ layout: object, report: object }} reference-stable per config
+ * @returns {{ layout: object, report: object, violations: Array }} reference-stable
+ *          per config
  */
 export function getDerived(config) {
   let entry = derivedCache.get(config)
   if (!entry) {
     const layout = solveLayout(config)
     const report = jointReport(layout, config)
-    entry = { layout, report }
+    entry = { layout, report, violations: layout.violations }
     derivedCache.set(config, entry)
   }
   return entry
@@ -208,6 +220,75 @@ const useStore = create((set, get) => {
           column.foldsDeg = source.slice()
         })
       }),
+
+    /**
+     * Bring column `c`'s last panel back down to the floor (the grounded-end rule
+     * in core/schema.js: "the wave returns to the water") by solving its LAST
+     * SURVIVING hinge — the deepest joint no vertical plate has removed.
+     *
+     * Not every floating column can be rescued this way: once the chain's last
+     * vertex is much more than a panel-length above the floor, no angle in ±120°
+     * reaches down, and the fold profile in FRONT of the end has to arc back down
+     * instead. That case reports E_UNGROUNDABLE and changes nothing.
+     *
+     * @param {number} c column index
+     * @returns {boolean} whether the change was committed
+     */
+    groundColumn: (c) => {
+      const solved = solveGroundingFold(get().config, c)
+      if (!solved) {
+        set({
+          lastErrors: [
+            {
+              code: 'E_UNGROUNDABLE',
+              message:
+                `column ${c}'s last panel cannot reach the floor from where its chain ends — ` +
+                `no angle within ±${MAX_FOLD_DEG}° at its last hinge gets there. Fold the rows in ` +
+                `FRONT of it back down: the pitch profile has to arc over and descend, not just climb.`,
+              path: `columns[${c}].foldsDeg`,
+            },
+          ],
+        })
+        return false
+      }
+      return commit((draft) => {
+        const folds = draft.columns?.[c]?.foldsDeg
+        if (!Array.isArray(folds)) return
+        folds[solved.jointIndex] = solved.foldDeg
+      })
+    },
+
+    /**
+     * Ground every floating column at once. Columns already touching the floor are
+     * left exactly as they are, and a column the solver cannot rescue is skipped
+     * (it stays in `violations`) rather than blocking the others.
+     *
+     * @returns {boolean} whether the change was committed
+     */
+    groundAllColumns: () => {
+      const config = get().config
+      if (getDerived(config).violations.length === 0) {
+        set({ lastErrors: [] })
+        return true // already grounded everywhere — nothing to do
+      }
+      const next = groundAllFolds(config)
+      if (!next) {
+        set({
+          lastErrors: [
+            {
+              code: 'E_UNGROUNDABLE',
+              message:
+                'no floating column could be brought down by its last hinge alone — those fold ' +
+                'profiles end too high above the floor. Fold the rows in front of the ends back ' +
+                'down so each column arcs over and descends.',
+              path: 'columns',
+            },
+          ],
+        })
+        return false
+      }
+      return commitConfig(next)
+    },
 
     /**
      * Set every hinge of every column to 0° — the flat reference surface.

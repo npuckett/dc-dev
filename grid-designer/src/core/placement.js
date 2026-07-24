@@ -72,8 +72,10 @@
  *   solveLayout(config) → {
  *     panels: [{ id, row, col, cells, type, rectOrientation,
  *                position: [x,y,z], quaternion: [x,y,z,w], rowPitchDeg }],
- *     columnChains: [{ col, points: [[y,z], …], pitchesDeg: [ψ per row] }],
+ *     columnChains: [{ col, points: [[y,z], …], pitchesDeg: [ψ per row],
+ *                     grounded: boolean, endClearanceCm: number }],
  *     warnings: [{ code, message }],
+ *     violations: [{ code, col, clearanceCm, message }],
  *   }
  * Panels are emitted column-major (all of column 0 front-to-back, then column 1,
  * …). `rowPitchDeg` is the panel's cumulative pitch. `columnChains[c].points`
@@ -89,12 +91,26 @@
  *   W_BELOW_FLOOR      lit-face corners dip below y = 0: those panels have
  *                      nothing to stand on
  *
+ * Layout violations (the design is not finished while any are present):
+ *   E_END_FLOATING     a column's LAST panel does not touch the floor. See the
+ *                      grounded-end rule in schema.js: "the wave returns to the
+ *                      water". Measured over the panel's SOLID (its 4 lit-face
+ *                      corners AND those 4 corners at the back of the housing,
+ *                      3.7cm along −n̂); grounded iff that minimum y is within
+ *                      `groundTolerance` of 0. Floating and below-floor are
+ *                      INDEPENDENT: a panel can dip under the floor (W_BELOW_FLOOR)
+ *                      and a column can float (E_END_FLOATING) without the other.
+ * This is a violation rather than a validation error on purpose — a fold slider
+ * necessarily passes through floating states while it is being dragged, and the
+ * store only commits configs that validate.
+ *
  * All numbers are plain JSON-able doubles rounded to 1e-9 (which also normalizes
  * −0 → 0) so repeated solves are byte-identical.
  */
 
 import * as THREE from 'three'
-import { columnChain, normalizeConfig } from './schema.js'
+import { DEFAULT_GROUND_TOLERANCE, columnChain, normalizeConfig } from './schema.js'
+import { PANEL_PROFILE } from '../config.js'
 
 const DEG = Math.PI / 180
 
@@ -269,6 +285,46 @@ export function panelWorldCorners(panel, config) {
 }
 
 /**
+ * The 8 world-space corners of a panel's SOLID: the 4 lit-face corners followed
+ * by the same 4 pushed `PANEL_PROFILE.overallThickness` (3.7cm) along −n̂, i.e.
+ * the back of the housing. Same corner order as `panelWorldCorners`, face first.
+ *
+ * This — not the lit face alone — is what decides whether a panel touches the
+ * floor: a flat panel's lit face sits at y = 3.7 while its housing rests at
+ * exactly y = 0, and a tilted panel touches with a housing EDGE.
+ *
+ * @param {object} panel a layout panel
+ * @param {object} config config (raw or normalized)
+ * @returns {number[][]} eight [x, y, z] triples
+ */
+export function panelSolidCorners(panel, config) {
+  const face = panelWorldCorners(panel, config)
+  const n = panelWorldNormal(panel)
+  const t = PANEL_PROFILE.overallThickness
+  return face.concat(
+    face.map(([x, y, z]) => [round9(x - t * n.x), round9(y - t * n.y), round9(z - t * n.z)]),
+  )
+}
+
+/**
+ * Lowest world y anywhere on a panel's solid — its distance to the floor.
+ * 0 means touching (a flat panel is exactly 0); > 0 means floating.
+ *
+ * @param {object} panel a layout panel
+ * @param {object} config config (raw or normalized)
+ * @returns {number}
+ */
+export function panelSolidMinY(panel, config) {
+  return panelSolidCorners(panel, config).reduce((m, corner) => Math.min(m, corner[1]), Infinity)
+}
+
+/** `config.groundTolerance`, falling back to the default for junk input. */
+export function groundToleranceOf(config) {
+  const t = Number(config?.groundTolerance)
+  return Number.isFinite(t) && t > 0 ? t : DEFAULT_GROUND_TOLERANCE
+}
+
+/**
  * The 4 world-space corners of the sub-rectangle one cell of a panel owns.
  * Same corner order as `panelWorldCorners`.
  *
@@ -324,6 +380,119 @@ export function cellEdgeWorld(panel, cellIndex, faceAxis, orientAxis, config) {
 }
 
 // -----------------------------------------------------------------------------
+// Column panels
+// -----------------------------------------------------------------------------
+/**
+ * Turn one walked column chain into its world-space panels, front to back.
+ *
+ * The single place panel placement is computed — `solveLayout` calls it once per
+ * column and `columnPanels` calls it for one column at a time, so the cheap
+ * one-column path (used by the grounding solver's scan) can never drift from the
+ * full solve.
+ *
+ * @param {object} cfg normalized config
+ * @param {number} c column index
+ * @param {object} chain output of `columnChain(cfg, c)`
+ * @returns {Array} panels (phantom cells emit nothing)
+ */
+function buildColumnPanels(cfg, c, chain) {
+  const size = Number(cfg.cell.size)
+  const gap = Number(cfg.gap)
+  const pitch = size + gap
+  const yawQuat = new THREE.Quaternion().setFromAxisAngle(YAW_AXIS, Math.PI / 2)
+  const panels = []
+
+  for (const seg of chain.segments) {
+    if (seg.kind === 'phantom') continue
+
+    const r = seg.rows[0]
+    const psi = seg.pitchDeg
+    const [oy, oz] = seg.origin
+    const along = seg.kind === 'vrect' ? Number(seg.length) : size
+    const half = along / 2
+
+    const xCenter =
+      seg.kind === 'hrect'
+        ? c * pitch + (2 * size + gap) / 2 // centered across the two-column slot
+        : c * pitch + size / 2
+
+    const position = new THREE.Vector3(
+      xCenter,
+      oy + half * Math.sin(psi * DEG),
+      oz + half * Math.cos(psi * DEG),
+    )
+
+    const quat = new THREE.Quaternion().setFromAxisAngle(PITCH_AXIS, -psi * DEG)
+    if (seg.kind === 'hrect') quat.multiply(yawQuat)
+
+    const cells =
+      seg.kind === 'vrect'
+        ? [
+            [r, c],
+            [r + 1, c],
+          ]
+        : seg.kind === 'hrect'
+          ? [
+              [r, c],
+              [r, c + 1],
+            ]
+          : [[r, c]]
+
+    panels.push({
+      id: `p${r}_${c}`,
+      row: r,
+      col: c,
+      cells,
+      type: seg.kind === 'square' ? '2x2' : '2x4',
+      rectOrientation: seg.kind === 'vrect' ? 'vertical' : seg.kind === 'hrect' ? 'horizontal' : null,
+      position: vec3out(position),
+      quaternion: quatOut(quat),
+      rowPitchDeg: round9(psi),
+    })
+  }
+
+  return panels
+}
+
+/**
+ * The panels of ONE column, front (window) to back — the same objects
+ * `solveLayout` would emit for it.
+ *
+ * @param {object} config config (raw or normalized)
+ * @param {number} c column index
+ * @returns {Array} panels
+ */
+export function columnPanels(config, c) {
+  const cfg = normalizeConfig(config)
+  return buildColumnPanels(cfg, c, columnChain(cfg, c))
+}
+
+/**
+ * Is column `c`'s LAST panel touching the floor?
+ *
+ * The last panel is the deepest panel the column actually OWNS — which may be a
+ * 121cm vertical plate spanning the last two rows, and is row rows-2 when a
+ * horizontal plate owned by column c-1 covers the last row (that cell is a
+ * phantom here and emits no panel).
+ *
+ * @param {object} config config (raw or normalized)
+ * @param {number} c column index
+ * @returns {{ grounded: boolean, clearanceCm: number, panel: object|null }}
+ *          `clearanceCm` is the lowest point of that panel's solid: 0 = touching,
+ *          > 0 = floating that far up, < 0 = driven into the floor.
+ */
+export function columnEndGrounding(config, c) {
+  const cfg = normalizeConfig(config)
+  // One chain walk, straight into the shared builder: the grounding solver calls
+  // this a few hundred times per column, so it skips `columnPanels`'s re-normalize.
+  const panels = buildColumnPanels(cfg, c, columnChain(cfg, c))
+  const panel = panels.length > 0 ? panels[panels.length - 1] : null
+  if (!panel) return { grounded: true, clearanceCm: 0, panel: null }
+  const minY = round9(panelSolidMinY(panel, cfg))
+  return { grounded: minY <= groundToleranceOf(cfg), clearanceCm: minY, panel }
+}
+
+// -----------------------------------------------------------------------------
 // solveLayout
 // -----------------------------------------------------------------------------
 /**
@@ -334,85 +503,58 @@ export function cellEdgeWorld(panel, cellIndex, faceAxis, orientAxis, config) {
  * will.
  *
  * @param {object} config config (raw or normalized — normalized internally)
- * @returns {{ panels: Array, columnChains: Array, warnings: Array }}
+ * @returns {{ panels: Array, columnChains: Array, warnings: Array, violations: Array }}
  */
 export function solveLayout(config) {
   const cfg = normalizeConfig(config)
   const cols = Number(cfg.grid.cols)
   const rowCount = Number(cfg.grid.rows)
-  const size = Number(cfg.cell.size)
-  const gap = Number(cfg.gap)
   const warnings = []
+  const violations = []
 
   if (!Number.isInteger(cols) || cols < 1 || !Number.isInteger(rowCount) || rowCount < 1) {
     throw new Error(`solveLayout: grid must be integers ≥ 1 (got ${cols}×${rowCount})`)
   }
 
-  const pitch = size + gap
-  const yawQuat = new THREE.Quaternion().setFromAxisAngle(YAW_AXIS, Math.PI / 2)
-
+  const groundTol = groundToleranceOf(cfg)
   const panels = []
   const columnChains = []
   const backtracking = []
 
   for (let c = 0; c < cols; c++) {
     const chain = columnChain(cfg, c)
+    const colPanels = buildColumnPanels(cfg, c, chain)
+
+    // Grounded-end rule: the column's LAST panel must reach the floor.
+    const end = colPanels.length > 0 ? colPanels[colPanels.length - 1] : null
+    const clearance = end ? round9(panelSolidMinY(end, cfg)) : 0
+    const grounded = clearance <= groundTol
+
     columnChains.push({
       col: c,
       points: chain.points.map(([y, z]) => [round9(y), round9(z)]),
       pitchesDeg: chain.pitchesDeg.map(round9),
+      grounded,
+      endClearanceCm: clearance,
     })
 
-    for (const seg of chain.segments) {
-      if (seg.kind === 'phantom') continue
-
-      const r = seg.rows[0]
-      const psi = seg.pitchDeg
-      const [oy, oz] = seg.origin
-      const along = seg.kind === 'vrect' ? Number(seg.length) : size
-      const half = along / 2
-
-      const xCenter =
-        seg.kind === 'hrect'
-          ? c * pitch + (2 * size + gap) / 2 // centered across the two-column slot
-          : c * pitch + size / 2
-
-      const position = new THREE.Vector3(
-        xCenter,
-        oy + half * Math.sin(psi * DEG),
-        oz + half * Math.cos(psi * DEG),
-      )
-
-      const quat = new THREE.Quaternion().setFromAxisAngle(PITCH_AXIS, -psi * DEG)
-      if (seg.kind === 'hrect') quat.multiply(yawQuat)
-
-      const cells =
-        seg.kind === 'vrect'
-          ? [
-              [r, c],
-              [r + 1, c],
-            ]
-          : seg.kind === 'hrect'
-            ? [
-                [r, c],
-                [r, c + 1],
-              ]
-            : [[r, c]]
-
-      const id = `p${r}_${c}`
-      panels.push({
-        id,
-        row: r,
+    if (!grounded) {
+      violations.push({
+        code: 'E_END_FLOATING',
         col: c,
-        cells,
-        type: seg.kind === 'square' ? '2x2' : '2x4',
-        rectOrientation: seg.kind === 'vrect' ? 'vertical' : seg.kind === 'hrect' ? 'horizontal' : null,
-        position: vec3out(position),
-        quaternion: quatOut(quat),
-        rowPitchDeg: round9(psi),
+        clearanceCm: clearance,
+        message:
+          `column ${c}'s last panel (${end.id}) floats ${clearance.toFixed(2)}cm above the floor — ` +
+          `every column's fold sequence must bring its last panel back down to touch the ground ` +
+          `(flat, or one housing edge down; tolerance ${groundTol}cm). The wave returns to the water.`,
       })
+    }
 
-      if (Math.cos(psi * DEG) <= 0) backtracking.push({ id, psi: round9(psi) })
+    for (const panel of colPanels) {
+      panels.push(panel)
+      if (Math.cos(panel.rowPitchDeg * DEG) <= 0) {
+        backtracking.push({ id: panel.id, psi: panel.rowPitchDeg })
+      }
     }
   }
 
@@ -440,5 +582,5 @@ export function solveLayout(config) {
     })
   }
 
-  return { panels, columnChains, warnings }
+  return { panels, columnChains, warnings, violations }
 }

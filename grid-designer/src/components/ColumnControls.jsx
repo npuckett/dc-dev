@@ -37,6 +37,11 @@
  *     axis is EXAGGERATED (a 308cm-deep chain in a 90px box would otherwise flatten
  *     every fold into the baseline); the pitch row above is the honest angle
  *     readout, the sparkline is the shape.
+ *   - the GROUNDED-END verdict for that column (see schema.js: the last panel must
+ *     come back and touch the floor). A floating column gets a red FLOATING badge
+ *     with the clearance in cm, a red dot at the end of its sparkline, and a
+ *     "Ground end" button that hands the last hinge to the solver in core/ground.js.
+ *     A grounded column just gets a small green endpoint dot.
  *
  * Sliders commit on every `input` event: the solve is memoized per config and a
  * whole 6×5 solve + joint report is well under a millisecond.
@@ -57,6 +62,9 @@ const PROFILE_FILL = '#4a7fc4'
 const PROFILE_BAD = '#ff5f6d'
 const PROFILE_FLOOR = '#4a4a68'
 const PROFILE_SHORE = '#8fcaff'
+/** End-of-chain marker: the column's last panel touches the floor / floats. */
+const PROFILE_GROUNDED = '#63d19b'
+const PROFILE_FLOATING = '#ff5f6d'
 /**
  * Smallest height the vertical axis ever spans, cm. Keeps a FLAT column visibly
  * above the floor line instead of merging with it (a 3.7cm-high chain in a box
@@ -100,7 +108,7 @@ export function chainBounds(layout) {
  * squash every fold into the baseline, so the sparkline shows the shape and the
  * pitch row above it carries the true angles.
  */
-function ProfileSparkline({ c, points, bounds }) {
+function ProfileSparkline({ c, points, bounds, grounded, clearanceCm }) {
   const availW = SPARK_W - 2 * SPARK_PAD
   const availH = SPARK_H - 2 * SPARK_PAD
   const zSpan = Math.max(bounds.zMax - bounds.zMin, 1e-6)
@@ -138,11 +146,14 @@ function ProfileSparkline({ c, points, bounds }) {
       width={SPARK_W}
       height={SPARK_H}
       role="img"
-      aria-label={`column ${c} fold profile, window at the left${below.length > 0 ? ', dips below the floor' : ''}`}
+      aria-label={`column ${c} fold profile, window at the left${below.length > 0 ? ', dips below the floor' : ''}${grounded ? ', end grounded' : ', end floating'}`}
     >
       <title>
         {`column ${c} fold profile — window/shore at the left, depth to the right, height up` +
-          (below.length > 0 ? ' · red = below the floor (nothing to stand on)' : '')}
+          (below.length > 0 ? ' · red = below the floor (nothing to stand on)' : '') +
+          (grounded
+            ? ' · green endpoint = the last panel touches the floor'
+            : ` · red endpoint = the last panel floats ${clearanceCm.toFixed(1)}cm up`)}
       </title>
       <line
         x1={SPARK_PAD}
@@ -168,6 +179,16 @@ function ProfileSparkline({ c, points, bounds }) {
         <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={PROFILE_BAD} strokeWidth={1.6} />
       ))}
       <circle cx={px(start[1])} cy={py(start[0])} r={1.5} fill={PROFILE_SHORE} />
+      {/* the end of the chain: does the last panel come back to the water? */}
+      <circle
+        data-testid={`profile-end-${c}`}
+        data-grounded={grounded ? 'true' : 'false'}
+        cx={px(end[1])}
+        cy={py(end[0])}
+        r={grounded ? 1.6 : 2.4}
+        fill={grounded ? PROFILE_GROUNDED : PROFILE_FLOATING}
+        fillOpacity={grounded ? 0.75 : 1}
+      />
     </svg>
   )
 }
@@ -176,20 +197,38 @@ function ProfileSparkline({ c, points, bounds }) {
 // Cross-column toolbar
 // -----------------------------------------------------------------------------
 /**
- * The three whole-grid fold operations. All go through the store's commit rule,
- * so a move the rects forbid (a vertical plate's joint would end up folded, or a
+ * The whole-grid fold operations. All go through the store's commit rule, so a
+ * move the rects forbid (a vertical plate's joint would end up folded, or a
  * horizontal plate's two columns would stop agreeing in pitch) changes nothing
  * and lands in the error box instead — remove the plate, or shift the other way.
  *
- * @param {{selected: number}} props the column "Copy → all" reads from
+ * "Ground all" is the one that enforces the grounded-end rule across the grid: it
+ * solves the last hinge of every FLOATING column and leaves the rest alone.
+ *
+ * @param {{selected: number, floating: number}} props the column "Copy → all"
+ *        reads from, and how many columns currently float
  */
-export function ColumnToolbar({ selected }) {
+export function ColumnToolbar({ selected, floating = 0 }) {
   const copyColumnToAll = useStore((s) => s.copyColumnToAll)
   const shiftColumnsRight = useStore((s) => s.shiftColumnsRight)
   const flattenFolds = useStore((s) => s.flattenFolds)
+  const groundAllColumns = useStore((s) => s.groundAllColumns)
 
   return (
     <div className="col-tools" data-testid="column-tools">
+      <button
+        type="button"
+        className={`tool-btn${floating > 0 ? ' tool-btn-urgent' : ''}`}
+        data-testid="tool-ground-all"
+        title={
+          floating > 0
+            ? `solve the last hinge of the ${floating} column(s) whose end panel floats, so every strip comes back down and touches the floor`
+            : 'every column already touches the floor — nothing to ground'
+        }
+        onClick={() => groundAllColumns()}
+      >
+        Ground all
+      </button>
       <button
         type="button"
         className="tool-btn"
@@ -236,12 +275,15 @@ function ordinal(n) {
 export default function ColumnControls({ c, bounds, selected, onSelect }) {
   const config = useStore((s) => s.config)
   const setColumnFold = useStore((s) => s.setColumnFold)
+  const groundColumn = useStore((s) => s.groundColumn)
   const { layout } = getDerived(config)
 
   const folds = config.columns?.[c]?.foldsDeg ?? []
   const chain = layout.columnChains?.[c]
   const pitches = chain?.pitchesDeg ?? []
   const points = chain?.points ?? []
+  const grounded = chain?.grounded !== false
+  const clearanceCm = Number(chain?.endClearanceCm) || 0
   const removed = removedJoints(config, c)
   const lastCol = (config.grid?.cols ?? 1) - 1
   // The camera looks in from the shore, so +X (rising column index) runs LEFT.
@@ -249,7 +291,7 @@ export default function ColumnControls({ c, bounds, selected, onSelect }) {
 
   return (
     <section
-      className={`col-block${selected ? ' col-selected' : ''}`}
+      className={`col-block${selected ? ' col-selected' : ''}${grounded ? '' : ' col-floating'}`}
       data-testid={`column-${c}`}
     >
       <header className="col-head">
@@ -263,8 +305,34 @@ export default function ColumnControls({ c, bounds, selected, onSelect }) {
         >
           Col {c} <span className="col-side">({side})</span>
         </button>
-        <ProfileSparkline c={c} points={points} bounds={bounds} />
+        <ProfileSparkline
+          c={c}
+          points={points}
+          bounds={bounds}
+          grounded={grounded}
+          clearanceCm={clearanceCm}
+        />
       </header>
+
+      {!grounded && (
+        <p className="col-float-row" data-testid={`column-floating-${c}`}>
+          <span
+            className="col-float-badge"
+            title={`the last panel of column ${c} floats ${clearanceCm.toFixed(2)}cm above the floor — every column must bring its last panel back down to touch the ground (the wave returns to the water)`}
+          >
+            FLOATING {clearanceCm.toFixed(1)}cm
+          </span>
+          <button
+            type="button"
+            className="tool-btn tool-btn-urgent col-ground-btn"
+            data-testid={`column-ground-${c}`}
+            title={`solve column ${c}'s last hinge so its end panel comes down and touches the floor`}
+            onClick={() => groundColumn(c)}
+          >
+            Ground end
+          </button>
+        </p>
+      )}
 
       <p className="col-pitch" title="cumulative pitch ψ per row, window → back (row 0 is the shore, always 0°)">
         {pitches.map((p, r) => (

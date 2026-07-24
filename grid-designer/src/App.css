@@ -157,6 +157,12 @@ body {
 }
 .badge-flagged b { color: #ff6b81; }
 
+/* grounded-end rule: every column's last panel must touch the floor */
+.badge-grounded {
+  color: #7fb99a;
+  border-color: #2a3a32;
+}
+
 .report-detail {
   flex: 0 0 auto;
   font-size: 10.5px;
@@ -373,6 +379,14 @@ body {
 
 .tool-btn:hover { background: #26263a; border-color: #3d3d5a; }
 
+/* the fix for a rule that is currently broken (a floating column end) */
+.tool-btn-urgent {
+  color: #ffc0cb;
+  background: #331420;
+  border-color: #6d2033;
+}
+.tool-btn-urgent:hover { background: #45182a; border-color: #98304a; }
+
 /* --- columns (one fold strip each) ----------------------------------------- */
 .col-block {
   padding: 6px 8px 7px;
@@ -386,6 +400,32 @@ body {
   border-color: #3f6099;
   background: #1b1e2c;
 }
+
+.col-floating {
+  border-color: #6d2033;
+  background: #1e1620;
+}
+
+.col-float-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.col-float-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #ff8f9e;
+  background: #3a1620;
+  border: 1px solid #7c2438;
+}
+
+.col-ground-btn { flex: 0 1 auto; }
 
 .col-head {
   display: flex;

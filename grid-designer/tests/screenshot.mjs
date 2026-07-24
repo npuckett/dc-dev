@@ -1,5 +1,5 @@
 /**
- * grid-designer — browser smoke test / screenshot harness (WP6, schema v2).
+ * grid-designer — browser smoke test / screenshot harness (WP7, schema v2).
  *
  * Self-contained: it starts its OWN dev server (`npm run dev`, port 5175 via
  * vite.config.js strictPort), waits for it, drives the UI, and tears the server
@@ -11,17 +11,28 @@
  *   01-flat.png    default state — the flat reference surface, 30 panels, no
  *                  flagged joints
  *   02-wave.png    the Wave preset: six phase-shifted fold sequences (asserted
- *                  against core/presets.js itself) plus its two rigid plates
- *   03-fold.png    one hinge dragged: column 3's 0→1 joint to 80°
- *   04-rects.png   the two preset plates removed, "Shift →" phase-shifted the
+ *                  against core/presets.js itself) plus its two rigid plates, and
+ *                  every column landing on the floor ("all grounded ✓")
+ *   03-floating.png column 3's LAST hinge pitched up to 60°, breaking the
+ *                  grounded-end rule: its end panel is now in mid-air, so the
+ *                  summary badge reads "1 floating", the column block carries a red
+ *                  FLOATING badge with the clearance, its sparkline endpoint turns
+ *                  red and the grid map outlines its back cell
+ *   04-grounded.png after clicking that column's "Ground end": core/ground.js
+ *                  solved the same hinge for floor contact, violations are back to
+ *                  zero and only that one angle moved
+ *   05-fold.png    one hinge dragged: column 3's 0→1 joint to 80°, which lifts the
+ *                  whole strip ~164cm — far beyond what its last hinge can reach,
+ *                  so "Ground end" answers E_UNGROUNDABLE and changes nothing
+ *   06-rects.png   the two preset plates removed, "Shift →" phase-shifted the
  *                  whole grid one column, then a HORIZONTAL and a VERTICAL plate
  *                  placed on cells the harness COMPUTES to be legal under the
  *                  current folds
- *   05-reject.png  two illegal placements in a row — an H plate across two
+ *   07-reject.png  two illegal placements in a row — an H plate across two
  *                  columns at different pitches (E_CROSSCOL_ANGLE_MISMATCH) and a
  *                  V plate over a folded joint (E_FOLD_ON_REMOVED_JOINT). Nothing
  *                  moved; the map explains why inline.
- *   06-json.png    after pasting a MINIMAL v2 config (columns only — everything
+ *   08-json.png    after pasting a MINIMAL v2 config (columns only — everything
  *                  else defaulted by normalizeConfig) and hitting Apply
  *
  * Placement cells are never hard-coded: legal / illegal candidates are derived
@@ -44,6 +55,13 @@
  *     constraints with the right codes surfaced inline next to the map (and NOT
  *     duplicated in the control panel's general error box)
  *   - a vertical plate DISABLES the slider for the joint it removes
+ *   - the GROUNDED-END rule end to end: flat and Wave report "all grounded ✓";
+ *     lifting a column's last hinge raises exactly one E_END_FLOATING and surfaces
+ *     it in four places (summary badge, column badge, sparkline endpoint, grid-map
+ *     tooltip); "Ground end" solves that hinge back to floor contact, moving no
+ *     other angle and committing through validation; a column whose chain ends a
+ *     whole panel-length too high reports E_UNGROUNDABLE and is left alone; and
+ *     "Ground all" lands every column it can reach while flagging the rest
  *   - the JSON panel applies a minimal v2 config and REJECTS a v1 one with the
  *     "version must be 2" message
  *   - Export OBJ / Download JSON fire real downloads with the expected names, the
@@ -231,6 +249,10 @@ const storeState = (page) =>
       lastErrors: s.lastErrors.map((e) => e.code),
       lastErrorMessages: s.lastErrors.map((e) => e.message),
       layoutWarnings: layout.warnings.map((w) => w.code),
+      violations: layout.violations.map((v) => v.code),
+      floatingCols: layout.violations.map((v) => v.col),
+      clearances: layout.columnChains.map((chain) => chain.endClearanceCm),
+      grounded: layout.columnChains.map((chain) => chain.grounded),
       summary: report.summary,
       panels: layout.panels.length,
     }
@@ -353,6 +375,27 @@ try {
     'flat default: 6 columns × 4 hinges, all 0°',
     JSON.stringify(flatState.folds),
   )
+  check(
+    flatState.violations.length === 0 &&
+      flatState.grounded.every(Boolean) &&
+      flatState.clearances.every((v) => v === 0),
+    'flat default: every column lies on the floor (clearance 0, no violations)',
+    JSON.stringify(flatState.clearances),
+  )
+  check(
+    await page.isVisible('[data-testid="badge-grounded"]') &&
+      (await page.textContent('[data-testid="badge-grounded"]')).includes('all grounded'),
+    'the summary badge row shows "all grounded ✓"',
+  )
+  check(
+    await page.isVisible('[data-testid="tool-ground-all"]'),
+    '"Ground all" is present in the cross-column toolbar',
+  )
+  check(
+    !(await page.isVisible('[data-testid="badge-floating"]')) &&
+      !(await page.isVisible('[data-testid="layout-violations"]')),
+    'no floating badge and no violation box on a grounded design',
+  )
 
   // the column UI itself
   check(
@@ -404,8 +447,124 @@ try {
     await page.isDisabled('[data-testid="fold-2-1"]'),
     "the wave's vertical plate at (1,2) disabled column 2's 1→2 slider",
   )
+  check(
+    waveState.violations.length === 0 && waveState.grounded.every(Boolean),
+    'wave preset: every column lands on the floor (no E_END_FLOATING)',
+    JSON.stringify(waveState.clearances),
+  )
+  check(
+    await page.isVisible('[data-testid="badge-grounded"]') &&
+      (await page.textContent('[data-testid="badge-grounded"]')).includes('all grounded'),
+    'wave preset shows "all grounded ✓"',
+  )
   await page.screenshot({ path: `${OUT}/02-wave.png` })
   console.log('  → tests/screenshots/02-wave.png')
+
+  // --- (b2) break the grounded-end rule: lift column 3's last panel --------
+  // The LAST hinge of the column is the one that decides whether its end panel
+  // touches the floor, so pitching it UP is the minimal way to make a column float.
+  const FLOAT_COL = 3
+  const lastJoint = waveState.folds[FLOAT_COL].length - 1
+  await page.locator(`[data-testid="fold-${FLOAT_COL}-${lastJoint}"]`).fill('60')
+  await page.waitForTimeout(SETTLE_MS)
+  let floatState = await storeState(page)
+  if (floatState.folds[FLOAT_COL][lastJoint] !== 60) {
+    console.log('! slider fill did not register — falling back to the store action')
+    await page.evaluate(
+      ([c, k]) => window.__gridDesignerStore.getState().setColumnFold(c, k, 60),
+      [FLOAT_COL, lastJoint],
+    )
+    await page.waitForTimeout(SETTLE_MS)
+    floatState = await storeState(page)
+  }
+  const floatShot = await assertCanvasRenders(page, 'floating')
+  check(
+    JSON.stringify(floatState.floatingCols) === JSON.stringify([FLOAT_COL]) &&
+      floatState.violations.every((code) => code === 'E_END_FLOATING'),
+    `pitching column ${FLOAT_COL}'s last hinge up left exactly that column floating`,
+    `floating=${JSON.stringify(floatState.floatingCols)} violations=${JSON.stringify(floatState.violations)}`,
+  )
+  check(
+    floatState.clearances[FLOAT_COL] > 1 && floatState.grounded[FLOAT_COL] === false,
+    `column ${FLOAT_COL}'s end panel is measurably off the floor`,
+    `clearance=${floatState.clearances[FLOAT_COL]}cm`,
+  )
+  const floatingBadge = (await page.textContent('[data-testid="badge-floating"]')) ?? ''
+  check(
+    floatingBadge.includes('1') && floatingBadge.includes('floating'),
+    'the summary badge row switched to a red "1 floating"',
+    floatingBadge.trim(),
+  )
+  check(!(await page.isVisible('[data-testid="badge-grounded"]')), 'the "all grounded" tick is gone')
+  const colBadge = (await page.textContent(`[data-testid="column-floating-${FLOAT_COL}"]`)) ?? ''
+  check(
+    colBadge.includes('FLOATING') && /\d/.test(colBadge),
+    `column ${FLOAT_COL}'s block shows a FLOATING badge with its clearance`,
+    colBadge.trim(),
+  )
+  check(
+    (await page.getAttribute(`[data-testid="profile-end-${FLOAT_COL}"]`, 'data-grounded')) === 'false' &&
+      (await page.getAttribute('[data-testid="profile-end-0"]', 'data-grounded')) === 'true',
+    'the sparkline endpoint marker is red for the floating column, green for the rest',
+  )
+  const violationText = (await page.textContent('[data-testid="layout-violations"]')) ?? ''
+  check(
+    violationText.includes('E_END_FLOATING') && violationText.includes('returns to the water'),
+    'the violation box explains the rule under the grid map',
+    `${violationText.length} chars`,
+  )
+  // SVG tooltips are <title> CHILD elements, not attributes.
+  const backCellTip =
+    (await page.textContent(`[data-testid="cell-4-${FLOAT_COL}"] title`)) ?? ''
+  const frontCellTip = (await page.textContent('[data-testid="cell-4-0"] title')) ?? ''
+  check(
+    backCellTip.includes('end floating') &&
+      /off the floor/.test(backCellTip) &&
+      !frontCellTip.includes('end floating'),
+    "the grid map's back cell for that column reports the clearance in its tooltip",
+    backCellTip.trim(),
+  )
+  check(canvasChanged(waveShot, floatShot), 'lifting the last panel changed the render')
+  await page.screenshot({ path: `${OUT}/03-floating.png` })
+  console.log('  → tests/screenshots/03-floating.png')
+
+  // --- (b3) "Ground end": hand that hinge to the solver --------------------
+  await page.click(`[data-testid="column-ground-${FLOAT_COL}"]`)
+  await page.waitForTimeout(SETTLE_MS)
+  const groundState = await storeState(page)
+  const groundShot = await assertCanvasRenders(page, 'grounded')
+  check(
+    groundState.violations.length === 0 && groundState.grounded.every(Boolean),
+    '"Ground end" brought the column back down — zero violations',
+    `floating=${JSON.stringify(groundState.floatingCols)} clearance=${groundState.clearances[FLOAT_COL]}`,
+  )
+  check(
+    groundState.clearances[FLOAT_COL] >= -0.25 && groundState.clearances[FLOAT_COL] <= 0.5,
+    'the solved end panel rests ON the floor, within groundTolerance',
+    `clearance=${groundState.clearances[FLOAT_COL]}cm`,
+  )
+  check(
+    groundState.folds[FLOAT_COL][lastJoint] !== 60 &&
+      JSON.stringify(groundState.folds[FLOAT_COL].slice(0, lastJoint)) ===
+        JSON.stringify(floatState.folds[FLOAT_COL].slice(0, lastJoint)) &&
+      JSON.stringify(groundState.folds.filter((_, c) => c !== FLOAT_COL)) ===
+        JSON.stringify(floatState.folds.filter((_, c) => c !== FLOAT_COL)),
+    'only that column\'s LAST hinge moved',
+    `${floatState.folds[FLOAT_COL][lastJoint]}° → ${groundState.folds[FLOAT_COL][lastJoint]}°`,
+  )
+  check(
+    groundState.lastErrors.length === 0,
+    'the grounding change committed through validation',
+    groundState.lastErrors.join(', '),
+  )
+  check(
+    await page.isVisible('[data-testid="badge-grounded"]') &&
+      !(await page.isVisible(`[data-testid="column-floating-${FLOAT_COL}"]`)),
+    'the badges are back to "all grounded ✓" and the column badge is gone',
+  )
+  check(canvasChanged(floatShot, groundShot), 'grounding the column changed the render')
+  await page.screenshot({ path: `${OUT}/04-grounded.png` })
+  console.log('  → tests/screenshots/04-grounded.png')
 
   // --- (c) drag one hinge: column 3, joint 0 → 80° -------------------------
   await page.locator('[data-testid="fold-3-0"]').fill('80')
@@ -433,10 +592,35 @@ try {
     "column 3's cumulative-pitch readout followed the hinge",
     `pitches=${JSON.stringify(foldState.pitches[3])}`,
   )
-  check(canvasChanged(waveShot, foldShot), 'fold render differs from wave')
+  check(canvasChanged(groundShot, foldShot), 'fold render differs from the grounded state')
   check(foldState.lastErrors.length === 0, 'no rejected changes so far', foldState.lastErrors.join(', '))
-  await page.screenshot({ path: `${OUT}/03-fold.png` })
-  console.log('  → tests/screenshots/03-fold.png')
+  await page.screenshot({ path: `${OUT}/05-fold.png` })
+  console.log('  → tests/screenshots/05-fold.png')
+
+  // --- (c2) an END THE SOLVER CANNOT REACH ---------------------------------
+  // 80° at the front joint puts column 3's chain ~164cm up at the last row. The
+  // last panel is 60cm long, so no angle within ±120° brings it to the floor: the
+  // profile itself has to arc back down, and the store says so instead of guessing.
+  check(
+    foldState.floatingCols.includes(FLOAT_COL) && foldState.clearances[FLOAT_COL] > 100,
+    `the 80° front fold left column ${FLOAT_COL} far too high to land`,
+    `clearance=${foldState.clearances[FLOAT_COL]}cm`,
+  )
+  await page.click(`[data-testid="column-ground-${FLOAT_COL}"]`)
+  await page.waitForTimeout(600)
+  const unreachableState = await storeState(page)
+  check(
+    unreachableState.lastErrors.includes('E_UNGROUNDABLE') &&
+      JSON.stringify(unreachableState.folds) === JSON.stringify(foldState.folds),
+    '"Ground end" on an unreachable column reports E_UNGROUNDABLE and changes nothing',
+    `lastErrors=${JSON.stringify(unreachableState.lastErrors)}`,
+  )
+  const noticeText = (await page.textContent('[data-testid="last-errors"]')) ?? ''
+  check(
+    noticeText.includes('E_UNGROUNDABLE') && /arc over and descend|has to arc/.test(noticeText),
+    'the message box explains that the fold profile itself has to come back down',
+    `${noticeText.length} chars`,
+  )
 
   // --- (d) remove the preset plates, then "Shift →" ------------------------
   // The plates pin folds (a V plate's joint must stay 0, an H plate's two columns
@@ -508,8 +692,8 @@ try {
   )
   const rectsShot = await assertCanvasRenders(page, 'rects')
   check(canvasChanged(foldShot, rectsShot), 'plates + shift render differs from the fold state')
-  await page.screenshot({ path: `${OUT}/04-rects.png` })
-  console.log('  → tests/screenshots/04-rects.png')
+  await page.screenshot({ path: `${OUT}/06-rects.png` })
+  console.log('  → tests/screenshots/06-rects.png')
 
   // --- (f) the two illegal placements --------------------------------------
   const badH = findIllegalHorizontal(rectVState)
@@ -562,8 +746,8 @@ try {
       'the general error box does NOT repeat the plate rejection',
     )
   }
-  await page.screenshot({ path: `${OUT}/05-reject.png` })
-  console.log('  → tests/screenshots/05-reject.png')
+  await page.screenshot({ path: `${OUT}/07-reject.png` })
+  console.log('  → tests/screenshots/07-reject.png')
 
   // --- (g) JSON panel: a minimal v2 config in, a v1 config rejected --------
   // Only `columns` is load-bearing (normalizeConfig will NOT invent it — its
@@ -627,8 +811,8 @@ try {
   )
   const jsonShot = await assertCanvasRenders(page, 'json')
   check(canvasChanged(rectsShot, jsonShot), 'pasted config re-rendered the surface')
-  await page.screenshot({ path: `${OUT}/06-json.png` })
-  console.log('  → tests/screenshots/06-json.png')
+  await page.screenshot({ path: `${OUT}/08-json.png` })
+  console.log('  → tests/screenshots/08-json.png')
 
   await page.fill('[data-testid="json-text"]', JSON.stringify(V1_CONFIG, null, 2))
   await page.click('[data-testid="json-apply"]')
@@ -649,6 +833,36 @@ try {
   check(
     (await page.textContent('[data-testid="json-note"]')).includes('rejected'),
     'the JSON panel reports the rejection inline',
+  )
+
+  // --- (g2) "Ground all" makes the progress it can --------------------------
+  // The pasted profiles only ever climb, so all six columns end in the air and only
+  // the shallowest is within one panel-length of the floor. "Ground all" must land
+  // that one and leave the other five reported rather than mangling them.
+  check(
+    v1State.floatingCols.length === 6,
+    'the pasted climb-only config leaves all six columns floating',
+    JSON.stringify(v1State.clearances.map((v) => Math.round(v))),
+  )
+  await page.click('[data-testid="tool-ground-all"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const groundAllState = await storeState(page)
+  check(
+    groundAllState.floatingCols.length === 5 && !groundAllState.floatingCols.includes(5),
+    '"Ground all" landed the one reachable column and left the rest flagged',
+    `floating=${JSON.stringify(groundAllState.floatingCols)}`,
+  )
+  check(
+    groundAllState.folds[5][3] !== v1State.folds[5][3] &&
+      JSON.stringify(groundAllState.folds.slice(0, 5)) === JSON.stringify(v1State.folds.slice(0, 5)),
+    'it only moved the last hinge of the column it could solve',
+    `col5: ${JSON.stringify(v1State.folds[5])} → ${JSON.stringify(groundAllState.folds[5])}`,
+  )
+  check(
+    groundAllState.lastErrors.length === 0 &&
+      (await page.textContent('[data-testid="badge-floating"]')).includes('5'),
+    'the change committed and the summary badge now reads "5 floating"',
+    `lastErrors=${JSON.stringify(groundAllState.lastErrors)}`,
   )
 
   // --- (h) downloads -------------------------------------------------------
@@ -704,7 +918,16 @@ try {
   )
 
   // --- byte-level differences ---------------------------------------------
-  const shots = ['01-flat.png', '02-wave.png', '03-fold.png', '04-rects.png', '05-reject.png', '06-json.png'].map(
+  const shots = [
+    '01-flat.png',
+    '02-wave.png',
+    '03-floating.png',
+    '04-grounded.png',
+    '05-fold.png',
+    '06-rects.png',
+    '07-reject.png',
+    '08-json.png',
+  ].map(
     (name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }),
   )
   for (let i = 0; i + 1 < shots.length; i++) {
@@ -726,7 +949,7 @@ try {
 // -----------------------------------------------------------------------------
 // summary
 // -----------------------------------------------------------------------------
-console.log('\n=== SCREENSHOT HARNESS (WP6 — column-strip UI) ===')
+console.log('\n=== SCREENSHOT HARNESS (WP7 — grounded ends) ===')
 for (const r of results) {
   console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`)
 }

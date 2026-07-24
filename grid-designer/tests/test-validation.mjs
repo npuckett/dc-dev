@@ -206,6 +206,31 @@ expectError('E_SHAPE bad units', { ...good(), units: 'in' }, 'E_SHAPE')
 expectError('E_RANGE gap 0', { ...good(), gap: 0 }, 'E_RANGE')
 expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
 
+// --- groundTolerance (how close the last panel must get to y = 0) ------------
+{
+  const result = expectError(
+    'E_SHAPE groundTolerance 0',
+    { ...good(), groundTolerance: 0 },
+    'E_SHAPE',
+  )
+  check(
+    'E_SHAPE groundTolerance: path and message name the field and the rule',
+    result.errors.some(
+      (e) =>
+        e.code === 'E_SHAPE' &&
+        e.path === 'groundTolerance' &&
+        /positive number/.test(e.message) &&
+        /touching the floor/.test(e.message),
+    ),
+    describe(result),
+  )
+}
+expectError('E_SHAPE groundTolerance negative', { ...good(), groundTolerance: -1 }, 'E_SHAPE')
+expectError('E_SHAPE groundTolerance not a number', { ...good(), groundTolerance: 'loose' }, 'E_SHAPE')
+expectError('E_SHAPE groundTolerance null', { ...good(), groundTolerance: null }, 'E_SHAPE')
+expectOk('groundTolerance 0.1 is allowed', { ...good(), groundTolerance: 0.1 })
+expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
+
 // =============================================================================
 // 5. Rect bounds
 // =============================================================================
@@ -461,6 +486,15 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
 
   check('normalize: gap default', cfg.gap === 2.0, String(cfg.gap))
   check('normalize: gapTolerance default', cfg.gapTolerance === 1.5, String(cfg.gapTolerance))
+  check(
+    'normalize: groundTolerance default 0.5',
+    cfg.groundTolerance === 0.5,
+    String(cfg.groundTolerance),
+  )
+  check(
+    'normalize: an explicit groundTolerance is passed through',
+    normalizeConfig({ ...minimal, groundTolerance: 1.25 }).groundTolerance === 1.25,
+  )
   check(
     'normalize: cell default',
     cfg.cell.size === 60 && cfg.cell.rectLength === 121,

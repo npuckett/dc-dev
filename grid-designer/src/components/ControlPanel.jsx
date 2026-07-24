@@ -3,6 +3,10 @@
  *
  * Top: the joint-report summary badge (total / ok / flagged) plus the worst
  * measured deviations, so the cost of a fold pattern is visible while dragging.
+ * The badge row also carries the GROUNDED-END verdict for the whole design — a red
+ * "N floating" badge when any column's last panel ends in mid-air, a quiet "all
+ * grounded ✓" tick otherwise (see the rule in core/schema.js). The E_END_FLOATING
+ * messages themselves get their own box below the map, headed with the rule.
  * Then the 2D grid map (where the 60×121 plates are placed and removed), the
  * message boxes, the cross-column toolbar, one control block per COLUMN (each
  * column is a fold strip: one slider per hinge), and the config-JSON disclosure.
@@ -29,9 +33,10 @@ export default function ControlPanel() {
   const config = useStore((s) => s.config)
   const lastErrors = useStore((s) => s.lastErrors)
   const lastWarnings = useStore((s) => s.lastWarnings)
-  const { layout, report } = getDerived(config)
+  const { layout, report, violations } = getDerived(config)
   const { summary } = report
   const colCount = config.grid.cols
+  const floating = violations.length
 
   // The rect-specific rejections are shown by the map itself, right where the
   // click happened; showing them again here would just eat the panel's height.
@@ -54,6 +59,19 @@ export default function ControlPanel() {
         <span className={`badge-item${summary.flagged > 0 ? ' badge-flagged' : ''}`}>
           <b>{summary.flagged}</b> flagged
         </span>
+        {floating > 0 ? (
+          <span
+            className="badge-item badge-flagged"
+            data-testid="badge-floating"
+            title={`${floating} column(s) end in mid-air — every column's last panel must come back down and touch the floor. Use "Ground all", or fold the last hinges down by hand.`}
+          >
+            <b>{floating}</b> floating
+          </span>
+        ) : (
+          <span className="badge-item badge-grounded" data-testid="badge-grounded" title="every column's last panel touches the floor">
+            all grounded ✓
+          </span>
+        )}
       </div>
       <p className="report-detail">
         {layout.panels.length} panels · worst gap dev {summary.worstGapDeviation.toFixed(2)}cm ·
@@ -73,6 +91,17 @@ export default function ControlPanel() {
         </div>
       )}
 
+      {violations.length > 0 && (
+        <div className="msg-list msg-errors" data-testid="layout-violations">
+          <strong>the wave must return to the water</strong>
+          {violations.map((v, i) => (
+            <p key={i}>
+              <code>{v.code}</code> {v.message}
+            </p>
+          ))}
+        </div>
+      )}
+
       {(lastWarnings.length > 0 || layout.warnings.length > 0) && (
         <div className="msg-list msg-warnings">
           {[...lastWarnings, ...layout.warnings].map((w, i) => (
@@ -83,7 +112,7 @@ export default function ControlPanel() {
         </div>
       )}
 
-      <ColumnToolbar selected={selectedCol} />
+      <ColumnToolbar selected={selectedCol} floating={floating} />
 
       <div className="cols-scroll">
         {Array.from({ length: colCount }, (_, c) => (

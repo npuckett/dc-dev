@@ -39,6 +39,39 @@
  *     on; placement.js emits W_BELOW_FLOOR for them. A chain that rises before
  *     it descends (all cumulative pitches ≥ 0, or a descent no deeper than the
  *     height already gained) stays supported.
+ *   - THE WAVE RETURNS TO THE WATER — see the next section. Every column's LAST
+ *     panel must come back down and touch the floor.
+ *
+ * =============================================================================
+ * THE GROUNDED-END RULE (a MUST for every generated design)
+ * =============================================================================
+ * THE LAST PANEL OF EVERY COLUMN MUST TOUCH THE FLOOR. Either it lies flat on
+ * the ground, or it is tilted with one of its housing edges down on the ground —
+ * it may NEVER float in mid-air. ("The wave returns to the water.")
+ *
+ * Formally: over the last panel's SOLID (its 4 lit-face corners plus those 4
+ * corners pushed `PANEL_PROFILE.overallThickness` = 3.7cm along −n̂, the back of
+ * the housing), the minimum world y must be ≤ `groundTolerance` (default 0.5cm).
+ * A flat panel sits at exactly 0; an edge-down panel lands within a few mm of it.
+ *
+ * This is NOT a validateConfig error — dragging a fold slider necessarily passes
+ * through states where the end is in the air, and the store rejects invalid
+ * commits, which would make the tool unusable. It is a LAYOUT VIOLATION instead:
+ * `solveLayout()` returns `violations: [{ code: 'E_END_FLOATING', col,
+ * clearanceCm, message }]` and marks each `columnChains[c]` with `grounded` /
+ * `endClearanceCm`. A design with a non-empty `violations` array is not finished.
+ *
+ * HOW TO DESIGN A FOLD SEQUENCE THAT LANDS:
+ *   The chain climbs by 60·sin ψ_r per row (plus a couple of cm of gap), so the
+ *   height it has to give back by the end is essentially 60·Σ_r sin ψ_r. Author
+ *   pitch profiles whose sines CANCEL — arc up and then back down — e.g.
+ *   [0, 35, −35, 0, 0], [0, 35, 0, −35, 0], [0, 10, 10, −10, −10]. Profiles that
+ *   only ever rise ([0, 20, 40, 60, 80]) end tens of cm in the air and cannot be
+ *   rescued: the last panel is 60cm long, so once the chain's last vertex is much
+ *   above ~57cm NO value of the last hinge can reach the ground.
+ *   `core/ground.js` exports `solveGroundingFold(config, c)` / `groundAllFolds`,
+ *   which solve the last surviving hinge of a column for floor contact — that is
+ *   the mechanical fix; designing the arc is still the generator's job.
  *
  * =============================================================================
  * JSON CONFIG SCHEMA (v2) — this is the shape an LLM generator should emit
@@ -52,6 +85,9 @@
  *     "cell": { "size": 60, "rectLength": 121 },  // square cell 60cm; 2-cell rect 121cm
  *     "gap": 2.0,                              // physical joint gap spanned by connectors
  *     "gapTolerance": 1.5,                     // report flags joints deviating > this from gap
+ *     "groundTolerance": 0.5,                  // a column's last panel counts as
+ *                                              // touching the floor when its solid
+ *                                              // reaches within this many cm of y = 0
  *     "columns": [                             // exactly grid.cols entries; 0 = leftmost (x = 0 side)
  *       { "foldsDeg": [30, -60, 60, -30] },    // exactly grid.rows-1 SIGNED hinge angles
  *       { "foldsDeg": [20, -40, 40, -20] },    // [k] = hinge between rows k and k+1
@@ -95,7 +131,8 @@
  *   E_SHAPE                     structural problems: bad version/units, grid
  *                               dims < 1, wrong columns / foldsDeg lengths,
  *                               malformed column or rect entries, out-of-bounds
- *                               rects (message names the specific problem)
+ *                               rects, non-positive gapTolerance / groundTolerance
+ *                               (message names the specific problem)
  *   E_RANGE                     a fold outside ±120, gap not in (0, 10]
  *   E_RECT_OVERLAP              two rects share a cell
  *   E_FOLD_ON_REMOVED_JOINT     columns[c].foldsDeg[r] ≠ 0 at a joint removed by
@@ -111,6 +148,9 @@
  *   W_RECT_LENGTH               cell.rectLength ≠ 2·cell.size + gap (the real
  *                               hardware is 121 vs 122 — ~1cm of slack is
  *                               accepted and surfaced, never silently corrected)
+ *
+ * The grounded-end rule is deliberately NOT here: it is a solved-layout property,
+ * reported as `solveLayout(...).violations` (E_END_FLOATING), not a config error.
  */
 
 import { PANEL_PROFILE } from '../config.js'
@@ -131,6 +171,11 @@ export const DEFAULT_GRID = { cols: 6, rows: 5 }
 export const DEFAULT_CELL = { size: 60, rectLength: 121 }
 export const DEFAULT_GAP = 2.0
 export const DEFAULT_GAP_TOLERANCE = 1.5
+/**
+ * How close a column's last panel has to get to y = 0 to count as TOUCHING the
+ * floor, cm. 0.5cm ≈ the slack a printed foot / the floor's own flatness eats.
+ */
+export const DEFAULT_GROUND_TOLERANCE = 0.5
 /** Every chain starts with its lit face at this height (housings on the floor). */
 export const SHORE_Y = PANEL_PROFILE.overallThickness
 
@@ -143,6 +188,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   cell: { size: 60, rectLength: 121 },
   gap: DEFAULT_GAP,
   gapTolerance: DEFAULT_GAP_TOLERANCE,
+  groundTolerance: DEFAULT_GROUND_TOLERANCE,
   columns: [
     { foldsDeg: [0, 0, 0, 0] },
     { foldsDeg: [0, 0, 0, 0] },
@@ -206,6 +252,8 @@ export function normalizeConfig(partial) {
     cell,
     gap: src.gap !== undefined ? src.gap : DEFAULT_GAP,
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
+    groundTolerance:
+      src.groundTolerance !== undefined ? src.groundTolerance : DEFAULT_GROUND_TOLERANCE,
     columns: normalizeColumns(src.columns),
     rects: Array.isArray(src.rects) ? src.rects.map(normalizeRect) : [],
     meta: { notes: '', ...(isPlainObject(src.meta) ? src.meta : {}) },
@@ -491,6 +539,13 @@ export function validateConfig(config) {
       'E_SHAPE',
       `gapTolerance must be a positive number (got ${JSON.stringify(cfg.gapTolerance)})`,
       'gapTolerance',
+    )
+  }
+  if (!isFiniteNumber(cfg.groundTolerance) || cfg.groundTolerance <= 0) {
+    err(
+      'E_SHAPE',
+      `groundTolerance must be a positive number — how close a column's last panel must get to y = 0 to count as touching the floor (got ${JSON.stringify(cfg.groundTolerance)})`,
+      'groundTolerance',
     )
   }
 

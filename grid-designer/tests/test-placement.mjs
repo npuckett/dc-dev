@@ -16,7 +16,19 @@
 import assert from 'node:assert/strict'
 import { DEFAULT_CONFIG, cellPitches, normalizeConfig, validateConfig } from '../src/core/schema.js'
 import { buildPreset } from '../src/core/presets.js'
-import { panelWorldCorners, solveLayout } from '../src/core/placement.js'
+import {
+  columnEndGrounding,
+  panelSolidCorners,
+  panelSolidMinY,
+  panelWorldCorners,
+  solveLayout,
+} from '../src/core/placement.js'
+import {
+  groundAllFolds,
+  lastSurvivingJoint,
+  solveGroundingFold,
+  survivingJoints,
+} from '../src/core/ground.js'
 
 let passed = 0
 const failures = []
@@ -573,6 +585,381 @@ const squares = (folds) =>
       const c = buildPreset('random', seed)
       assert.strictEqual(JSON.stringify(solveLayout(c)), JSON.stringify(solveLayout(c)))
     })
+  }
+}
+
+// =============================================================================
+// 7. The grounded-end rule — every column's LAST panel must touch the floor
+// =============================================================================
+// 7a. The panel SOLID: 8 corners, the housing 3.7cm behind the lit face
+{
+  const layout = solveLayout(DEFAULT_CONFIG)
+  const corners = panelSolidCorners(layout.panels[0], DEFAULT_CONFIG)
+  check('solid: 8 corners', corners.length === 8, String(corners.length))
+  check(
+    'solid: the first 4 are the lit face (y = 3.7)',
+    corners.slice(0, 4).every((p) => p[1] === 3.7),
+    JSON.stringify(corners.slice(0, 4)),
+  )
+  check(
+    'solid: the back 4 rest exactly on the floor (y = 0, x/z unchanged)',
+    corners.slice(4).every((p, i) => p[1] === 0 && p[0] === corners[i][0] && p[2] === corners[i][2]),
+    JSON.stringify(corners.slice(4)),
+  )
+  check(
+    'solid: panelSolidMinY of a flat panel is exactly 0',
+    panelSolidMinY(layout.panels[0], DEFAULT_CONFIG) === 0,
+    String(panelSolidMinY(layout.panels[0], DEFAULT_CONFIG)),
+  )
+}
+
+// 7b. Flat: every column grounded with zero clearance, no violations
+{
+  const layout = solveLayout(DEFAULT_CONFIG)
+  check('grounded: flat raises no violations', layout.violations.length === 0, JSON.stringify(layout.violations))
+  check(
+    'grounded: flat marks all 6 chains grounded at clearance 0',
+    layout.columnChains.every((ch) => ch.grounded === true && ch.endClearanceCm === 0),
+    JSON.stringify(layout.columnChains.map((ch) => [ch.grounded, ch.endClearanceCm])),
+  )
+  check(
+    'grounded: DEFAULT_CONFIG carries groundTolerance 0.5',
+    DEFAULT_CONFIG.groundTolerance === 0.5,
+    String(DEFAULT_CONFIG.groundTolerance),
+  )
+}
+
+// 7c. A floating column — one 45° fold at the front lifts the whole strip
+{
+  const columns = flatColumns()
+  columns[0] = { foldsDeg: [45, 0, 0, 0] }
+  const cfg = cfgOf({ columns })
+  check('floating: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+  const layout = solveLayout(cfg)
+
+  // Closed form: the chain start of row 4 is 3.7 + 2·sin22.5 + 3·(60+2)·sin45,
+  // the panel is flat at ψ = 45°, so its lowest solid corner is that start point
+  // minus the housing's own drop of 3.7·cos45.
+  const y4 = SHORE_Y + 2 * Math.sin(22.5 * D) + 3 * 62 * Math.sin(45 * D)
+  const wantClearance = y4 - 3.7 * Math.cos(45 * D)
+
+  check(
+    'floating: exactly one E_END_FLOATING, for column 0',
+    layout.violations.length === 1 &&
+      layout.violations[0].code === 'E_END_FLOATING' &&
+      layout.violations[0].col === 0,
+    JSON.stringify(layout.violations.map((v) => [v.code, v.col])),
+  )
+  check(
+    'floating: clearance matches the closed form (≈ 133.4cm)',
+    near(layout.violations[0].clearanceCm, wantClearance, 1e-6),
+    `${layout.violations[0].clearanceCm} vs ${wantClearance}`,
+  )
+  check(
+    'floating: the message names the panel and the rule',
+    /p4_0/.test(layout.violations[0].message) && /returns to the water/.test(layout.violations[0].message),
+    layout.violations[0].message,
+  )
+  check(
+    'floating: only column 0 is marked, the flat five stay grounded',
+    layout.columnChains[0].grounded === false &&
+      layout.columnChains.slice(1).every((ch) => ch.grounded === true),
+    JSON.stringify(layout.columnChains.map((ch) => ch.grounded)),
+  )
+  check(
+    'floating: columnChains[0].endClearanceCm equals the violation clearance',
+    layout.columnChains[0].endClearanceCm === layout.violations[0].clearanceCm,
+    `${layout.columnChains[0].endClearanceCm} vs ${layout.violations[0].clearanceCm}`,
+  )
+  check(
+    'floating: the chain never dips below the floor, so the two rules are independent',
+    !layout.warnings.some((w) => w.code === 'W_BELOW_FLOOR') && layout.violations.length === 1,
+    JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+}
+
+// 7d. Edge contact — a TILTED last panel resting on one housing edge
+{
+  // Pitch profile [0, 10, 10, -10, -10]: the sines cancel, so the chain comes back
+  // to shore height, and the last panel arrives pitched 10° DOWN. Its lit face is
+  // still ~3.9cm up; what touches the floor is the low housing edge.
+  const columns = flatColumns()
+  columns[3] = { foldsDeg: [10, 0, -20, 0] }
+  const cfg = cfgOf({ columns })
+  const layout = solveLayout(cfg)
+  const end = layout.panels.filter((p) => p.col === 3).at(-1)
+  const litMin = panelWorldCorners(end, cfg).reduce((m, p) => Math.min(m, p[1]), Infinity)
+
+  check(
+    'edge contact: the last panel is genuinely tilted (ψ = −10°)',
+    near(end.rowPitchDeg, -10),
+    String(end.rowPitchDeg),
+  )
+  // The four 60cm rises and falls cancel exactly, and so do the four gap advances
+  // along the bisectors ±5°/±10°/0° — except the very first, leaving 3.7 + 2·sin5°.
+  check(
+    'edge contact: the LIT FACE stays clear of the floor (3.7 + 2·sin5° ≈ 3.87cm)',
+    near(litMin, SHORE_Y + 2 * Math.sin(5 * D), 1e-6),
+    `${litMin} vs ${SHORE_Y + 2 * Math.sin(5 * D)}`,
+  )
+  check(
+    'edge contact: the housing edge reaches the floor — grounded, no violation',
+    layout.columnChains[3].grounded === true &&
+      layout.columnChains[3].endClearanceCm > 0 &&
+      layout.columnChains[3].endClearanceCm <= 0.5 &&
+      layout.violations.length === 0,
+    `clearance=${layout.columnChains[3].endClearanceCm} violations=${JSON.stringify(layout.violations)}`,
+  )
+  check(
+    'edge contact: closed form — clearance = litMin − 3.7·cos10°',
+    near(layout.columnChains[3].endClearanceCm, litMin - 3.7 * Math.cos(10 * D), 1e-8),
+    `${layout.columnChains[3].endClearanceCm} vs ${litMin - 3.7 * Math.cos(10 * D)}`,
+  )
+}
+
+// 7e. groundTolerance is honoured
+{
+  const columns = flatColumns()
+  columns[0] = { foldsDeg: [10, 0, -20, 0] } // clearance ≈ 0.231cm
+  const loose = solveLayout(cfgOf({ columns, groundTolerance: 0.5 }))
+  const tight = solveLayout(cfgOf({ columns, groundTolerance: 0.1 }))
+  check('groundTolerance: 0.231cm passes at 0.5', loose.violations.length === 0)
+  check(
+    'groundTolerance: the same design fails at 0.1',
+    tight.violations.length === 1 && tight.violations[0].col === 0,
+    JSON.stringify(tight.violations),
+  )
+}
+
+// =============================================================================
+// 8. The auto-ground solver (core/ground.js)
+// =============================================================================
+// 8a. Which hinge gets solved
+{
+  const cfg = cfgOf({ columns: flatColumns() })
+  check('solver: a plain column\'s last hinge is joint 3', lastSurvivingJoint(cfg, 0) === 3, String(lastSurvivingJoint(cfg, 0)))
+  check(
+    'solver: surviving joints of a plain column are 0..3',
+    JSON.stringify(survivingJoints(cfg, 0)) === JSON.stringify([0, 1, 2, 3]),
+    JSON.stringify(survivingJoints(cfg, 0)),
+  )
+  const withEndPlate = cfgOf({
+    columns: flatColumns(),
+    rects: [{ row: 3, col: 1, orientation: 'vertical' }],
+  })
+  check(
+    'solver: a vertical plate over rows 3+4 removes joint 3 — the last hinge is joint 2',
+    lastSurvivingJoint(withEndPlate, 1) === 2 &&
+      JSON.stringify(survivingJoints(withEndPlate, 1)) === JSON.stringify([0, 1, 2]),
+    JSON.stringify(survivingJoints(withEndPlate, 1)),
+  )
+}
+
+// 8b. A reachable floating column: solve it, apply it, re-solve, assert grounded
+{
+  const columns = flatColumns()
+  columns[0] = { foldsDeg: [30, -30, 0, 0] } // the strip parks 31cm up and stays flat
+  const cfg = cfgOf({ columns })
+  const before = solveLayout(cfg)
+  check(
+    'solver: the test case really does float (≈ 31cm)',
+    before.violations.length === 1 && before.violations[0].clearanceCm > 30,
+    JSON.stringify(before.violations.map((v) => v.clearanceCm)),
+  )
+
+  const solved = solveGroundingFold(cfg, 0)
+  check('solver: returns a solution', !!solved, JSON.stringify(solved))
+  check('solver: it is the last hinge (joint 3)', solved?.jointIndex === 3, String(solved?.jointIndex))
+  check(
+    'solver: the solved fold is a sane downward angle inside the clamp',
+    solved && solved.foldDeg < 0 && Math.abs(solved.foldDeg) <= 120,
+    String(solved?.foldDeg),
+  )
+  check(
+    'solver: it snapped to a readable angle (whole degrees here)',
+    Number.isInteger(solved.foldDeg),
+    String(solved.foldDeg),
+  )
+
+  const applied = cfgOf({
+    columns: columns.map((col, i) =>
+      i === 0 ? { foldsDeg: col.foldsDeg.map((f, k) => (k === solved.jointIndex ? solved.foldDeg : f)) } : col,
+    ),
+  })
+  const after = solveLayout(applied)
+  check('solver: applying it validates', validateConfig(applied).ok, JSON.stringify(validateConfig(applied).errors))
+  check(
+    'solver: applying it grounds the column (re-solve has no violations)',
+    after.violations.length === 0 && after.columnChains[0].grounded === true,
+    JSON.stringify(after.violations),
+  )
+  check(
+    'solver: the reported clearance matches the re-solve',
+    near(solved.clearanceCm, after.columnChains[0].endClearanceCm, 1e-9),
+    `${solved.clearanceCm} vs ${after.columnChains[0].endClearanceCm}`,
+  )
+  check(
+    'solver: the landing sits ON the floor, not through it',
+    after.columnChains[0].endClearanceCm >= 0 &&
+      after.columnChains[0].endClearanceCm <= 0.5 &&
+      !after.warnings.some((w) => w.code === 'W_BELOW_FLOOR'),
+    String(after.columnChains[0].endClearanceCm),
+  )
+  check(
+    'solver: only the solved hinge changed',
+    JSON.stringify(applied.columns[0].foldsDeg.slice(0, 3)) === JSON.stringify([30, -30, 0]),
+    JSON.stringify(applied.columns[0].foldsDeg),
+  )
+  checkNoThrow('solver: pure — the input config is untouched', () => {
+    assert.deepStrictEqual(cfg.columns[0].foldsDeg, [30, -30, 0, 0])
+  })
+  checkNoThrow('solver: deterministic', () => {
+    assert.deepStrictEqual(solveGroundingFold(cfg, 0), solveGroundingFold(cfg, 0))
+  })
+}
+
+// 8c. An UNREACHABLE end — the chain is a whole panel-length too high
+{
+  const columns = flatColumns()
+  columns[0] = { foldsDeg: [45, 0, 0, 0] } // last vertex ≈ 136cm up; the panel is 60 long
+  const cfg = cfgOf({ columns })
+  check('unreachable: solveGroundingFold returns null', solveGroundingFold(cfg, 0) === null)
+
+  // Prove it by brute force: neither extreme of the last hinge reaches the floor.
+  let bestClearance = Infinity
+  for (let f = -120; f <= 120; f += 1) {
+    const trial = cfgOf({
+      columns: columns.map((col, i) => (i === 0 ? { foldsDeg: [45, 0, 0, f] } : col)),
+    })
+    bestClearance = Math.min(bestClearance, columnEndGrounding(trial, 0).clearanceCm)
+  }
+  check(
+    'unreachable: NO hinge angle in ±120° gets within tolerance (best ≈ 73cm)',
+    bestClearance > 0.5,
+    `best clearance ${bestClearance.toFixed(2)}cm`,
+  )
+  check(
+    'unreachable: the column still floats at both extremes',
+    columnEndGrounding(cfgOf({ columns: [{ foldsDeg: [45, 0, 0, -120] }, ...columns.slice(1)] }), 0).grounded === false &&
+      columnEndGrounding(cfgOf({ columns: [{ foldsDeg: [45, 0, 0, 120] }, ...columns.slice(1)] }), 0).grounded === false,
+  )
+  check('unreachable: groundAllFolds gives up and returns null', groundAllFolds(cfg) === null)
+}
+
+// 8d. groundAllFolds on several floating columns at once
+{
+  const columns = columnsOf([
+    [30, -30, 0, 0], // floats ≈ 31cm
+    [0, 0, 0, 0], // already grounded
+    [20, 0, -20, 0], // floats a little
+    [10, 10, -20, 0], // floats
+    [0, 0, 0, 0], // already grounded
+    [30, -20, -10, 0], // floats high but still within reach
+  ])
+  const cfg = cfgOf({ columns })
+  const before = solveLayout(cfg)
+  check(
+    'groundAll: 4 of the 6 columns start floating',
+    before.violations.length === 4 &&
+      JSON.stringify(before.violations.map((v) => v.col)) === JSON.stringify([0, 2, 3, 5]),
+    JSON.stringify(before.violations.map((v) => [v.col, v.clearanceCm])),
+  )
+
+  const next = groundAllFolds(cfg)
+  check('groundAll: returns a new config', !!next && next !== cfg)
+  const after = solveLayout(next)
+  check('groundAll: the result validates', validateConfig(next).ok, JSON.stringify(validateConfig(next).errors))
+  check(
+    'groundAll: every column is grounded afterwards',
+    after.violations.length === 0 && after.columnChains.every((ch) => ch.grounded),
+    JSON.stringify(after.violations),
+  )
+  check(
+    'groundAll: the two already-grounded columns were left byte-identical',
+    JSON.stringify(next.columns[1].foldsDeg) === JSON.stringify([0, 0, 0, 0]) &&
+      JSON.stringify(next.columns[4].foldsDeg) === JSON.stringify([0, 0, 0, 0]),
+    JSON.stringify(next.columns.map((c) => c.foldsDeg)),
+  )
+  check(
+    'groundAll: only the last hinge of each floating column moved',
+    [0, 2, 3, 5].every(
+      (c) =>
+        JSON.stringify(next.columns[c].foldsDeg.slice(0, 3)) ===
+        JSON.stringify(columns[c].foldsDeg.slice(0, 3)),
+    ),
+    JSON.stringify(next.columns.map((c) => c.foldsDeg)),
+  )
+  check(
+    'groundAll: nothing ends up under the floor',
+    !after.warnings.some((w) => w.code === 'W_BELOW_FLOOR'),
+    JSON.stringify(after.warnings.map((w) => w.code)),
+  )
+  check('groundAll: an already-grounded config returns null', groundAllFolds(DEFAULT_CONFIG) === null)
+  checkNoThrow('groundAll: pure — the input is untouched', () => {
+    assert.deepStrictEqual(cfg.columns[0].foldsDeg, [30, -30, 0, 0])
+  })
+  checkNoThrow('groundAll: deterministic', () => {
+    assert.deepStrictEqual(groundAllFolds(cfg), groundAllFolds(cfg))
+  })
+}
+
+// 8e. A vertical plate at the END: the plate itself is the panel to ground, and
+//     the hinge that moves is joint 2 (joint 3 is interior to the plate)
+{
+  const columns = flatColumns()
+  columns[2] = { foldsDeg: [40, -40, 20, 0] } // joint 3 must stay 0 under the plate
+  const cfg = cfgOf({ columns, rects: [{ row: 3, col: 2, orientation: 'vertical' }] })
+  check('v-plate end: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+
+  const before = solveLayout(cfg)
+  const endPanel = before.panels.filter((p) => p.col === 2).at(-1)
+  check(
+    'v-plate end: the last panel IS the 121cm plate spanning rows 3+4',
+    endPanel.id === 'p3_2' && endPanel.type === '2x4' && endPanel.rectOrientation === 'vertical',
+    JSON.stringify([endPanel.id, endPanel.type]),
+  )
+  check(
+    'v-plate end: it floats',
+    before.violations.length === 1 && before.violations[0].col === 2,
+    JSON.stringify(before.violations),
+  )
+
+  const solved = solveGroundingFold(cfg, 2)
+  check('v-plate end: solver returns a solution', !!solved, JSON.stringify(solved))
+  check(
+    'v-plate end: it moved joint 2, NOT the joint the plate removed',
+    solved?.jointIndex === 2,
+    String(solved?.jointIndex),
+  )
+  const next = groundAllFolds(cfg)
+  const after = solveLayout(next)
+  check(
+    'v-plate end: grounding it keeps foldsDeg[3] at 0 (the plate is still rigid)',
+    next.columns[2].foldsDeg[3] === 0 && validateConfig(next).ok,
+    JSON.stringify(next.columns[2].foldsDeg),
+  )
+  check(
+    'v-plate end: the plate now touches the floor',
+    after.violations.length === 0 && after.columnChains[2].grounded === true,
+    `clearance=${after.columnChains[2].endClearanceCm} violations=${JSON.stringify(after.violations)}`,
+  )
+  check(
+    'v-plate end: it is still one 121cm plate (29 panels)',
+    after.panels.length === 29 && after.panels.find((p) => p.id === 'p3_2').type === '2x4',
+    String(after.panels.length),
+  )
+}
+
+// 8f. Presets satisfy the rule
+{
+  for (const id of ['flat', 'calm', 'wave', 'crash']) {
+    const cfg = buildPreset(id)
+    const layout = solveLayout(cfg)
+    check(
+      `${id} preset: zero E_END_FLOATING violations`,
+      layout.violations.length === 0,
+      JSON.stringify(layout.violations.map((v) => [v.col, v.clearanceCm])),
+    )
   }
 }
 

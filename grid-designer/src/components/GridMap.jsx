@@ -19,6 +19,10 @@
  *     diagonal band in plan, which is exactly the thing the fold sliders are being
  *     dragged to produce.
  *   - a blue rule plus a "window / shore" caption along row 0's outer edge.
+ *   - a dashed red outline + corner marker on the BACK cell (row rows-1) of every
+ *     column whose last panel does not touch the floor — the grounded-end rule in
+ *     core/schema.js, reported as `layout.violations`. Its tooltip carries the
+ *     clearance ("end floating — X cm off the floor").
  *
  * INTERACTION
  *   A transparent 1-cell hit grid sits on top of the artwork (which is
@@ -56,6 +60,8 @@ const SQUARE_STROKE = '#3c3c56'
 const RECT_FILL = '#1f3350'
 const RECT_STROKE = '#4a7fc4'
 const SHORE = '#8fcaff'
+/** A column whose last panel does not reach the floor. */
+const FLOATING = '#ff5f6d'
 
 /** Pitch wash: cool where the chain has pitched up, warm where it came back down. */
 const PITCH_UP = '#8fc4ff'
@@ -89,7 +95,7 @@ export default function GridMap() {
   const addRect = useStore((s) => s.addRect)
   const removeRectAt = useStore((s) => s.removeRectAt)
   const lastErrors = useStore((s) => s.lastErrors)
-  const { layout } = getDerived(config)
+  const { layout, violations } = getDerived(config)
   const [mode, setMode] = useState('horizontal')
 
   const cols = config.grid.cols
@@ -122,6 +128,10 @@ export default function GridMap() {
   }
 
   const placementErrors = lastErrors.filter((e) => PLACEMENT_CODES.has(e.code))
+
+  // Columns whose last panel does not touch the floor (schema.js's grounded-end
+  // rule). Marked on the BACK row — the deep end of the strip, drawn at the top.
+  const floatingClearance = new Map(violations.map((v) => [v.col, v.clearanceCm]))
 
   return (
     <section className="grid-map" data-testid="grid-map">
@@ -206,6 +216,27 @@ export default function GridMap() {
             }),
           )}
 
+          {/* grounded-end rule: outline the back cell of every floating column */}
+          {Array.from(floatingClearance.keys()).map((c) => (
+            <g key={`float-${c}`}>
+              <rect
+                x={x(c) + 1}
+                y={y(rows - 1) + 1}
+                width={CELL - 2}
+                height={CELL - 2}
+                rx={2.5}
+                fill="none"
+                stroke={FLOATING}
+                strokeWidth={1.6}
+                strokeDasharray="3 2"
+              />
+              <path
+                d={`M ${x(c) + CELL - 12} ${y(rows - 1) + 1} L ${x(c) + CELL - 1} ${y(rows - 1) + 1} L ${x(c) + CELL - 1} ${y(rows - 1) + 12} Z`}
+                fill={FLOATING}
+              />
+            </g>
+          ))}
+
           <line
             x1={PAD_L}
             y1={y(0) + CELL + 2.5}
@@ -230,6 +261,7 @@ export default function GridMap() {
             Array.from({ length: cols }, (_, c) => {
               const owner = ownerOf.get(`${r},${c}`)
               const occupied = owner?.type === '2x4'
+              const floats = r === rows - 1 && floatingClearance.has(c)
               return (
                 <rect
                   key={`hit-${r}-${c}`}
@@ -244,7 +276,10 @@ export default function GridMap() {
                   onClick={() => onCellClick(r, c)}
                 >
                   <title>
-                    {`(${r}, ${c}) · pitch ${Math.round(pitchOf(r, c))}° — ${occupied ? `click to remove the ${owner.rectOrientation} plate` : `click to place a ${mode} plate`}`}
+                    {(floats
+                      ? `end floating — ${floatingClearance.get(c).toFixed(1)}cm off the floor · `
+                      : '') +
+                      `(${r}, ${c}) · pitch ${Math.round(pitchOf(r, c))}° — ${occupied ? `click to remove the ${owner.rectOrientation} plate` : `click to place a ${mode} plate`}`}
                   </title>
                 </rect>
               )

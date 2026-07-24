@@ -5,7 +5,9 @@
  *   node tests/test-presets.mjs
  *
  * Beyond determinism and validity, every preset must be BUILDABLE ON THE FLOOR:
- * its solved layout may not raise W_BELOW_FLOOR.
+ * its solved layout may not raise W_BELOW_FLOOR, and — the grounded-end rule from
+ * core/schema.js — may not raise E_END_FLOATING either: EVERY column's last panel
+ * has to come back down and touch the ground.
  */
 
 import assert from 'node:assert/strict'
@@ -109,6 +111,48 @@ for (const [label, cfg] of named) {
     }
   }
   check('presetRandom stays above the floor for seeds 0..59', allSupported, firstBad)
+}
+
+// =============================================================================
+// 2b. The grounded-end rule — every column's last panel must touch the floor
+// =============================================================================
+for (const [label, cfg] of named) {
+  const layout = solveLayout(cfg)
+  check(
+    `${label}: no E_END_FLOATING — every column lands`,
+    layout.violations.length === 0,
+    layout.violations.map((v) => `col ${v.col} @ ${v.clearanceCm.toFixed(2)}cm`).join(' | '),
+  )
+  check(
+    `${label}: every chain reports grounded with a clearance on the floor`,
+    layout.columnChains.every(
+      (ch) => ch.grounded === true && ch.endClearanceCm >= -0.25 && ch.endClearanceCm <= 0.5,
+    ),
+    JSON.stringify(layout.columnChains.map((ch) => [ch.grounded, ch.endClearanceCm])),
+  )
+}
+{
+  let allGrounded = true
+  let firstBad = ''
+  for (let seed = 0; seed <= 30; seed++) {
+    const layout = solveLayout(presetRandom(seed))
+    if (layout.violations.length > 0) {
+      allGrounded = false
+      firstBad = `seed ${seed}: ${layout.violations.map((v) => `col ${v.col} @ ${v.clearanceCm.toFixed(1)}cm`).join(', ')}`
+      break
+    }
+  }
+  check('presetRandom lands every column for seeds 0..30', allGrounded, firstBad)
+}
+// The landing is the LAST row's business: every preset's last pitch is ≤ 0, i.e.
+// the strip is coming down (or level) as it reaches the back of the store.
+for (const [label, cfg] of named) {
+  const last = profiles(cfg).map((p) => p[p.length - 1])
+  check(
+    `${label}: every column's final pitch is level or descending`,
+    last.every((psi) => psi <= 1e-9),
+    JSON.stringify(last),
+  )
 }
 
 // =============================================================================
