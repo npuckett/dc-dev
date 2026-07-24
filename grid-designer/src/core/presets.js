@@ -1,17 +1,31 @@
 /**
- * grid-designer — procedural configuration presets.
+ * grid-designer — procedural configuration presets (schema v2).
  *
  * HEADLESS ZONE (src/core/): pure functions, importable from plain node.
  *   - explicit `.js` extensions on ALL relative imports
  *   - may import `three` math classes only; never components / store / DOM
  *
  * Every function here returns a complete config that passes `validateConfig`
- * with `ok: true` (warnings such as W_RECT_LENGTH / W_CROSSROW_FOLD are
- * expected and intentional — they surface real physical slack).
+ * with `ok: true` (warnings such as W_RECT_LENGTH are expected and intentional —
+ * they surface real physical slack), and whose solved layout is free of
+ * W_BELOW_FLOOR: every fold chain stays supported on the floor.
  *
- * The narrative these presets serve: row 0 is the shore at the storefront
- * window, always flat. "calm" is barely rippled, "wave" swells toward the
- * shore, "crash" is steep and dramatic.
+ * =============================================================================
+ * HOW THESE ARE BUILT
+ * =============================================================================
+ * The model folds along COLUMNS only (see core/schema.js). A preset is therefore
+ * six fold sequences — one per column, four signed hinge angles each — and the
+ * interesting knob is the PHASE relationship between them:
+ *
+ *   - identical sequences  → a cylindrical fold, perfect in-row joints
+ *   - phase-shifted        → a wave travelling across the window (each column's
+ *                            crest one step further back than its left neighbour)
+ *
+ * Each sequence is authored as a CUMULATIVE PITCH profile ψ_0..ψ_4 (ψ_0 = 0 by
+ * construction — row 0 is the shore, flat on the ground) and differenced into
+ * hinge angles, because the pitch profile is what governs ground support: the
+ * chain's height only ever falls while ψ < 0, so as long as a descent comes
+ * after the rise that paid for it, nothing ends up under the floor.
  */
 
 import { DEFAULT_CONFIG, normalizeConfig, validateConfig } from './schema.js'
@@ -47,13 +61,13 @@ export const PRESETS = [
   {
     id: 'calm',
     label: 'Calm',
-    description: 'Gentle low-angle ripples with a slow rise away from the shore.',
+    description: 'Low-amplitude ripples, each column’s crest a step behind the last.',
     seeded: false,
   },
   {
     id: 'wave',
     label: 'Wave',
-    description: 'Pronounced accordion zig-zags swelling and breaking toward the shore.',
+    description: 'A clear swell travelling across the window, plus two rigid plates.',
     seeded: false,
   },
   {
@@ -65,7 +79,7 @@ export const PRESETS = [
   {
     id: 'random',
     label: 'Random',
-    description: 'Deterministic per seed; angles kept inside safe ranges.',
+    description: 'Deterministic per seed; rising profiles keep every strip supported.',
     seeded: true,
   },
 ]
@@ -75,18 +89,30 @@ export const PRESETS = [
 // -----------------------------------------------------------------------------
 const GRID = { cols: 6, rows: 5 }
 
-function baseConfig({ name, zigzags, rowFoldsDeg, rects = [], overrides = {}, meta }) {
-  const rows = zigzags.map((zigzagDeg, r) => ({
-    zigzagDeg,
-    jointOverridesDeg: { ...(overrides[r] ?? {}) },
-  }))
+/**
+ * Difference a cumulative pitch profile into per-joint hinge angles.
+ * `pitches[0]` must be 0 (row 0 is the shore).
+ *
+ * @param {number[]} pitches length grid.rows
+ * @returns {number[]} length grid.rows-1
+ */
+function foldsFromPitches(pitches) {
+  const folds = []
+  for (let k = 0; k + 1 < pitches.length; k++) folds.push(pitches[k + 1] - pitches[k])
+  return folds
+}
+
+/**
+ * @param {{name:string, folds:number[][], rects?:Array, meta:object}} spec
+ * @returns {object} normalized config
+ */
+function baseConfig({ name, folds, rects = [], meta }) {
   return normalizeConfig({
     ...DEFAULT_CONFIG,
     name,
     grid: { ...GRID },
     cell: { ...DEFAULT_CONFIG.cell },
-    rows,
-    rowFoldsDeg: rowFoldsDeg.slice(),
+    columns: folds.map((foldsDeg) => ({ foldsDeg: foldsDeg.slice() })),
     rects: rects.map((rect) => ({ ...rect })),
     meta,
   })
@@ -95,57 +121,98 @@ function baseConfig({ name, zigzags, rowFoldsDeg, rects = [], overrides = {}, me
 // -----------------------------------------------------------------------------
 // Presets
 // -----------------------------------------------------------------------------
-/** Flat reference surface: no zig-zag, no row folds. */
+/** Flat reference surface: every joint unfolded. */
 export function presetFlat() {
   return baseConfig({
     name: 'flat',
-    zigzags: [0, 0, 0, 0, 0],
-    rowFoldsDeg: [0, 0, 0, 0],
+    folds: [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
     meta: { preset: 'flat', notes: 'Reference state — all panels level.' },
   })
 }
 
-/** Barely-rippled water; everything low-angle. */
+/**
+ * Barely-rippled water: a ±10° ridge whose crest drifts one row further back
+ * every couple of columns, so the in-row connections stay nearly exact.
+ *
+ * Pitch profiles (ψ_0..ψ_4), column 0 → 5:
+ *   [0,10,-10,0,0] [0,10,0,-10,0] [0,5,10,-10,-5]
+ *   [0,0,10,0,-10] [0,0,5,10,-5]  [0,0,0,10,0]
+ */
 export function presetCalm() {
   return baseConfig({
     name: 'calm',
-    zigzags: [0, 8, 14, 12, 6],
-    rowFoldsDeg: [8, 14, 18, 10],
-    meta: { preset: 'calm', notes: 'Gentle ripples, slow steady rise away from the shore.' },
+    folds: [
+      foldsFromPitches([0, 10, -10, 0, 0]),
+      foldsFromPitches([0, 10, 0, -10, 0]),
+      foldsFromPitches([0, 5, 10, -10, -5]),
+      foldsFromPitches([0, 0, 10, 0, -10]),
+      foldsFromPitches([0, 0, 5, 10, -5]),
+      foldsFromPitches([0, 0, 0, 10, 0]),
+    ],
+    meta: { preset: 'calm', notes: 'Gentle ripple drifting across the window.' },
   })
 }
 
 /**
- * A swell breaking toward the shore: zig-zag builds through the middle rows and
- * eases at the back, row pitch rises steeply then rolls back over the crest.
+ * A swell travelling across the grid: a ±35° crest that starts just behind the
+ * shore at column 0 and moves one row deeper every two columns.
  *
- * Includes two rects for interest:
- *   - a vertical plate at column 0 (both cells tilt 0°, so the rigid-plate
- *     constraint is satisfied at any zig-zag amplitude) — it spans a folding row
- *     boundary on purpose, which raises the informational W_CROSSROW_FOLD flag.
- *   - a horizontal plate in the back row, removing joint 2 of that row.
+ * Pitch profiles (ψ_0..ψ_4), column 0 → 5:
+ *   [0,35,-35,0,0]  [0,35,0,-35,0]  [0,35,35,-35,-35]
+ *   [0,20,35,0,-35] [0,0,35,35,-35] [0,0,20,35,0]
+ *
+ * Includes both plate types, each placed where the geometry allows it:
+ *   - a VERTICAL plate at (1,2): column 2's joint 1 is unfolded (0°), so the
+ *     rigid 121cm plate can span rows 1 and 2 of that strip.
+ *   - a HORIZONTAL plate at (1,0): columns 0 and 1 have both reached pitch 35°
+ *     at row 1 with identical chains in front of it, so one plate lies flat
+ *     across both — the only in-row connection the surface makes rigid.
  */
 export function presetWave() {
   return baseConfig({
     name: 'wave',
-    zigzags: [0, 15, 30, 38, 22],
-    rowFoldsDeg: [12, 28, 40, -8],
-    overrides: { 1: { 3: -45 } },
-    rects: [
-      { row: 2, col: 0, orientation: 'vertical' },
-      { row: 4, col: 2, orientation: 'horizontal' },
+    folds: [
+      foldsFromPitches([0, 35, -35, 0, 0]),
+      foldsFromPitches([0, 35, 0, -35, 0]),
+      foldsFromPitches([0, 35, 35, -35, -35]),
+      foldsFromPitches([0, 20, 35, 0, -35]),
+      foldsFromPitches([0, 0, 35, 35, -35]),
+      foldsFromPitches([0, 0, 20, 35, 0]),
     ],
-    meta: { preset: 'wave', notes: 'Swell building and breaking toward the shore.' },
+    rects: [
+      { row: 1, col: 2, orientation: 'vertical' },
+      { row: 1, col: 0, orientation: 'horizontal' },
+    ],
+    meta: { preset: 'wave', notes: 'Swell travelling across the window, two rigid plates.' },
   })
 }
 
-/** Steep, dramatic: deep accordion folds and a near-vertical crest. */
+/**
+ * Steep and dramatic: near-vertical crests (cumulative pitch up to 88°) sweeping
+ * back across the grid, with hinge angles as large as ±120°.
+ *
+ * Pitch profiles (ψ_0..ψ_4), column 0 → 5:
+ *   [0,88,0,-88,0]  [0,60,60,-60,-60] [0,45,88,0,-88]
+ *   [0,20,70,88,0]  [0,0,45,88,45]    [0,0,20,70,88]
+ */
 export function presetCrash() {
   return baseConfig({
     name: 'crash',
-    zigzags: [0, 40, 62, 70, 50],
-    rowFoldsDeg: [30, 60, 75, -30],
-    overrides: { 3: { 2: 75 } },
+    folds: [
+      foldsFromPitches([0, 88, 0, -88, 0]),
+      foldsFromPitches([0, 60, 60, -60, -60]),
+      foldsFromPitches([0, 45, 88, 0, -88]),
+      foldsFromPitches([0, 20, 70, 88, 0]),
+      foldsFromPitches([0, 0, 45, 88, 45]),
+      foldsFromPitches([0, 0, 20, 70, 88]),
+    ],
     meta: { preset: 'crash', notes: 'Steep folds, crest coming down hard.' },
   })
 }
@@ -153,8 +220,17 @@ export function presetCrash() {
 /**
  * Deterministic random configuration.
  *
- * Same seed → byte-identical config. All draws happen in a fixed order, so
- * dropping an invalid candidate rect never shifts the random stream.
+ * Same seed → byte-identical config. ALL draws happen up front in a fixed order,
+ * so dropping a candidate rect never shifts the random stream.
+ *
+ * Cumulative pitches are drawn NON-NEGATIVE (0..45°): a monotonically rising
+ * strip can never dip below the floor, which is what keeps every seed free of
+ * W_BELOW_FLOOR without rejection sampling.
+ *
+ * The two candidate plates are made geometrically legal before the folds are
+ * differenced out — a vertical plate flattens the joint it removes, a horizontal
+ * plate copies its left column's pitch into its right one — and then kept only if
+ * the whole config still validates.
  *
  * @param {number} [seed=1]
  * @returns {object} config, guaranteed `validateConfig(...).ok === true`
@@ -163,58 +239,39 @@ export function presetRandom(seed = 1) {
   const rnd = mulberry32(seed)
   const { cols, rows: rowCount } = GRID
 
-  // Row zig-zag amplitudes — row 0 is the shore and stays flat.
-  const zigzags = [0]
-  const overrides = {}
-  for (let r = 1; r < rowCount; r++) {
-    zigzags.push(5 + Math.floor(rnd() * 46)) // 5..50
-    // Occasionally break the alternation with a signed override.
-    const wantsOverride = rnd() < 0.3
-    const j = Math.floor(rnd() * (cols - 1)) // 0..cols-2
-    const sign = rnd() < 0.5 ? -1 : 1
-    const mag = 10 + Math.floor(rnd() * 40) // 10..49
-    if (wantsOverride) overrides[r] = { [j]: sign * mag }
+  // --- fixed draw order --------------------------------------------------
+  const pitches = []
+  for (let c = 0; c < cols; c++) {
+    const profile = [0]
+    for (let r = 1; r < rowCount; r++) profile.push(Math.floor(rnd() * 46)) // 0..45
+    pitches.push(profile)
+  }
+  const vCand = {
+    row: Math.floor(rnd() * (rowCount - 1)), // 0..rows-2
+    col: Math.floor(rnd() * cols),
+    orientation: 'vertical',
+  }
+  const hCand = {
+    row: Math.floor(rnd() * rowCount),
+    col: Math.floor(rnd() * (cols - 1)), // 0..cols-2
+    orientation: 'horizontal',
   }
 
-  // Row-to-row dihedrals: mostly rising, occasionally rolling back over.
-  const rowFoldsDeg = []
-  for (let r = 0; r < rowCount - 1; r++) {
-    rowFoldsDeg.push(-10 + Math.floor(rnd() * 61)) // -10..50
-  }
+  // --- make the candidates legal ------------------------------------------
+  pitches[vCand.col][vCand.row + 1] = pitches[vCand.col][vCand.row]
+  pitches[hCand.col + 1][hCand.row] = pitches[hCand.col][hCand.row]
 
-  // Candidate horizontal rects — only kept if the whole config still validates.
-  const candidates = []
-  for (let k = 0; k < 3; k++) {
-    candidates.push({
-      row: 1 + Math.floor(rnd() * (rowCount - 1)), // 1..rowCount-1
-      col: Math.floor(rnd() * (cols - 1)), // 0..cols-2
-      orientation: 'horizontal',
-    })
-  }
-
+  const folds = pitches.map(foldsFromPitches)
   const meta = { preset: 'random', seed, notes: `mulberry32 seed ${seed}` }
+  const name = `random ${seed}`
 
   const rects = []
-  for (const candidate of candidates) {
-    const trial = baseConfig({
-      name: `random ${seed}`,
-      zigzags,
-      rowFoldsDeg,
-      overrides,
-      rects: [...rects, candidate],
-      meta,
-    })
+  for (const candidate of [vCand, hCand]) {
+    const trial = baseConfig({ name, folds, rects: [...rects, candidate], meta })
     if (validateConfig(trial).ok) rects.push(candidate)
   }
 
-  return baseConfig({
-    name: `random ${seed}`,
-    zigzags,
-    rowFoldsDeg,
-    overrides,
-    rects,
-    meta,
-  })
+  return baseConfig({ name, folds, rects, meta })
 }
 
 /**

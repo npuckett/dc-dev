@@ -135,8 +135,8 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
   )
   check(
     'wave OBJ: plates are named rect_h_* / rect_v_*, squares panel_*',
-    names.includes('rect_v_r2_c0') &&
-      names.includes('rect_h_r4_c2') &&
+    names.includes('rect_h_r1_c0') &&
+      names.includes('rect_v_r1_c2') &&
       names.filter((n) => n.startsWith('panel_')).length === 26,
     JSON.stringify(names.filter((n) => !n.startsWith('panel_'))),
   )
@@ -230,7 +230,7 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
   const layout = solveLayout(config)
   const payload = configJSONPayload(config)
 
-  check('round-trip: payload is pretty-printed', payload.includes('\n  "version": 1'))
+  check('round-trip: payload is pretty-printed', payload.includes('\n  "version": 2'))
 
   let parsed = null
   checkNoThrow('round-trip: payload parses as JSON', () => {
@@ -253,16 +253,16 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
   // A minimal hand-written config must survive normalize → validate → solve too:
   // that is the contract the JSON paste panel relies on.
   const minimal = {
-    version: 1,
+    version: 2,
     units: 'cm',
-    rows: [
-      { zigzagDeg: 0 },
-      { zigzagDeg: 25 },
-      { zigzagDeg: 45 },
-      { zigzagDeg: 10 },
-      { zigzagDeg: 5 },
+    columns: [
+      { foldsDeg: [25, -25, 0, 0] },
+      { foldsDeg: [25, 0, -25, 0] },
+      { foldsDeg: [10, 15, -25, 0] },
+      { foldsDeg: [0, 25, 0, -25] },
+      { foldsDeg: [0, 10, 15, -25] },
+      { foldsDeg: [0, 0, 25, 0] },
     ],
-    rowFoldsDeg: [20, 35, 25, -15],
   }
   const normalizedMinimal = normalizeConfig(minimal)
   check(

@@ -74,7 +74,7 @@ export default function JsonPanel() {
         spellCheck={false}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder='{"version":1,"units":"cm","rows":[…],"rowFoldsDeg":[…]}'
+        placeholder='{"version":2,"units":"cm","columns":[{"foldsDeg":[…]},…]}'
       />
 
       <div className="json-actions">

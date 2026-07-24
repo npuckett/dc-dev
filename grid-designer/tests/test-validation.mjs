@@ -1,15 +1,19 @@
 /**
- * tests/test-validation.mjs — headless checks for core/schema.js.
+ * tests/test-validation.mjs — headless checks for core/schema.js (v2).
  *
  * Plain node script, no test framework. Exits non-zero on any failure.
  *   node tests/test-validation.mjs
+ *
+ * The model under test: folding happens along COLUMNS only. Each column carries
+ * grid.rows-1 signed hinge angles; row 0 is flat by construction.
  */
 
 import {
   DEFAULT_CONFIG,
+  cellPitches,
+  columnChain,
   normalizeConfig,
   validateConfig,
-  cellTilts,
 } from '../src/core/schema.js'
 import {
   presetFlat,
@@ -58,11 +62,26 @@ function expectWarning(name, config, code) {
 
 // A known-good starting point for crafting bad configs.
 const good = () => structuredClone(DEFAULT_CONFIG)
+const withFolds = (perColumn) => {
+  const cfg = good()
+  perColumn.forEach((foldsDeg, c) => {
+    if (foldsDeg) cfg.columns[c] = { foldsDeg: foldsDeg.slice() }
+  })
+  return cfg
+}
 
 // =============================================================================
 // 1. Valid configs
 // =============================================================================
 expectOk('DEFAULT_CONFIG validates', DEFAULT_CONFIG)
+check('DEFAULT_CONFIG is version 2', DEFAULT_CONFIG.version === 2, String(DEFAULT_CONFIG.version))
+check(
+  'DEFAULT_CONFIG has 6 all-zero fold sequences',
+  DEFAULT_CONFIG.columns.length === 6 &&
+    DEFAULT_CONFIG.columns.every((c) => c.foldsDeg.length === 4 && c.foldsDeg.every((f) => f === 0)),
+  JSON.stringify(DEFAULT_CONFIG.columns),
+)
+check('DEFAULT_CONFIG has no rowAnchor / rows / rowFoldsDeg', DEFAULT_CONFIG.rowAnchor === undefined && DEFAULT_CONFIG.rows === undefined && DEFAULT_CONFIG.rowFoldsDeg === undefined)
 expectOk('presetFlat validates', presetFlat())
 expectOk('presetCalm validates', presetCalm())
 expectOk('presetWave validates', presetWave())
@@ -71,70 +90,121 @@ expectOk('presetRandom(1) validates', presetRandom(1))
 expectOk('presetRandom(42) validates', presetRandom(42))
 
 // =============================================================================
-// 2. E_SHAPE — wrong rows length
+// 2. v1 configs are REJECTED outright
 // =============================================================================
 {
-  const cfg = good()
-  cfg.rows = cfg.rows.slice(0, 4) // 4 rows but grid.rows === 5
-  const result = expectError('E_SHAPE rows length', cfg, 'E_SHAPE')
+  const v1 = {
+    version: 1,
+    units: 'cm',
+    grid: { cols: 6, rows: 5 },
+    cell: { size: 60, rectLength: 121 },
+    gap: 2,
+    gapTolerance: 1.5,
+    rowAnchor: 'center',
+    rows: [
+      { zigzagDeg: 0, jointOverridesDeg: {} },
+      { zigzagDeg: 20, jointOverridesDeg: {} },
+      { zigzagDeg: 30, jointOverridesDeg: {} },
+      { zigzagDeg: 30, jointOverridesDeg: {} },
+      { zigzagDeg: 10, jointOverridesDeg: {} },
+    ],
+    rowFoldsDeg: [15, 40, 55, -10],
+    rects: [],
+  }
+  const result = expectError('v1 config rejected', v1, 'E_SHAPE')
   check(
-    'E_SHAPE rows length: path is rows',
-    result.errors.some((e) => e.code === 'E_SHAPE' && e.path === 'rows'),
+    'v1 config: message says version must be 2 and names the row-accordion model',
+    result.errors.some(
+      (e) =>
+        e.path === 'version' &&
+        /version must be 2/.test(e.message) &&
+        /row-accordion/.test(e.message),
+    ),
+    JSON.stringify(result.errors.map((e) => e.message)),
+  )
+  check(
+    'v1 config: its missing `columns` array is reported too',
+    result.errors.some((e) => e.code === 'E_SHAPE' && e.path === 'columns'),
     describe(result),
   )
 }
-
-// E_SHAPE — wrong rowFoldsDeg length
-{
-  const cfg = good()
-  cfg.rowFoldsDeg = [0, 0]
-  expectError('E_SHAPE rowFoldsDeg length', cfg, 'E_SHAPE')
-}
-
-// E_SHAPE — bad version / units
-expectError('E_SHAPE bad version', { ...good(), version: 2 }, 'E_SHAPE')
+expectError('E_SHAPE version 3', { ...good(), version: 3 }, 'E_SHAPE')
 expectError('E_SHAPE bad units', { ...good(), units: 'in' }, 'E_SHAPE')
 
 // =============================================================================
-// 3. E_RANGE — zigzag 100
+// 3. E_SHAPE — structural problems in `columns`
 // =============================================================================
 {
   const cfg = good()
-  cfg.rows[2].zigzagDeg = 100
-  expectError('E_RANGE zigzag 100', cfg, 'E_RANGE')
+  cfg.columns = cfg.columns.slice(0, 5) // 5 columns but grid.cols === 6
+  const result = expectError('E_SHAPE columns length', cfg, 'E_SHAPE')
+  check(
+    'E_SHAPE columns length: path is columns',
+    result.errors.some((e) => e.code === 'E_SHAPE' && e.path === 'columns'),
+    describe(result),
+  )
 }
-
-// E_RANGE — override outside ±80
 {
   const cfg = good()
-  cfg.rows[2].jointOverridesDeg = { 1: -95 }
-  expectError('E_RANGE override -95', cfg, 'E_RANGE')
+  cfg.columns[3] = { foldsDeg: [0, 0, 0] } // needs grid.rows-1 = 4
+  const result = expectError('E_SHAPE foldsDeg length', cfg, 'E_SHAPE')
+  check(
+    'E_SHAPE foldsDeg length: path names the column',
+    result.errors.some((e) => e.path === 'columns[3].foldsDeg'),
+    describe(result),
+  )
 }
-
-// E_RANGE — rowFold outside ±120
 {
   const cfg = good()
-  cfg.rowFoldsDeg[1] = 150
-  expectError('E_RANGE rowFold 150', cfg, 'E_RANGE')
+  delete cfg.columns
+  expectError('E_SHAPE missing columns', cfg, 'E_SHAPE')
+}
+{
+  const cfg = good()
+  cfg.columns[1] = 42
+  expectError('E_SHAPE column entry not an object', cfg, 'E_SHAPE')
+}
+{
+  const cfg = good()
+  cfg.columns[1] = { foldsDeg: 'nope' }
+  expectError('E_SHAPE foldsDeg not an array', cfg, 'E_SHAPE')
+}
+{
+  const cfg = good()
+  cfg.columns[2].foldsDeg[1] = null
+  expectError('E_SHAPE fold entry not a number', cfg, 'E_SHAPE')
+}
+{
+  const cfg = good()
+  cfg.grid.cols = 0
+  expectError('E_SHAPE grid.cols 0', cfg, 'E_SHAPE')
 }
 
-// E_RANGE — gap out of (0, 10]
+// =============================================================================
+// 4. E_RANGE — folds and gap
+// =============================================================================
+{
+  const cfg = good()
+  cfg.columns[1].foldsDeg[2] = 130
+  const result = expectError('E_RANGE fold 130', cfg, 'E_RANGE')
+  check(
+    'E_RANGE fold: path names the joint',
+    result.errors.some((e) => e.code === 'E_RANGE' && e.path === 'columns[1].foldsDeg[2]'),
+    describe(result),
+  )
+}
+{
+  const cfg = good()
+  cfg.columns[0].foldsDeg[0] = -121
+  expectError('E_RANGE fold -121', cfg, 'E_RANGE')
+}
+{
+  const cfg = good()
+  cfg.columns[0].foldsDeg[0] = -120
+  expectOk('fold exactly -120 is allowed', cfg)
+}
 expectError('E_RANGE gap 0', { ...good(), gap: 0 }, 'E_RANGE')
 expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
-
-// =============================================================================
-// 4. E_SHORE_NOT_FLAT
-// =============================================================================
-{
-  const cfg = good()
-  cfg.rows[0].zigzagDeg = 10
-  expectError('E_SHORE_NOT_FLAT zigzag', cfg, 'E_SHORE_NOT_FLAT')
-}
-{
-  const cfg = good()
-  cfg.rows[0].jointOverridesDeg = { 1: 20 }
-  expectError('E_SHORE_NOT_FLAT overrides', cfg, 'E_SHORE_NOT_FLAT')
-}
 
 // =============================================================================
 // 5. Rect bounds
@@ -161,73 +231,106 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
   ]
   expectError('E_RECT_OVERLAP', cfg, 'E_RECT_OVERLAP')
 }
-
-// =============================================================================
-// 7. E_OVERRIDE_ON_REMOVED_JOINT
-// =============================================================================
 {
   const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[1].jointOverridesDeg = { 2: -35 }
-  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }] // removes joint 2 of row 1
-  expectError('E_OVERRIDE_ON_REMOVED_JOINT', cfg, 'E_OVERRIDE_ON_REMOVED_JOINT')
-}
-
-// A horizontal rect at a *different* joint is fine.
-{
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[1].jointOverridesDeg = { 2: -35 }
-  cfg.rects = [{ row: 1, col: 0, orientation: 'horizontal' }] // removes joint 0
-  expectOk('override on a surviving joint is fine', cfg)
+  cfg.rects = [
+    { row: 1, col: 2, orientation: 'horizontal' }, // (1,2),(1,3)
+    { row: 1, col: 3, orientation: 'vertical' }, // (1,3),(2,3) — shares (1,3)
+  ]
+  expectError('E_RECT_OVERLAP across orientations', cfg, 'E_RECT_OVERLAP')
 }
 
 // =============================================================================
-// 8. E_CROSSROW_ANGLE_MISMATCH
+// 7. E_FOLD_ON_REMOVED_JOINT — a vertical plate cannot bend
 // =============================================================================
 {
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[2].zigzagDeg = 40
-  cfg.rects = [{ row: 1, col: 1, orientation: 'vertical' }] // tilt +20 vs +40 at col 1
-  const result = expectError('E_CROSSROW_ANGLE_MISMATCH', cfg, 'E_CROSSROW_ANGLE_MISMATCH')
+  const cfg = withFolds([null, null, [0, 25, 0, 0]])
+  cfg.rects = [{ row: 1, col: 2, orientation: 'vertical' }] // removes joint 1 of column 2
+  const result = expectError('E_FOLD_ON_REMOVED_JOINT', cfg, 'E_FOLD_ON_REMOVED_JOINT')
   check(
-    'mismatch message names both tilts',
-    result.errors.some((e) => e.code === 'E_CROSSROW_ANGLE_MISMATCH' && /20\.00/.test(e.message) && /40\.00/.test(e.message)),
+    'E_FOLD_ON_REMOVED_JOINT: message says set it to 0 or remove the rect',
+    result.errors.some(
+      (e) =>
+        e.code === 'E_FOLD_ON_REMOVED_JOINT' &&
+        /set it to 0 or remove the rect/.test(e.message) &&
+        e.path === 'columns[2].foldsDeg[1]',
+    ),
+    describe(result),
+  )
+}
+{
+  // The same plate is fine when the joint it removes is unfolded.
+  const cfg = withFolds([null, null, [0, 0, 25, 0]])
+  cfg.rects = [{ row: 1, col: 2, orientation: 'vertical' }]
+  expectOk('vertical plate on an unfolded joint is fine', cfg)
+}
+{
+  // A fold on a DIFFERENT joint of the same column is fine.
+  const cfg = withFolds([null, null, [30, 0, -30, 0]])
+  cfg.rects = [{ row: 1, col: 2, orientation: 'vertical' }]
+  expectOk('folds elsewhere in the column are fine', cfg)
+}
+
+// =============================================================================
+// 8. E_CROSSCOL_ANGLE_MISMATCH — a horizontal plate needs matching pitches
+// =============================================================================
+{
+  const cfg = withFolds([[30, 0, 0, 0]])
+  cfg.rects = [{ row: 1, col: 0, orientation: 'horizontal' }] // pitch 30 vs 0 at row 1
+  const result = expectError('E_CROSSCOL_ANGLE_MISMATCH', cfg, 'E_CROSSCOL_ANGLE_MISMATCH')
+  check(
+    'mismatch message names both pitches',
+    result.errors.some(
+      (e) =>
+        e.code === 'E_CROSSCOL_ANGLE_MISMATCH' &&
+        /30\.00/.test(e.message) &&
+        /0\.00/.test(e.message),
+    ),
+    describe(result),
+  )
+}
+{
+  // Row 0 always sits at pitch 0 in every column, so a plate there always matches.
+  const cfg = withFolds([[30, 0, 0, 0], [-40, 0, 0, 0]])
+  cfg.rects = [{ row: 0, col: 0, orientation: 'horizontal' }]
+  expectOk('horizontal plate on the shore row always matches', cfg)
+}
+{
+  // Matching cumulative pitches reached by different fold sequences also pass.
+  const cfg = withFolds([[20, 20, 0, 0], [40, 0, 0, 0]])
+  cfg.rects = [{ row: 2, col: 0, orientation: 'horizontal' }] // both at 40° by row 2
+  const result = expectOk('matching cumulative pitch passes (different sequences)', cfg)
+  check(
+    'matching pitch but diverged position warns W_CROSSCOL_POSITION',
+    warnCodes(result).includes('W_CROSSCOL_POSITION'),
     describe(result),
   )
 }
 
-// Column 0 always tilts 0° in every row, so a vertical rect there always matches.
-{
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[2].zigzagDeg = 40
-  cfg.rects = [{ row: 1, col: 0, orientation: 'vertical' }]
-  expectOk('vertical rect at column 0 always matches', cfg)
-}
-
 // =============================================================================
-// 9. W_CROSSROW_FOLD
+// 9. W_CROSSCOL_POSITION — same angle, different place
 // =============================================================================
 {
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[2].zigzagDeg = 40
-  cfg.rowFoldsDeg = [0, 25, 0, 0] // rows 1/2 boundary folds
-  cfg.rects = [{ row: 1, col: 0, orientation: 'vertical' }] // tilts match, but the fold is non-zero
-  const result = expectWarning('W_CROSSROW_FOLD', cfg, 'W_CROSSROW_FOLD')
-  check('W_CROSSROW_FOLD is only a warning', result.ok, describe(result))
+  // Column 0 goes up and comes back down: pitch 0 again at row 2, but 30cm higher
+  // and 8cm shallower than column 1.
+  const cfg = withFolds([[30, -30, 0, 0]])
+  cfg.rects = [{ row: 2, col: 0, orientation: 'horizontal' }]
+  const result = expectWarning('W_CROSSCOL_POSITION', cfg, 'W_CROSSCOL_POSITION')
+  check('W_CROSSCOL_POSITION is only a warning', result.ok, describe(result))
+  check(
+    'W_CROSSCOL_POSITION message reports both origins',
+    result.warnings.some((w) => w.code === 'W_CROSSCOL_POSITION' && /y 34\.74/.test(w.message)),
+    JSON.stringify(result.warnings.map((w) => w.message)),
+  )
 }
-
-// ...and no warning when the spanned boundary is flat.
 {
-  const cfg = good()
-  cfg.rects = [{ row: 1, col: 0, orientation: 'vertical' }]
+  // Identical columns → identical chains → no position warning.
+  const cfg = withFolds([[30, -30, 0, 0], [30, -30, 0, 0]])
+  cfg.rects = [{ row: 2, col: 0, orientation: 'horizontal' }]
   const result = validateConfig(cfg)
   check(
-    'no W_CROSSROW_FOLD on a flat boundary',
-    !warnCodes(result).includes('W_CROSSROW_FOLD'),
+    'no W_CROSSCOL_POSITION when the two chains are identical',
+    result.ok && !warnCodes(result).includes('W_CROSSCOL_POSITION'),
     describe(result),
   )
 }
@@ -241,8 +344,6 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
   const result = expectWarning('W_RECT_LENGTH', cfg, 'W_RECT_LENGTH')
   check('W_RECT_LENGTH is only a warning', result.ok, describe(result))
 }
-
-// No rects → no length warning.
 {
   const result = validateConfig(good())
   check(
@@ -251,8 +352,6 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
     describe(result),
   )
 }
-
-// Exact rectLength → no warning even with rects.
 {
   const cfg = good()
   cfg.cell.rectLength = 122
@@ -266,48 +365,78 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
 }
 
 // =============================================================================
-// 11. cellTilts
+// 11. cellPitches / columnChain
 // =============================================================================
 {
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 30
-  const tilts = cellTilts(cfg, 1)
-  // φ(1,j) = +30, -30, +30, -30, +30 → running sums 0, 30, 0, 30, 0, 30
+  const cfg = withFolds([null, null, [30, -60, 60, -30]])
+  const pitches = cellPitches(cfg, 2)
   check(
-    'cellTilts alternating chain',
-    JSON.stringify(tilts) === JSON.stringify([0, 30, 0, 30, 0, 30]),
-    JSON.stringify(tilts),
+    'cellPitches: running sum of the column fold sequence',
+    JSON.stringify(pitches) === JSON.stringify([0, 30, -30, 30, 0]),
+    JSON.stringify(pitches),
+  )
+  check(
+    'cellPitches: untouched columns stay all-zero',
+    JSON.stringify(cellPitches(cfg, 0)) === JSON.stringify([0, 0, 0, 0, 0]),
+    JSON.stringify(cellPitches(cfg, 0)),
   )
 }
 {
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 30
-  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }] // removes joint 2
-  const tilts = cellTilts(cfg, 1)
-  // joint 2 applies no fold → cells 2 and 3 share a tilt
+  const flat = cellPitches(DEFAULT_CONFIG, 0)
   check(
-    'cellTilts: horizontal rect removes its joint',
-    JSON.stringify(tilts) === JSON.stringify([0, 30, 0, 0, -30, 0]),
-    JSON.stringify(tilts),
+    'cellPitches: flat column is all zeros, one entry per row',
+    flat.length === 5 && flat.every((p) => p === 0),
+    JSON.stringify(flat),
   )
 }
 {
-  const cfg = good()
-  cfg.rows[1].zigzagDeg = 20
-  cfg.rows[1].jointOverridesDeg = { 1: 45 } // signed absolute, replaces -20
-  const tilts = cellTilts(cfg, 1)
+  // A vertical plate removes its joint: both of its rows share one pitch, and
+  // the folds behind it still apply.
+  const cfg = withFolds([null, null, [20, 0, 40, 0]])
+  cfg.rects = [{ row: 1, col: 2, orientation: 'vertical' }]
+  check('vertical-plate config validates', validateConfig(cfg).ok, describe(validateConfig(cfg)))
+  const pitches = cellPitches(cfg, 2)
   check(
-    'cellTilts: override used as-is (sign not flipped)',
-    JSON.stringify(tilts) === JSON.stringify([0, 20, 65, 85, 65, 85]),
-    JSON.stringify(tilts),
+    'cellPitches: a vertical plate spans two rows at one pitch',
+    JSON.stringify(pitches) === JSON.stringify([0, 20, 20, 60, 60]),
+    JSON.stringify(pitches),
   )
 }
 {
-  const flatTilts = cellTilts(DEFAULT_CONFIG, 0)
+  // The chain geometry itself: a flat column walks straight back in z.
+  const chain = columnChain(DEFAULT_CONFIG, 3)
   check(
-    'cellTilts: flat row is all zeros',
-    flatTilts.length === 6 && flatTilts.every((t) => t === 0),
-    JSON.stringify(flatTilts),
+    'columnChain: flat column origins are (3.7, 62r)',
+    chain.origins.every(([y, z], r) => Math.abs(y - 3.7) < 1e-12 && Math.abs(z - 62 * r) < 1e-12),
+    JSON.stringify(chain.origins),
+  )
+  check(
+    'columnChain: 10 vertices — the start, 5 segment ends, 4 gap ends',
+    chain.points.length === 10,
+    String(chain.points.length),
+  )
+  check(
+    'columnChain: reports one segment per row for a rect-free column',
+    chain.segments.length === 5 && chain.segments.every((s) => s.kind === 'square'),
+    JSON.stringify(chain.segments.map((s) => s.kind)),
+  )
+}
+{
+  // A horizontal plate makes the neighbouring column's cell a phantom, which
+  // still advances the chain exactly as a square would.
+  const cfg = good()
+  cfg.rects = [{ row: 2, col: 1, orientation: 'horizontal' }]
+  const owner = columnChain(cfg, 1)
+  const phantom = columnChain(cfg, 2)
+  check(
+    'columnChain: plate owner has an hrect segment, its neighbour a phantom',
+    owner.segments[2].kind === 'hrect' && phantom.segments[2].kind === 'phantom',
+    JSON.stringify([owner.segments.map((s) => s.kind), phantom.segments.map((s) => s.kind)]),
+  )
+  check(
+    'columnChain: a phantom advances the chain like a square',
+    JSON.stringify(phantom.origins) === JSON.stringify(columnChain(good(), 2).origins),
+    JSON.stringify(phantom.origins),
   )
 }
 
@@ -316,23 +445,22 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
 // =============================================================================
 {
   const minimal = {
-    version: 1,
+    version: 2,
     units: 'cm',
-    rows: [
-      { zigzagDeg: 0 },
-      { zigzagDeg: 12 },
-      { zigzagDeg: 18 },
-      { zigzagDeg: 18 },
-      { zigzagDeg: 6 },
+    columns: [
+      { foldsDeg: [10, 0, 0, 0] },
+      { foldsDeg: [10, 0, 0, 0] },
+      { foldsDeg: [0, 10, 0, 0] },
+      { foldsDeg: [0, 10, 0, 0] },
+      { foldsDeg: [0, 0, 10, 0] },
+      { foldsDeg: [0, 0, 10, 0] },
     ],
-    rowFoldsDeg: [0, 0, 0, 0],
   }
   const before = structuredClone(minimal)
   const cfg = normalizeConfig(minimal)
 
   check('normalize: gap default', cfg.gap === 2.0, String(cfg.gap))
   check('normalize: gapTolerance default', cfg.gapTolerance === 1.5, String(cfg.gapTolerance))
-  check('normalize: rowAnchor default', cfg.rowAnchor === 'center', String(cfg.rowAnchor))
   check(
     'normalize: cell default',
     cfg.cell.size === 60 && cfg.cell.rectLength === 121,
@@ -346,13 +474,11 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
   check('normalize: rects default []', Array.isArray(cfg.rects) && cfg.rects.length === 0)
   check('normalize: meta object', cfg.meta && typeof cfg.meta === 'object' && cfg.meta.notes === '')
   check(
-    'normalize: jointOverridesDeg filled per row',
-    cfg.rows.every((r) => r.jointOverridesDeg && Object.keys(r.jointOverridesDeg).length === 0),
+    'normalize: columns passed through',
+    cfg.columns.length === 6 && JSON.stringify(cfg.columns[2].foldsDeg) === JSON.stringify([0, 10, 0, 0]),
+    JSON.stringify(cfg.columns),
   )
-  check(
-    'normalize: rows/rowFolds passed through',
-    cfg.rows.length === 5 && cfg.rows[1].zigzagDeg === 12 && cfg.rowFoldsDeg.length === 4,
-  )
+  check('normalize: no rowAnchor invented', cfg.rowAnchor === undefined)
   check(
     'normalize: input not mutated',
     JSON.stringify(minimal) === JSON.stringify(before),
@@ -362,10 +488,8 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
   check('normalize: no `name` invented', cfg.name === undefined, String(cfg.name))
 
   // Deep-copy check: mutating the output must not touch the input.
-  cfg.rows[1].zigzagDeg = 99
-  cfg.rowFoldsDeg[0] = 99
-  check('normalize: output rows are copies', minimal.rows[1].zigzagDeg === 12)
-  check('normalize: output rowFoldsDeg is a copy', minimal.rowFoldsDeg[0] === 0)
+  cfg.columns[0].foldsDeg[0] = 99
+  check('normalize: output foldsDeg arrays are copies', minimal.columns[0].foldsDeg[0] === 10)
 }
 
 // normalizeConfig tolerates junk without throwing.
@@ -377,11 +501,14 @@ expectError('E_RANGE gap 11', { ...good(), gap: 11 }, 'E_RANGE')
     normalizeConfig(42)
     validateConfig({})
     validateConfig(null)
+    validateConfig({ version: 2, units: 'cm', columns: [{ foldsDeg: [1] }] })
+    cellPitches({}, 0)
+    columnChain({ grid: { cols: 'x', rows: null } }, 0)
   } catch (e) {
     threw = true
     console.error(e)
   }
-  check('normalize/validate tolerate junk input', !threw)
+  check('normalize/validate/chain tolerate junk input', !threw)
 }
 
 // =============================================================================

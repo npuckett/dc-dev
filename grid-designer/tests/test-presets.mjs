@@ -1,12 +1,15 @@
 /**
- * tests/test-presets.mjs — headless checks for core/presets.js.
+ * tests/test-presets.mjs — headless checks for core/presets.js (v2).
  *
  * Plain node script, no test framework. Exits non-zero on any failure.
  *   node tests/test-presets.mjs
+ *
+ * Beyond determinism and validity, every preset must be BUILDABLE ON THE FLOOR:
+ * its solved layout may not raise W_BELOW_FLOOR.
  */
 
 import assert from 'node:assert/strict'
-import { validateConfig } from '../src/core/schema.js'
+import { cellPitches, validateConfig } from '../src/core/schema.js'
 import {
   PRESETS,
   buildPreset,
@@ -17,6 +20,7 @@ import {
   presetCrash,
   presetRandom,
 } from '../src/core/presets.js'
+import { solveLayout } from '../src/core/placement.js'
 
 let passed = 0
 const failures = []
@@ -42,6 +46,8 @@ function checkNoThrow(name, fn) {
 
 const describe = (result) =>
   `errors=[${result.errors.map((e) => `${e.code}@${e.path}: ${e.message}`).join(' | ')}]`
+const maxFold = (cfg) => Math.max(...cfg.columns.flatMap((col) => col.foldsDeg.map(Math.abs)))
+const profiles = (cfg) => cfg.columns.map((_, c) => cellPitches(cfg, c))
 
 // =============================================================================
 // 1. Every preset validates
@@ -79,7 +85,34 @@ for (const [label, cfg] of named) {
 }
 
 // =============================================================================
-// 2. Determinism
+// 2. Ground support — no preset may leave a panel under the floor
+// =============================================================================
+for (const [label, cfg] of named) {
+  const layout = solveLayout(cfg)
+  const below = layout.warnings.filter((w) => w.code === 'W_BELOW_FLOOR')
+  check(
+    `${label}: no W_BELOW_FLOOR`,
+    below.length === 0,
+    below.map((w) => w.message).join(' | '),
+  )
+}
+{
+  let allSupported = true
+  let firstBad = ''
+  for (let seed = 0; seed < 60; seed++) {
+    const layout = solveLayout(presetRandom(seed))
+    const below = layout.warnings.find((w) => w.code === 'W_BELOW_FLOOR')
+    if (below) {
+      allSupported = false
+      firstBad = `seed ${seed}: ${below.message}`
+      break
+    }
+  }
+  check('presetRandom stays above the floor for seeds 0..59', allSupported, firstBad)
+}
+
+// =============================================================================
+// 3. Determinism
 // =============================================================================
 checkNoThrow('presetRandom(42) is deterministic (deep-equal)', () => {
   assert.deepStrictEqual(presetRandom(42), presetRandom(42))
@@ -108,6 +141,14 @@ checkNoThrow('presetRandom(1) is deterministic', () => {
   check('25 seeds produce ≥ 20 distinct configs', seen.size >= 20, `got ${seen.size}`)
 }
 
+// The named presets must be distinct from each other.
+{
+  const shaped = ['flat', 'calm', 'wave', 'crash'].map((id) =>
+    JSON.stringify(buildPreset(id).columns),
+  )
+  check('flat/calm/wave/crash all differ', new Set(shaped).size === 4)
+}
+
 // The PRNG itself.
 {
   const a = mulberry32(7)
@@ -123,7 +164,7 @@ checkNoThrow('presetRandom(1) is deterministic', () => {
 }
 
 // =============================================================================
-// 3. Preset content / metadata
+// 4. Preset content / metadata
 // =============================================================================
 {
   const ids = PRESETS.map((p) => p.id)
@@ -153,21 +194,25 @@ checkNoThrow('buildPreset throws on unknown id', () => {
   assert.throws(() => buildPreset('nope'))
 })
 
-// Shore row flat in every preset.
+// Shape: 6 columns × 4 joints, version 2.
 for (const [label, cfg] of named) {
   check(
-    `${label}: shore row 0 is flat`,
-    cfg.rows[0].zigzagDeg === 0 && Object.keys(cfg.rows[0].jointOverridesDeg).length === 0,
-    JSON.stringify(cfg.rows[0]),
+    `${label}: version 2, 6×5, 6 fold sequences of 4`,
+    cfg.version === 2 &&
+      cfg.grid.cols === 6 &&
+      cfg.grid.rows === 5 &&
+      cfg.columns.length === 6 &&
+      cfg.columns.every((col) => Array.isArray(col.foldsDeg) && col.foldsDeg.length === 4),
+    JSON.stringify({ version: cfg.version, grid: cfg.grid, columns: cfg.columns.length }),
   )
-}
-
-// Shape: 6×5 with matching array lengths.
-for (const [label, cfg] of named) {
   check(
-    `${label}: 6×5 with matching array lengths`,
-    cfg.grid.cols === 6 && cfg.grid.rows === 5 && cfg.rows.length === 5 && cfg.rowFoldsDeg.length === 4,
-    JSON.stringify({ grid: cfg.grid, rows: cfg.rows.length, folds: cfg.rowFoldsDeg.length }),
+    `${label}: every cumulative pitch profile starts at 0 (row 0 is the shore)`,
+    profiles(cfg).every((p) => p[0] === 0),
+    JSON.stringify(profiles(cfg)),
+  )
+  check(
+    `${label}: no v1 leftovers (rows / rowFoldsDeg / rowAnchor)`,
+    cfg.rows === undefined && cfg.rowFoldsDeg === undefined && cfg.rowAnchor === undefined,
   )
 }
 
@@ -176,24 +221,67 @@ for (const [label, cfg] of named) {
   const flat = presetFlat()
   check(
     'presetFlat has no angles at all',
-    flat.rows.every((r) => r.zigzagDeg === 0) && flat.rowFoldsDeg.every((f) => f === 0) && flat.rects.length === 0,
+    flat.columns.every((col) => col.foldsDeg.every((f) => f === 0)) && flat.rects.length === 0,
   )
 }
 {
   const calm = presetCalm()
   const crash = presetCrash()
-  const maxZig = (cfg) => Math.max(...cfg.rows.map((r) => Math.abs(r.zigzagDeg)))
-  check('presetCalm is gentler than presetCrash', maxZig(calm) < maxZig(crash), `${maxZig(calm)} vs ${maxZig(crash)}`)
-  check('presetCalm angles stay low', maxZig(calm) <= 20, String(maxZig(calm)))
+  check('presetCalm is gentler than presetCrash', maxFold(calm) < maxFold(crash), `${maxFold(calm)} vs ${maxFold(crash)}`)
+  check('presetCalm folds stay small', maxFold(calm) <= 20, String(maxFold(calm)))
+  check(
+    'presetCrash reaches a near-vertical crest (some cumulative pitch ≥ 85°)',
+    profiles(crash).some((p) => p.some((psi) => psi >= 85)),
+    JSON.stringify(profiles(crash)),
+  )
 }
 {
   const wave = presetWave()
-  check('presetWave includes rects', wave.rects.length >= 2, JSON.stringify(wave.rects))
+  check('presetWave includes both plate types', wave.rects.length === 2 &&
+    wave.rects.some((r) => r.orientation === 'vertical') &&
+    wave.rects.some((r) => r.orientation === 'horizontal'), JSON.stringify(wave.rects))
+
+  // The vertical plate must sit on an unfolded joint (else E_FOLD_ON_REMOVED_JOINT).
+  const v = wave.rects.find((r) => r.orientation === 'vertical')
   check(
-    'presetWave has a rising-then-falling pitch profile',
-    wave.rowFoldsDeg.some((f) => f > 0) && wave.rowFoldsDeg.some((f) => f < 0),
-    JSON.stringify(wave.rowFoldsDeg),
+    'presetWave: the vertical plate sits on an unfolded joint',
+    wave.columns[v.col].foldsDeg[v.row] === 0,
+    JSON.stringify(wave.columns[v.col].foldsDeg),
   )
+  // The horizontal plate must span two columns at the same pitch.
+  const h = wave.rects.find((r) => r.orientation === 'horizontal')
+  check(
+    'presetWave: the horizontal plate spans two columns at matching pitch',
+    cellPitches(wave, h.col)[h.row] === cellPitches(wave, h.col + 1)[h.row],
+    JSON.stringify([cellPitches(wave, h.col), cellPitches(wave, h.col + 1)]),
+  )
+
+  // "A wave moving across the grid": neighbouring columns are phase-shifted, so
+  // no two adjacent fold sequences are equal and the crest row drifts back.
+  const seqs = wave.columns.map((col) => JSON.stringify(col.foldsDeg))
+  check(
+    'presetWave: every column has a distinct fold sequence',
+    new Set(seqs).size === 6,
+    JSON.stringify(seqs),
+  )
+  const crestRow = profiles(wave).map((p) => p.indexOf(Math.max(...p)))
+  check(
+    'presetWave: the crest drifts monotonically back across the columns',
+    crestRow.every((r, c) => c === 0 || r >= crestRow[c - 1]) && crestRow[5] > crestRow[0],
+    JSON.stringify(crestRow),
+  )
+}
+{
+  // Random plates are only kept when they are geometrically legal.
+  for (const seed of [0, 1, 5, 42]) {
+    const cfg = presetRandom(seed)
+    const ok = cfg.rects.every((rect) =>
+      rect.orientation === 'vertical'
+        ? cfg.columns[rect.col].foldsDeg[rect.row] === 0
+        : cellPitches(cfg, rect.col)[rect.row] === cellPitches(cfg, rect.col + 1)[rect.row],
+    )
+    check(`random(${seed}): kept plates are geometrically legal`, ok, JSON.stringify(cfg.rects))
+  }
 }
 
 // =============================================================================

@@ -7,19 +7,19 @@
  *   - same config in → identical output out (deep-equal across calls)
  *
  * =============================================================================
- * MODEL — "pitched row planes × in-row accordion"
+ * MODEL — "per-column fold strips" (schema v2)
  * =============================================================================
  * The surface is NOT solved as rigid origami. Every joint is spanned by a ~2cm
- * printed connector, so panels never share vertices; we place each row as a
- * rigid pitched plane, run a 2D accordion chain inside that plane, and let
- * `report.js` measure whatever slack lands on the row-to-row joints.
+ * printed connector, so panels never share vertices. Each COLUMN is solved as an
+ * exact 2D chain in its own Y–Z plane (the fold strip), and `report.js` measures
+ * whatever slack lands on the side-by-side (in-row) connections between columns.
  *
  * WORLD CONVENTIONS
- *   Units cm. Y up. Columns along +X (c = 0..cols-1). Rows recede along +Z
- *   (r = 0..rows-1); the shore/window is at −Z and row 0's near edge sits on
- *   the world X axis at z = 0. Everything is lifted by
- *   PANEL_PROFILE.overallThickness (3.7) in +Y so the housings rest on the
- *   floor — a flat panel's lit face is at y = 3.7.
+ *   Units cm. Y up. Columns along +X (c = 0..cols-1) and NEVER moving: column c
+ *   owns x ∈ [c·(size+gap), c·(size+gap)+size] forever. Rows recede along +Z
+ *   (r = 0..rows-1) with the shore/window at z = 0. Everything is lifted by
+ *   PANEL_PROFILE.overallThickness (3.7, = schema.js SHORE_Y) in +Y so the
+ *   housings rest on the floor — a flat panel's lit face is at y = 3.7.
  *
  * PANEL LOCAL FRAME (matches geometry/panelGeometry.js)
  *   Lit face lies in the local XZ plane at local y = 0, centered on the origin.
@@ -28,100 +28,83 @@
  *     '2x2' → width = cell.size,  length = cell.size
  *     '2x4' → width = cell.size,  length = cell.rectLength
  *
- * ROW-LOCAL FRAME
- *   X_row runs along the row, Y_row points out of the row plane (the lit side),
- *   Z_row is depth (toward the next row). (X_row, Y_row, Z_row) is
- *   right-handed and maps to (world X, n_r, d_r) under the row-plane transform.
+ * -----------------------------------------------------------------------------
+ * THE COLUMN CHAIN
+ * -----------------------------------------------------------------------------
+ * The chain walk itself lives in schema.js (`columnChain`) so validation and
+ * placement can never disagree about the surface: it returns each segment's
+ * cumulative pitch ψ and its start point (y, z), starting from (3.7, 0) at ψ = 0
+ * and advancing `length·d` per segment plus `gap·bisector` at every surviving
+ * joint, with d = (sinψ, cosψ) in (y, z). This module turns that into world
+ * placements:
  *
- * -----------------------------------------------------------------------------
- * STAGE A — row chain (2D accordion, per row, in the X_row–Y_row plane)
- * -----------------------------------------------------------------------------
- *   1. p = (0, 0), heading α = 0°. Positive α lifts toward +Y_row.
- *   2. Walk columns left to right. A chain segment is either
- *        - a square, L = cell.size, consuming 1 column, or
- *        - a horizontal rect, L = cell.rectLength, consuming 2 columns and
- *          skipping the joint between them (the plate is continuous there).
- *   3. Segment at heading α: row-local center = p + (L/2)·(cosα, sinα) in
- *      (X_row, Y_row); Z_row center = cell.size/2 for squares and horizontal
- *      rects, cell.rectLength/2 for vertical rects (see below). The panel's
- *      row-local rotation is a right-handed rotation of +α about +Z_row, which
- *      lifts the panel's +X_local end toward +Y_row. Then p += L·(cosα, sinα).
- *   4. At each surviving joint j (the last column the segment consumed, when
- *      j ≤ cols-2 and no horizontal rect removed it):
- *        p += gap·(cos(α + φ/2), sin(α + φ/2))   ← gap along the BISECTOR
- *        α += φ                                   with φ = foldAngleDeg(cfg,r,j)
- *      Advancing along the bisector is what makes every in-row joint exact:
- *      the left panel's trailing edge and the right panel's leading edge end up
- *      exactly `gap` apart, edge-parallel, with zero skew.
- *   5. Per-cell tilt is asserted identical to schema.js `cellTilts(cfg, r)`.
- *   6. rowAnchor 'center' shifts the whole chain in X_row so its X extent (min
- *      to max over all chain vertices — which are exactly the panels' footprint
- *      endpoints) is centered on the nominal grid center
- *      X = (cols·(size+gap) − gap)/2. 'start' leaves the chain starting at 0.
- *      A flat row spans cols·size + (cols−1)·gap = the nominal full width, so a
- *      flat centered row lands exactly on the pitch lattice (30, 92, 154, …).
+ *   depth dir      d = (0, sinψ, cosψ)
+ *   panel center   = ( xCenter, p + (L_chain/2)·d )
+ *   quaternion     = rotX(−ψ)              (pure X-rotation; ψ = 90° stands the
+ *                                           panel up, so +fold pitches it UP)
  *
- * -----------------------------------------------------------------------------
- * STAGE B — row planes (2D chain in the Y–Z plane, once per config)
- * -----------------------------------------------------------------------------
- *   ψ_0 = 0, ψ_{r+1} = ψ_r + rowFoldsDeg[r]  (each entry clamped to ±120°)
- *   depth  d_r = (0,  sinψ_r, cosψ_r)
- *   normal n_r = (0,  cosψ_r, −sinψ_r)
- *   O_0 = (0, 3.7, 0);  O_{r+1} = O_r + size·d_r + gap·bisector(d_r, d_{r+1})
- *   M_r maps (X_row, Y_row, Z_row) → X_row·(1,0,0) + Y_row·n_r + Z_row·d_r + O_r,
- *   which is exactly a rotation of −ψ_r about world +X. ψ = 90° ⇒ d = (0,1,0):
- *   the row stands straight up, so a positive rowFold pitches the next row UP.
+ * where L_chain is what the panel occupies ALONG the chain (cell.size for
+ * squares and horizontal plates, cell.rectLength for a vertical plate) and
+ * xCenter is size/2 + c·(size+gap) for anything owned by one column.
  *
  * -----------------------------------------------------------------------------
  * RECTS
  * -----------------------------------------------------------------------------
- * HORIZONTAL rect at (r,c) covers (r,c)+(r,c+1) and removes in-row joint j = c.
- * The '2x4' geometry is 60 wide (local X) × 121 long (local Z), so it is yawed
- * +90° about local Y to run its length along the chain: local +Z → +X_row and
- * local +X → −Z_row. Composition is M_r ∘ chainRotation(α) ∘ yaw90.
+ * VERTICAL rect at (r,c) covers (r,c)+(r+1,c): one 121cm plate lying ALONG the
+ * chain, so its local +Z (its length) already points down the chain and it needs
+ * NO yaw. It removes joint k = r (validation forces that fold to 0), so the
+ * plate is genuinely rigid and the chain simply advances 121 instead of 60.
  *
- * VERTICAL rect at (r,c) covers (r,c)+(r+1,c) as one rigid plate. It is placed
- * entirely in ROW r's plane at that cell's chain position and tilt, unyawed, so
- * its 121 length runs along d_r with its near edge at Z_row = 0 (hence a
- * Z_row center of cell.rectLength/2). It does NOT bend into row r+1's plane.
- * Row r+1's chain treats column c as occupied — it advances exactly as if a
- * square were there (so its other panels are unaffected) but emits no panel.
- * The mismatch between the plate and row r+1's neighbours is left for
- * `report.js` to measure; that is the whole point of the design.
+ * HORIZONTAL rect at (r,c) covers (r,c)+(r,c+1): one plate ACROSS two columns.
+ * The '2x4' geometry is 60 wide (local X) × 121 long (local Z), so it is yawed
+ * +90° about local Y to run its length along +X (composition rotX(−ψ)·yaw90).
+ * It is owned by column c's chain — its (y, z) come from there — and is CENTERED
+ * on the two-column slot in X: the slot spans [c·(size+gap), c·(size+gap) +
+ * 2·size+gap] = 122cm at the defaults, and the 121cm plate sits centered in it,
+ * 0.5cm shy of each outer edge (the W_RECT_LENGTH slack, placed honestly).
+ * Column c+1 treats row r as a PHANTOM square: its chain advances 60 plus the
+ * normal gap/fold so the rest of that column is unaffected, but it emits no
+ * panel. Whatever mismatch that leaves is left for `report.js` to measure.
  *
  * -----------------------------------------------------------------------------
  * OUTPUT
  * -----------------------------------------------------------------------------
  *   solveLayout(config) → {
  *     panels: [{ id, row, col, cells, type, rectOrientation,
- *                position: [x,y,z], quaternion: [x,y,z,w],
- *                tiltDeg, rowPitchDeg }],
- *     rowPlanes: [{ origin: [x,y,z], pitchDeg }],
+ *                position: [x,y,z], quaternion: [x,y,z,w], rowPitchDeg }],
+ *     columnChains: [{ col, points: [[y,z], …], pitchesDeg: [ψ per row] }],
  *     warnings: [{ code, message }],
  *   }
- * All numbers are plain JSON-able doubles rounded to 1e-9 (which also
- * normalizes −0 → 0) so repeated solves are byte-identical.
+ * Panels are emitted column-major (all of column 0 front-to-back, then column 1,
+ * …). `rowPitchDeg` is the panel's cumulative pitch. `columnChains[c].points`
+ * are the chain vertices of column c in (y, z): the start, then after every
+ * segment and every gap advance — handy for drawing the fold profile. v1's
+ * `rowPlanes` and per-panel `tiltDeg` are GONE (there is no in-row accordion any
+ * more, so every panel's tilt is zero by construction).
+ *
+ * Layout warnings:
+ *   W_CHAIN_BACKTRACK  a panel's cumulative pitch has cosψ ≤ 0 — the chain no
+ *                      longer advances away from the window (legal, but it folds
+ *                      back over itself)
+ *   W_BELOW_FLOOR      lit-face corners dip below y = 0: those panels have
+ *                      nothing to stand on
+ *
+ * All numbers are plain JSON-able doubles rounded to 1e-9 (which also normalizes
+ * −0 → 0) so repeated solves are byte-identical.
  */
 
 import * as THREE from 'three'
-import { PANEL_PROFILE } from '../config.js'
-import {
-  MAX_ROW_FOLD_DEG,
-  clamp,
-  cellTilts,
-  foldAngleDeg,
-  normalizeConfig,
-  removedJoints,
-} from './schema.js'
+import { columnChain, normalizeConfig } from './schema.js'
 
 const DEG = Math.PI / 180
 
-/** Row-local chain rotation axis (= Z_row / depth). */
-const CHAIN_AXIS = new THREE.Vector3(0, 0, 1)
 /** Yaw axis for horizontal rects (= panel local +Y, the lit direction). */
 const YAW_AXIS = new THREE.Vector3(0, 1, 0)
-/** Row-plane pitch axis (= world +X, along the rows). */
+/** Chain pitch axis (= world +X, along the rows). */
 const PITCH_AXIS = new THREE.Vector3(1, 0, 0)
+
+/** Lit-face corners below −FLOOR_EPSILON count as unsupported. */
+const FLOOR_EPSILON = 1e-6
 
 // -----------------------------------------------------------------------------
 // Determinism helpers
@@ -341,92 +324,6 @@ export function cellEdgeWorld(panel, cellIndex, faceAxis, orientAxis, config) {
 }
 
 // -----------------------------------------------------------------------------
-// Stage A — the per-row accordion chain
-// -----------------------------------------------------------------------------
-/**
- * Build one row's chain segments and walk them in row-local 2D.
- *
- * @param {object} cfg normalized config
- * @param {number} r row index
- * @param {Map<string,object>} hrects "r,c" → horizontal rect
- * @param {Map<string,object>} vrects "r,c" → vertical rect (keyed by anchor cell)
- * @param {Set<number>} coveredFromAbove columns of row r owned by a vertical
- *        rect anchored at row r-1 (chain advances, no panel emitted)
- * @returns {{ segments: Array, shift: number }}
- */
-function solveRowChain(cfg, r, hrects, vrects, coveredFromAbove) {
-  const cols = cfg.grid.cols
-  const size = Number(cfg.cell.size)
-  const rectLength = Number(cfg.cell.rectLength)
-  const gap = Number(cfg.gap)
-  const removed = removedJoints(cfg, r)
-
-  // --- segment list -------------------------------------------------------
-  const segments = []
-  for (let c = 0; c < cols; ) {
-    if (hrects.has(`${r},${c}`) && c + 1 < cols) {
-      segments.push({
-        cols: [c, c + 1],
-        L: rectLength,
-        emit: true,
-        type: '2x4',
-        rectOrientation: 'horizontal',
-      })
-      c += 2
-      continue
-    }
-    if (vrects.has(`${r},${c}`)) {
-      segments.push({ cols: [c], L: size, emit: true, type: '2x4', rectOrientation: 'vertical' })
-    } else if (coveredFromAbove.has(c)) {
-      segments.push({ cols: [c], L: size, emit: false, type: null, rectOrientation: null })
-    } else {
-      segments.push({ cols: [c], L: size, emit: true, type: '2x2', rectOrientation: null })
-    }
-    c += 1
-  }
-
-  // --- walk ---------------------------------------------------------------
-  let px = 0
-  let py = 0
-  let alpha = 0
-  const vertexX = [0]
-  for (const seg of segments) {
-    seg.alphaDeg = alpha
-    const a = alpha * DEG
-    seg.cx = px + (seg.L / 2) * Math.cos(a)
-    seg.cy = py + (seg.L / 2) * Math.sin(a)
-    px += seg.L * Math.cos(a)
-    py += seg.L * Math.sin(a)
-    vertexX.push(px)
-
-    const j = seg.cols[seg.cols.length - 1]
-    if (j <= cols - 2 && !removed.has(j)) {
-      const phi = foldAngleDeg(cfg, r, j)
-      const bis = (alpha + phi / 2) * DEG
-      px += gap * Math.cos(bis)
-      py += gap * Math.sin(bis)
-      vertexX.push(px)
-      alpha += phi
-    }
-  }
-
-  // --- anchor -------------------------------------------------------------
-  let shift = 0
-  if (cfg.rowAnchor === 'center') {
-    let lo = vertexX[0]
-    let hi = vertexX[0]
-    for (const x of vertexX) {
-      if (x < lo) lo = x
-      if (x > hi) hi = x
-    }
-    const nominalCenter = (cols * (size + gap) - gap) / 2
-    shift = nominalCenter - (lo + hi) / 2
-  }
-
-  return { segments, shift }
-}
-
-// -----------------------------------------------------------------------------
 // solveLayout
 // -----------------------------------------------------------------------------
 /**
@@ -437,7 +334,7 @@ function solveRowChain(cfg, r, hrects, vrects, coveredFromAbove) {
  * will.
  *
  * @param {object} config config (raw or normalized — normalized internally)
- * @returns {{ panels: Array, rowPlanes: Array, warnings: Array }}
+ * @returns {{ panels: Array, columnChains: Array, warnings: Array }}
  */
 export function solveLayout(config) {
   const cfg = normalizeConfig(config)
@@ -445,131 +342,103 @@ export function solveLayout(config) {
   const rowCount = Number(cfg.grid.rows)
   const size = Number(cfg.cell.size)
   const gap = Number(cfg.gap)
-  const rectLength = Number(cfg.cell.rectLength)
   const warnings = []
 
   if (!Number.isInteger(cols) || cols < 1 || !Number.isInteger(rowCount) || rowCount < 1) {
     throw new Error(`solveLayout: grid must be integers ≥ 1 (got ${cols}×${rowCount})`)
   }
 
-  // --- rect index ---------------------------------------------------------
-  const hrects = new Map()
-  const vrects = new Map()
-  const covered = new Map() // row → Set of columns owned by a rect from the row above
-  for (const rect of Array.isArray(cfg.rects) ? cfg.rects : []) {
-    if (!rect || typeof rect !== 'object') continue
-    if (rect.orientation === 'horizontal') {
-      hrects.set(`${rect.row},${rect.col}`, rect)
-    } else if (rect.orientation === 'vertical') {
-      vrects.set(`${rect.row},${rect.col}`, rect)
-      const below = rect.row + 1
-      if (!covered.has(below)) covered.set(below, new Set())
-      covered.get(below).add(rect.col)
-    }
-  }
-
-  // --- Stage B: row planes ------------------------------------------------
-  const pitchDeg = new Array(rowCount)
-  pitchDeg[0] = 0
-  const folds = Array.isArray(cfg.rowFoldsDeg) ? cfg.rowFoldsDeg : []
-  for (let r = 0; r + 1 < rowCount; r++) {
-    const raw = Number(folds[r])
-    const f = Number.isFinite(raw) ? clamp(raw, -MAX_ROW_FOLD_DEG, MAX_ROW_FOLD_DEG) : 0
-    pitchDeg[r + 1] = pitchDeg[r] + f
-  }
-
-  const depthDir = (r) =>
-    new THREE.Vector3(0, Math.sin(pitchDeg[r] * DEG), Math.cos(pitchDeg[r] * DEG))
-
-  const origins = new Array(rowCount)
-  origins[0] = new THREE.Vector3(0, PANEL_PROFILE.overallThickness, 0)
-  for (let r = 0; r + 1 < rowCount; r++) {
-    const dr = depthDir(r)
-    const dn = depthDir(r + 1)
-    const bis = dr.clone().add(dn)
-    // |rowFold| ≤ 120° means d_r and d_{r+1} are never antiparallel; guard anyway.
-    if (bis.lengthSq() < 1e-12) bis.copy(dr)
-    else bis.normalize()
-    origins[r + 1] = origins[r].clone().addScaledVector(dr, size).addScaledVector(bis, gap)
-  }
-
-  const rowQuats = new Array(rowCount)
-  for (let r = 0; r < rowCount; r++) {
-    rowQuats[r] = new THREE.Quaternion().setFromAxisAngle(PITCH_AXIS, -pitchDeg[r] * DEG)
-  }
-
+  const pitch = size + gap
   const yawQuat = new THREE.Quaternion().setFromAxisAngle(YAW_AXIS, Math.PI / 2)
 
-  // --- Stage A + compose --------------------------------------------------
   const panels = []
-  for (let r = 0; r < rowCount; r++) {
-    const coveredCols = covered.get(r) ?? new Set()
-    const { segments, shift } = solveRowChain(cfg, r, hrects, vrects, coveredCols)
+  const columnChains = []
+  const backtracking = []
 
-    // Assert-level consistency with schema.js's cheap 2D chain. If these ever
-    // disagree, validation (E_CROSSROW_ANGLE_MISMATCH) is checking a different
-    // surface than the one being placed — a real bug, not a rounding artefact.
-    const tilts = cellTilts(cfg, r)
-    for (const seg of segments) {
-      for (const c of seg.cols) {
-        if (Math.abs(seg.alphaDeg - tilts[c]) > 1e-9) {
-          throw new Error(
-            `solveLayout: chain tilt ${seg.alphaDeg}° at cell (${r}, ${c}) disagrees with ` +
-              `cellTilts ${tilts[c]}° — placement and schema are out of sync`,
-          )
-        }
-      }
-    }
+  for (let c = 0; c < cols; c++) {
+    const chain = columnChain(cfg, c)
+    columnChains.push({
+      col: c,
+      points: chain.points.map(([y, z]) => [round9(y), round9(z)]),
+      pitchesDeg: chain.pitchesDeg.map(round9),
+    })
 
-    for (const seg of segments) {
-      if (!seg.emit) continue
-      const anchorCol = seg.cols[0]
-      const zCenter = seg.rectOrientation === 'vertical' ? rectLength / 2 : size / 2
+    for (const seg of chain.segments) {
+      if (seg.kind === 'phantom') continue
 
-      const local = new THREE.Vector3(seg.cx + shift, seg.cy, zCenter)
-      const position = local.applyQuaternion(rowQuats[r]).add(origins[r])
+      const r = seg.rows[0]
+      const psi = seg.pitchDeg
+      const [oy, oz] = seg.origin
+      const along = seg.kind === 'vrect' ? Number(seg.length) : size
+      const half = along / 2
 
-      const chainQuat = new THREE.Quaternion().setFromAxisAngle(CHAIN_AXIS, seg.alphaDeg * DEG)
-      const quat = rowQuats[r].clone().multiply(chainQuat)
-      if (seg.rectOrientation === 'horizontal') quat.multiply(yawQuat)
+      const xCenter =
+        seg.kind === 'hrect'
+          ? c * pitch + (2 * size + gap) / 2 // centered across the two-column slot
+          : c * pitch + size / 2
+
+      const position = new THREE.Vector3(
+        xCenter,
+        oy + half * Math.sin(psi * DEG),
+        oz + half * Math.cos(psi * DEG),
+      )
+
+      const quat = new THREE.Quaternion().setFromAxisAngle(PITCH_AXIS, -psi * DEG)
+      if (seg.kind === 'hrect') quat.multiply(yawQuat)
 
       const cells =
-        seg.rectOrientation === 'vertical'
+        seg.kind === 'vrect'
           ? [
-              [r, anchorCol],
-              [r + 1, anchorCol],
+              [r, c],
+              [r + 1, c],
             ]
-          : seg.cols.map((c) => [r, c])
+          : seg.kind === 'hrect'
+            ? [
+                [r, c],
+                [r, c + 1],
+              ]
+            : [[r, c]]
 
+      const id = `p${r}_${c}`
       panels.push({
-        id: `p${r}_${anchorCol}`,
+        id,
         row: r,
-        col: anchorCol,
+        col: c,
         cells,
-        type: seg.type,
-        rectOrientation: seg.rectOrientation,
+        type: seg.kind === 'square' ? '2x2' : '2x4',
+        rectOrientation: seg.kind === 'vrect' ? 'vertical' : seg.kind === 'hrect' ? 'horizontal' : null,
         position: vec3out(position),
         quaternion: quatOut(quat),
-        tiltDeg: round9(seg.alphaDeg),
-        rowPitchDeg: round9(pitchDeg[r]),
+        rowPitchDeg: round9(psi),
       })
 
-      if (Math.cos(seg.alphaDeg * DEG) <= 0) {
-        warnings.push({
-          code: 'W_CHAIN_BACKTRACK',
-          message:
-            `panel p${r}_${anchorCol} sits at an in-row tilt of ${round9(seg.alphaDeg)}° — the ` +
-            `accordion chain no longer advances along the row, so panels in row ${r} overlap ` +
-            `or double back`,
-        })
-      }
+      if (Math.cos(psi * DEG) <= 0) backtracking.push({ id, psi: round9(psi) })
     }
   }
 
-  const rowPlanes = []
-  for (let r = 0; r < rowCount; r++) {
-    rowPlanes.push({ origin: vec3out(origins[r]), pitchDeg: round9(pitchDeg[r]) })
+  for (const { id, psi } of backtracking) {
+    warnings.push({
+      code: 'W_CHAIN_BACKTRACK',
+      message:
+        `panel ${id} sits at a cumulative pitch of ${psi}° — its column's chain no longer ` +
+        `advances away from the window, so the strip folds back over itself`,
+    })
   }
 
-  return { panels, rowPlanes, warnings }
+  // Ground support: lit-face corners below the floor have nothing to stand on.
+  const below = []
+  for (const panel of panels) {
+    const lowest = panelWorldCorners(panel, cfg).reduce((m, corner) => Math.min(m, corner[1]), Infinity)
+    if (lowest < -FLOOR_EPSILON) below.push(`${panel.id} (${round9(lowest)}cm)`)
+  }
+  if (below.length > 0) {
+    warnings.push({
+      code: 'W_BELOW_FLOOR',
+      message:
+        `${below.length} panel(s) dip below the floor (y = 0) and have nothing to stand on: ` +
+        below.join(', '),
+    })
+  }
+
+  return { panels, columnChains, warnings }
 }

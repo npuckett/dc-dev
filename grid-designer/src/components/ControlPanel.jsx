@@ -4,19 +4,26 @@
  * Top: the joint-report summary badge (total / ok / flagged) plus the worst
  * measured deviations, so the cost of a fold pattern is visible while dragging.
  * Then the 2D grid map (where the 60×121 plates are placed and removed), the
- * message boxes, one `RowControls` block per row with the row-to-row fold slider
- * between consecutive rows, and the config-JSON disclosure at the bottom.
+ * message boxes, the cross-column toolbar, one control block per COLUMN (each
+ * column is a fold strip: one slider per hinge), and the config-JSON disclosure.
  *
- * `lastErrors` shows the errors from the most recent REJECTED action — the store
+ * `lastErrors` holds the errors from the most recent REJECTED action — the store
  * keeps the previous config in that case, so the UI stays consistent while
- * explaining why nothing moved. It sits directly under the grid map on purpose:
- * a rejected plate placement is the most common way to see it.
+ * explaining why nothing moved. The three RECT-specific codes are left to the grid
+ * map, which reports them inline under its own artwork (see PLACEMENT_CODES); this
+ * box takes everything else (bad pastes, preset failures), so no rejection is
+ * ever explained twice in a 320px column.
+ *
+ * The selected column is UI-only state and lives here rather than in the store:
+ * it is the source column for the toolbar's "Copy col → all" and changes nothing
+ * about the design.
  */
 
+import { useMemo, useState } from 'react'
 import useStore, { getDerived } from '../store.js'
-import GridMap from './GridMap.jsx'
+import GridMap, { PLACEMENT_CODES } from './GridMap.jsx'
 import JsonPanel from './JsonPanel.jsx'
-import RowControls from './RowControls.jsx'
+import ColumnControls, { ColumnToolbar, chainBounds } from './ColumnControls.jsx'
 
 export default function ControlPanel() {
   const config = useStore((s) => s.config)
@@ -24,7 +31,16 @@ export default function ControlPanel() {
   const lastWarnings = useStore((s) => s.lastWarnings)
   const { layout, report } = getDerived(config)
   const { summary } = report
-  const rowCount = config.grid.rows
+  const colCount = config.grid.cols
+
+  // The rect-specific rejections are shown by the map itself, right where the
+  // click happened; showing them again here would just eat the panel's height.
+  const panelErrors = lastErrors.filter((e) => !PLACEMENT_CODES.has(e.code))
+
+  const [selected, setSelected] = useState(0)
+  // One scale for all six sparklines, so their heights compare directly.
+  const bounds = useMemo(() => chainBounds(layout), [layout])
+  const selectedCol = Math.min(selected, colCount - 1)
 
   return (
     <aside className="control-panel">
@@ -46,10 +62,10 @@ export default function ControlPanel() {
 
       <GridMap />
 
-      {lastErrors.length > 0 && (
+      {panelErrors.length > 0 && (
         <div className="msg-list msg-errors" data-testid="last-errors">
           <strong>change rejected</strong>
-          {lastErrors.map((e, i) => (
+          {panelErrors.map((e, i) => (
             <p key={i}>
               <code>{e.code}</code> {e.message}
             </p>
@@ -67,9 +83,17 @@ export default function ControlPanel() {
         </div>
       )}
 
-      <div className="rows-scroll">
-        {Array.from({ length: rowCount }, (_, r) => (
-          <RowControls key={r} r={r} />
+      <ColumnToolbar selected={selectedCol} />
+
+      <div className="cols-scroll">
+        {Array.from({ length: colCount }, (_, c) => (
+          <ColumnControls
+            key={c}
+            c={c}
+            bounds={bounds}
+            selected={c === selectedCol}
+            onSelect={setSelected}
+          />
         ))}
       </div>
 

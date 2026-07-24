@@ -1,32 +1,54 @@
 /**
- * grid-designer — browser smoke test / screenshot harness (WP3 + WP4).
+ * grid-designer — browser smoke test / screenshot harness (WP6, schema v2).
  *
  * Self-contained: it starts its OWN dev server (`npm run dev`, port 5175 via
  * vite.config.js strictPort), waits for it, drives the UI, and tears the server
  * down on every exit path.
  *
- * What it captures
- *   01-flat.png    default state — the flat reference surface
- *   02-wave.png    after clicking the Wave preset button
- *   03-slider.png  after setting row 3's zig-zag slider to 60°
- *   04-rect-h.png  after clicking the grid map to place a HORIZONTAL plate in
- *                  the middle of row 2
- *   05-rect-v.png  after placing a VERTICAL plate at column 0 (where every row's
- *                  in-row tilt is 0, so the rigid-plate constraint always holds)
- *   06-reject.png  after an ILLEGAL vertical placement at (1,1) — nothing moved,
- *                  the error box explains why
- *   07-json.png    after pasting a minimal hand-written config and hitting Apply
+ * =============================================================================
+ * THE FLOW IT DRIVES (the column-strip design loop, end to end)
+ * =============================================================================
+ *   01-flat.png    default state — the flat reference surface, 30 panels, no
+ *                  flagged joints
+ *   02-wave.png    the Wave preset: six phase-shifted fold sequences (asserted
+ *                  against core/presets.js itself) plus its two rigid plates
+ *   03-fold.png    one hinge dragged: column 3's 0→1 joint to 80°
+ *   04-rects.png   the two preset plates removed, "Shift →" phase-shifted the
+ *                  whole grid one column, then a HORIZONTAL and a VERTICAL plate
+ *                  placed on cells the harness COMPUTES to be legal under the
+ *                  current folds
+ *   05-reject.png  two illegal placements in a row — an H plate across two
+ *                  columns at different pitches (E_CROSSCOL_ANGLE_MISMATCH) and a
+ *                  V plate over a folded joint (E_FOLD_ON_REMOVED_JOINT). Nothing
+ *                  moved; the map explains why inline.
+ *   06-json.png    after pasting a MINIMAL v2 config (columns only — everything
+ *                  else defaulted by normalizeConfig) and hitting Apply
  *
- * What it asserts (any failure ⇒ non-zero exit)
+ * Placement cells are never hard-coded: legal / illegal candidates are derived
+ * from the live config's fold sequences and the solved `columnChains[c].pitchesDeg`
+ * at the moment of the click, so the script keeps testing the CONSTRAINTS rather
+ * than a lucky coordinate.
+ *
+ * =============================================================================
+ * WHAT IT ASSERTS (any failure ⇒ non-zero exit)
+ * =============================================================================
  *   - no page errors and no console errors
- *   - the WebGL canvas is non-blank (pixels sampled through a 2D canvas; the
- *     r3f Canvas runs with preserveDrawingBuffer so the read-back is valid)
- *   - the preset click actually changed the store's config
- *   - the slider actually changed the store's config
- *   - grid-map clicks add / reject plates through the store's commit rule
- *   - the JSON paste panel applies a minimal config (defaults filled in)
- *   - Export OBJ / Download JSON fire real downloads with the expected names,
- *     and the OBJ payload contains `o panel_r0_c0`
+ *   - the WebGL canvas is non-blank (pixels sampled through a 2D canvas; the r3f
+ *     Canvas runs with preserveDrawingBuffer so the read-back is valid) and the
+ *     rendered pixels actually CHANGE at each design step
+ *   - the Wave preset's per-column foldsDeg equal buildPreset('wave')'s
+ *   - a hinge slider (or setColumnFold) moves one column's fold and the block's
+ *     cumulative-pitch readout follows
+ *   - "Shift →" rotates every column's fold sequence by one index, wrapping
+ *   - grid-map clicks add / remove plates, and reject the two v2 rect
+ *     constraints with the right codes surfaced inline next to the map (and NOT
+ *     duplicated in the control panel's general error box)
+ *   - a vertical plate DISABLES the slider for the joint it removes
+ *   - the JSON panel applies a minimal v2 config and REJECTS a v1 one with the
+ *     "version must be 2" message
+ *   - Export OBJ / Download JSON fire real downloads with the expected names, the
+ *     OBJ payload contains `o panel_r0_c0`, one object per panel, and the JSON is
+ *     the current fully-defaulted v2 config
  *   - consecutive screenshots differ in bytes (the render responded each time)
  *
  * Usage: node tests/screenshot.mjs
@@ -34,15 +56,17 @@
 
 import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildPreset } from '../src/core/presets.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'tests/screenshots')
 const PORT = 5175
 const URL = `http://localhost:${PORT}/`
 const VIEWPORT = { width: 1440, height: 900 }
+const SETTLE_MS = 800
 
 const results = []
 const pass = (name, detail = '') => results.push({ ok: true, name, detail })
@@ -107,7 +131,7 @@ function stopDevServer(handle) {
 }
 
 // -----------------------------------------------------------------------------
-// page helpers
+// canvas sampling
 // -----------------------------------------------------------------------------
 /** Sample the WebGL canvas through a 2D canvas and summarize its pixels. */
 function canvasStats(page) {
@@ -146,6 +170,10 @@ function canvasStats(page) {
   })
 }
 
+/**
+ * Assert the canvas is rendering something, and return a fingerprint (pixel
+ * summary + a PNG of the canvas element alone) for change detection.
+ */
 async function assertCanvasRenders(page, label) {
   let stats = null
   const deadline = Date.now() + 15_000
@@ -159,30 +187,125 @@ async function assertCanvasRenders(page, label) {
     : `${stats.width}×${stats.height} mean=${stats.mean.toFixed(1)} std=${stats.std.toFixed(1)} ` +
       `bright=${(stats.brightFraction * 100).toFixed(1)}% colors=${stats.distinctColors}`
   check(
-    !stats?.error &&
-      stats.distinctColors >= 5 &&
-      stats.brightFraction > 0.005 &&
-      stats.std > 3,
+    !stats?.error && stats.distinctColors >= 5 && stats.brightFraction > 0.005 && stats.std > 3,
     `canvas non-blank (${label})`,
     detail,
   )
-  return stats
+  const buf = await page.locator('canvas').screenshot()
+  return { label, stats, buf }
 }
 
+/** Did the 3D render actually change between two fingerprints? */
+function canvasChanged(a, b) {
+  if (!a || !b) return false
+  if (!a.buf.equals(b.buf)) return true
+  const x = a.stats
+  const y = b.stats
+  if (!x || !y || x.error || y.error) return false
+  return (
+    Math.abs(x.mean - y.mean) > 0.05 ||
+    Math.abs(x.std - y.std) > 0.05 ||
+    x.distinctColors !== y.distinctColors ||
+    Math.abs(x.brightFraction - y.brightFraction) > 0.0005
+  )
+}
+
+// -----------------------------------------------------------------------------
+// store snapshot (schema v2)
+// -----------------------------------------------------------------------------
 const storeState = (page) =>
   page.evaluate(() => {
     const s = window.__gridDesignerStore.getState()
+    const { layout, report } = window.__gridDesignerDerived()
     return {
       name: s.config.name,
       preset: s.config.meta?.preset,
-      zigzags: s.config.rows.map((r) => r.zigzagDeg),
-      rowFolds: s.config.rowFoldsDeg,
+      version: s.config.version,
+      cols: s.config.grid.cols,
+      rows: s.config.grid.rows,
+      gap: s.config.gap,
+      folds: s.config.columns.map((col) => col.foldsDeg.slice()),
+      pitches: layout.columnChains.map((chain) => chain.pitchesDeg.slice()),
+      rectObjs: s.config.rects.map((r) => ({ ...r })),
       rects: s.config.rects.map((r) => `${r.orientation[0]}(${r.row},${r.col})`),
       lastErrors: s.lastErrors.map((e) => e.code),
-      summary: window.__gridDesignerDerived().report.summary,
-      panels: window.__gridDesignerDerived().layout.panels.length,
+      lastErrorMessages: s.lastErrors.map((e) => e.message),
+      layoutWarnings: layout.warnings.map((w) => w.code),
+      summary: report.summary,
+      panels: layout.panels.length,
     }
   })
+
+// -----------------------------------------------------------------------------
+// placement candidate search — derived from the LIVE config, never hard-coded
+// -----------------------------------------------------------------------------
+const PITCH_EPS = 0.1
+
+/** Every cell any rect already covers, as a Set of "r,c". */
+function occupiedCells(rectObjs) {
+  const set = new Set()
+  for (const r of rectObjs) {
+    if (r.orientation === 'horizontal') {
+      set.add(`${r.row},${r.col}`)
+      set.add(`${r.row},${r.col + 1}`)
+    } else {
+      set.add(`${r.row},${r.col}`)
+      set.add(`${r.row + 1},${r.col}`)
+    }
+  }
+  return set
+}
+
+/** A HORIZONTAL plate is legal where the two columns' pitches agree at that row. */
+function findLegalHorizontal(state) {
+  const busy = occupiedCells(state.rectObjs)
+  for (let r = 0; r < state.rows; r++) {
+    for (let c = 0; c + 1 < state.cols; c++) {
+      if (busy.has(`${r},${c}`) || busy.has(`${r},${c + 1}`)) continue
+      if (Math.abs(state.pitches[c][r] - state.pitches[c + 1][r]) <= PITCH_EPS) return { row: r, col: c }
+    }
+  }
+  return null
+}
+
+/** An H plate is ILLEGAL where the two columns sit at different pitches. */
+function findIllegalHorizontal(state) {
+  const busy = occupiedCells(state.rectObjs)
+  for (let r = 0; r < state.rows; r++) {
+    for (let c = 0; c + 1 < state.cols; c++) {
+      if (busy.has(`${r},${c}`) || busy.has(`${r},${c + 1}`)) continue
+      if (Math.abs(state.pitches[c][r] - state.pitches[c + 1][r]) > PITCH_EPS) return { row: r, col: c }
+    }
+  }
+  return null
+}
+
+/** A VERTICAL plate is legal only over an UNFOLDED joint (it removes that joint). */
+function findLegalVertical(state) {
+  const busy = occupiedCells(state.rectObjs)
+  for (let r = 0; r + 1 < state.rows; r++) {
+    for (let c = 0; c < state.cols; c++) {
+      if (busy.has(`${r},${c}`) || busy.has(`${r + 1},${c}`)) continue
+      if (state.folds[c][r] === 0) return { row: r, col: c }
+    }
+  }
+  return null
+}
+
+/** A V plate is ILLEGAL over a folded joint — the rigid plate cannot bend. */
+function findIllegalVertical(state) {
+  const busy = occupiedCells(state.rectObjs)
+  for (let r = 0; r + 1 < state.rows; r++) {
+    for (let c = 0; c < state.cols; c++) {
+      if (busy.has(`${r},${c}`) || busy.has(`${r + 1},${c}`)) continue
+      if (state.folds[c][r] !== 0) return { row: r, col: c }
+    }
+  }
+  return null
+}
+
+const shiftedRight = (folds) =>
+  folds.map((_, c) => folds[(c - 1 + folds.length) % folds.length].slice())
 
 // -----------------------------------------------------------------------------
 // main
@@ -192,6 +315,11 @@ let browser = null
 
 try {
   if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true })
+  // Drop stale numbering from earlier work packages so the directory is exactly
+  // what this run produced.
+  for (const f of readdirSync(OUT)) {
+    if (f.endsWith('.png')) rmSync(resolve(OUT, f))
+  }
   server = await startDevServer()
 
   browser = await chromium.launch({ headless: true })
@@ -211,146 +339,252 @@ try {
   await page.waitForTimeout(1200) // let r3f settle
 
   // --- (a) flat default ----------------------------------------------------
-  await assertCanvasRenders(page, 'flat')
+  const flatShot = await assertCanvasRenders(page, 'flat')
   const flatState = await storeState(page)
   check(flatState.preset === 'flat', 'default preset is flat', `preset=${flatState.preset}`)
+  check(flatState.version === 2, 'config is schema v2', `version=${flatState.version}`)
   check(
     flatState.panels === 30 && flatState.summary.flagged === 0,
     'flat default: 30 panels, no flagged joints',
     `panels=${flatState.panels} flagged=${flatState.summary.flagged}/${flatState.summary.total}`,
   )
+  check(
+    flatState.folds.length === 6 && flatState.folds.every((f) => f.length === 4 && f.every((v) => v === 0)),
+    'flat default: 6 columns × 4 hinges, all 0°',
+    JSON.stringify(flatState.folds),
+  )
+
+  // the column UI itself
+  check(
+    await page.isVisible('[data-testid="column-0"]') && await page.isVisible('[data-testid="column-5"]'),
+    'one control block per column (0..5) rendered',
+  )
+  check(
+    await page.isVisible('[data-testid="profile-0"]') && await page.isVisible('[data-testid="profile-5"]'),
+    'each column block draws its fold-profile sparkline',
+  )
+  check(
+    await page.isVisible('[data-testid="column-tools"]') &&
+      await page.isVisible('[data-testid="tool-shift-right"]') &&
+      await page.isVisible('[data-testid="tool-flatten"]') &&
+      await page.isVisible('[data-testid="tool-copy-all"]'),
+    'cross-column toolbar (copy / shift / flatten) is present',
+  )
+  check(
+    (await page.textContent('[data-testid="column-0"]')).includes('right'),
+    'column 0 is labelled as the RIGHT strip (the camera looks in from the shore)',
+  )
   await page.screenshot({ path: `${OUT}/01-flat.png` })
   console.log('  → tests/screenshots/01-flat.png')
 
   // --- (b) wave preset -----------------------------------------------------
+  const expectedWaveFolds = buildPreset('wave').columns.map((col) => col.foldsDeg)
   await page.click('[data-testid="preset-wave"]')
-  await page.waitForTimeout(900)
+  await page.waitForTimeout(SETTLE_MS)
+  const waveShot = await assertCanvasRenders(page, 'wave')
   const waveState = await storeState(page)
   check(waveState.preset === 'wave', 'Wave preset applied', `preset=${waveState.preset}`)
   check(
-    JSON.stringify(waveState.zigzags) !== JSON.stringify(flatState.zigzags),
-    'wave changed the config',
-    `zigzags=${JSON.stringify(waveState.zigzags)} folds=${JSON.stringify(waveState.rowFolds)}`,
+    JSON.stringify(waveState.folds) === JSON.stringify(expectedWaveFolds),
+    "wave's per-column fold sequences match core/presets.js",
+    JSON.stringify(waveState.folds),
   )
-  await assertCanvasRenders(page, 'wave')
+  check(
+    JSON.stringify(waveState.rects) === JSON.stringify(['v(1,2)', 'h(1,0)']),
+    'wave brought its two rigid plates',
+    JSON.stringify(waveState.rects),
+  )
   check(
     waveState.summary.flagged > 0,
-    'wave report flags row-pair joints (markers visible)',
+    'wave flags in-row joints where the phase-shifted columns diverge',
     `flagged=${waveState.summary.flagged}/${waveState.summary.total}`,
+  )
+  check(canvasChanged(flatShot, waveShot), 'wave render differs from flat')
+  check(
+    await page.isDisabled('[data-testid="fold-2-1"]'),
+    "the wave's vertical plate at (1,2) disabled column 2's 1→2 slider",
   )
   await page.screenshot({ path: `${OUT}/02-wave.png` })
   console.log('  → tests/screenshots/02-wave.png')
 
-  // --- (c) row 3 zig-zag slider -------------------------------------------
-  const slider = page.locator('[data-testid="zigzag-3"]')
-  await slider.fill('60')
-  await page.waitForTimeout(900)
-  let sliderState = await storeState(page)
-  if (sliderState.zigzags[3] !== 60) {
+  // --- (c) drag one hinge: column 3, joint 0 → 80° -------------------------
+  await page.locator('[data-testid="fold-3-0"]').fill('80')
+  await page.waitForTimeout(SETTLE_MS)
+  let foldState = await storeState(page)
+  if (foldState.folds[3][0] !== 80) {
     console.log('! slider fill did not register — falling back to the store action')
-    await page.evaluate(() => window.__gridDesignerStore.getState().setRowZigzag(3, 60))
-    await page.waitForTimeout(900)
-    sliderState = await storeState(page)
+    await page.evaluate(() => window.__gridDesignerStore.getState().setColumnFold(3, 0, 80))
+    await page.waitForTimeout(SETTLE_MS)
+    foldState = await storeState(page)
   }
+  const foldShot = await assertCanvasRenders(page, 'fold')
   check(
-    sliderState.zigzags[3] === 60,
-    "row 3's zig-zag slider set to 60°",
-    `zigzags=${JSON.stringify(sliderState.zigzags)}`,
+    foldState.folds[3][0] === 80 && foldState.folds[3][0] !== waveState.folds[3][0],
+    "column 3's 0→1 hinge set to 80°",
+    `${waveState.folds[3][0]}° → ${foldState.folds[3][0]}°`,
   )
   check(
-    sliderState.zigzags[3] !== waveState.zigzags[3],
-    'slider changed row 3 away from the preset value',
-    `${waveState.zigzags[3]}° → ${sliderState.zigzags[3]}°`,
+    JSON.stringify(foldState.folds.filter((_, c) => c !== 3)) ===
+      JSON.stringify(waveState.folds.filter((_, c) => c !== 3)),
+    'the other five columns were untouched',
   )
-  await assertCanvasRenders(page, 'slider')
-  await page.screenshot({ path: `${OUT}/03-slider.png` })
-  console.log('  → tests/screenshots/03-slider.png')
+  check(
+    (await page.textContent('[data-testid="column-3"]')).includes('80°'),
+    "column 3's cumulative-pitch readout followed the hinge",
+    `pitches=${JSON.stringify(foldState.pitches[3])}`,
+  )
+  check(canvasChanged(waveShot, foldShot), 'fold render differs from wave')
+  check(foldState.lastErrors.length === 0, 'no rejected changes so far', foldState.lastErrors.join(', '))
+  await page.screenshot({ path: `${OUT}/03-fold.png` })
+  console.log('  → tests/screenshots/03-fold.png')
 
-  check(
-    sliderState.lastErrors.length === 0,
-    'no rejected changes (store lastErrors empty)',
-    sliderState.lastErrors.join(', '),
-  )
-
-  // --- (d) grid map: place a HORIZONTAL plate in row 2 ----------------------
+  // --- (d) remove the preset plates, then "Shift →" ------------------------
+  // The plates pin folds (a V plate's joint must stay 0, an H plate's two columns
+  // must stay at equal pitch), so a whole-grid phase shift is a rect-free move.
   check(await page.isVisible('[data-testid="grid-map"]'), 'grid map is visible')
+  await page.click('[data-testid="cell-1-2"]') // the vertical plate
+  await page.click('[data-testid="cell-1-0"]') // the horizontal plate
+  await page.waitForTimeout(SETTLE_MS)
+  const clearedState = await storeState(page)
+  check(
+    clearedState.rects.length === 0 && clearedState.panels === 30,
+    'grid-map clicks removed both plates',
+    `rects=${JSON.stringify(clearedState.rects)} panels=${clearedState.panels}`,
+  )
+
+  await page.click('[data-testid="tool-shift-right"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const shiftState = await storeState(page)
+  check(
+    JSON.stringify(shiftState.folds) === JSON.stringify(shiftedRight(clearedState.folds)),
+    '"Shift →" rotated every column\'s fold sequence one index, wrapping',
+    JSON.stringify(shiftState.folds),
+  )
+  check(
+    shiftState.lastErrors.length === 0,
+    'the shift committed through validation',
+    shiftState.lastErrors.join(', '),
+  )
+
+  // --- (e) place a legal H plate, then a legal V plate ---------------------
+  const hCell = findLegalHorizontal(shiftState)
+  check(!!hCell, 'found a row where two neighbouring columns agree in pitch (H candidate)', JSON.stringify(hCell))
+  if (!hCell) throw new Error('no legal horizontal placement under the current folds')
   await page.click('[data-testid="gridmap-mode-horizontal"]')
-  await page.click('[data-testid="cell-2-2"]')
-  await page.waitForTimeout(900)
+  await page.click(`[data-testid="cell-${hCell.row}-${hCell.col}"]`)
+  await page.waitForTimeout(SETTLE_MS)
   const rectHState = await storeState(page)
   check(
-    rectHState.rects.length === sliderState.rects.length + 1 &&
-      rectHState.rects.includes('h(2,2)'),
-    'grid-map click placed a horizontal plate at (2,2)',
-    `rects=${JSON.stringify(rectHState.rects)}`,
+    rectHState.rects.includes(`h(${hCell.row},${hCell.col})`) && rectHState.lastErrors.length === 0,
+    `horizontal plate placed at (${hCell.row}, ${hCell.col})`,
+    `rects=${JSON.stringify(rectHState.rects)} errors=${JSON.stringify(rectHState.lastErrors)}`,
   )
   check(
-    rectHState.panels === sliderState.panels - 1,
+    rectHState.panels === shiftState.panels - 1,
     'horizontal plate merged two cells into one panel',
-    `${sliderState.panels} → ${rectHState.panels} panels`,
+    `${shiftState.panels} → ${rectHState.panels} panels`,
   )
-  check(rectHState.lastErrors.length === 0, 'horizontal placement accepted', rectHState.lastErrors.join(', '))
-  await assertCanvasRenders(page, 'rect-h')
-  await page.screenshot({ path: `${OUT}/04-rect-h.png` })
-  console.log('  → tests/screenshots/04-rect-h.png')
 
-  // --- (e) grid map: place a VERTICAL plate at column 0 --------------------
-  // Column 0's in-row tilt is 0 in every row by construction (the accordion
-  // chain starts flat), so a cross-row rigid plate there always validates.
+  const vCell = findLegalVertical(rectHState)
+  check(!!vCell, 'found an unfolded joint for a V plate', JSON.stringify(vCell))
+  if (!vCell) throw new Error('no legal vertical placement under the current folds')
   await page.click('[data-testid="gridmap-mode-vertical"]')
-  await page.click('[data-testid="cell-0-0"]')
-  await page.waitForTimeout(900)
+  await page.click(`[data-testid="cell-${vCell.row}-${vCell.col}"]`)
+  await page.waitForTimeout(SETTLE_MS)
   const rectVState = await storeState(page)
   check(
-    rectVState.rects.length === rectHState.rects.length + 1 && rectVState.rects.includes('v(0,0)'),
-    'grid-map click placed a vertical plate at (0,0)',
-    `rects=${JSON.stringify(rectVState.rects)}`,
+    rectVState.rects.includes(`v(${vCell.row},${vCell.col})`) && rectVState.lastErrors.length === 0,
+    `vertical plate placed at (${vCell.row}, ${vCell.col}) over an unfolded joint`,
+    `rects=${JSON.stringify(rectVState.rects)} errors=${JSON.stringify(rectVState.lastErrors)}`,
   )
   check(
     rectVState.panels === rectHState.panels - 1,
-    'vertical plate merged two cells across rows 0 and 1',
+    'vertical plate merged two cells across two rows',
     `${rectHState.panels} → ${rectVState.panels} panels`,
   )
-  check(rectVState.lastErrors.length === 0, 'vertical placement accepted', rectVState.lastErrors.join(', '))
-  await assertCanvasRenders(page, 'rect-v')
-  await page.screenshot({ path: `${OUT}/05-rect-v.png` })
-  console.log('  → tests/screenshots/05-rect-v.png')
+  check(
+    await page.isDisabled(`[data-testid="fold-${vCell.col}-${vCell.row}"]`),
+    `the new vertical plate disabled column ${vCell.col}'s ${vCell.row}→${vCell.row + 1} slider`,
+  )
+  const rectsShot = await assertCanvasRenders(page, 'rects')
+  check(canvasChanged(foldShot, rectsShot), 'plates + shift render differs from the fold state')
+  await page.screenshot({ path: `${OUT}/04-rects.png` })
+  console.log('  → tests/screenshots/04-rects.png')
 
-  // --- (f) grid map: an ILLEGAL vertical placement -------------------------
-  // Still in V mode. Cell (1,1) tilts 15° (row 1's zig-zag 15 with the wave
-  // preset's j3 override) while (2,1) tilts 30° — a rigid plate cannot span
-  // them, so E_CROSSROW_ANGLE_MISMATCH must reject the whole change.
-  await page.click('[data-testid="cell-1-1"]')
-  await page.waitForTimeout(700)
-  const rejectState = await storeState(page)
-  check(
-    JSON.stringify(rejectState.rects) === JSON.stringify(rectVState.rects),
-    'illegal vertical placement left the config untouched',
-    `rects=${JSON.stringify(rejectState.rects)}`,
-  )
-  check(
-    rejectState.panels === rectVState.panels &&
-      JSON.stringify(rejectState.zigzags) === JSON.stringify(rectVState.zigzags),
-    'illegal placement left the layout untouched',
-    `panels=${rejectState.panels}`,
-  )
-  check(
-    rejectState.lastErrors.includes('E_CROSSROW_ANGLE_MISMATCH'),
-    'illegal placement reported E_CROSSROW_ANGLE_MISMATCH',
-    `lastErrors=${JSON.stringify(rejectState.lastErrors)}`,
-  )
-  check(
-    await page.isVisible('[data-testid="last-errors"]'),
-    'error box is visible next to the grid map',
-  )
-  await page.screenshot({ path: `${OUT}/06-reject.png` })
-  console.log('  → tests/screenshots/06-reject.png')
+  // --- (f) the two illegal placements --------------------------------------
+  const badH = findIllegalHorizontal(rectVState)
+  check(!!badH, 'found a row where two columns DISAGREE in pitch (illegal H)', JSON.stringify(badH))
+  if (badH) {
+    await page.click('[data-testid="gridmap-mode-horizontal"]')
+    await page.click(`[data-testid="cell-${badH.row}-${badH.col}"]`)
+    await page.waitForTimeout(600)
+    const badHState = await storeState(page)
+    check(
+      JSON.stringify(badHState.rects) === JSON.stringify(rectVState.rects) &&
+        badHState.panels === rectVState.panels,
+      'illegal horizontal placement left the design untouched',
+      `rects=${JSON.stringify(badHState.rects)}`,
+    )
+    check(
+      badHState.lastErrors.includes('E_CROSSCOL_ANGLE_MISMATCH'),
+      'illegal horizontal reported E_CROSSCOL_ANGLE_MISMATCH',
+      `lastErrors=${JSON.stringify(badHState.lastErrors)}`,
+    )
+  }
 
-  // --- (g) JSON panel: paste a minimal hand-written config ----------------
-  const MINIMAL_CONFIG = {
-    version: 1,
+  const badV = findIllegalVertical(rectVState)
+  check(!!badV, 'found a folded joint to try a V plate on (illegal V)', JSON.stringify(badV))
+  if (badV) {
+    await page.click('[data-testid="gridmap-mode-vertical"]')
+    await page.click(`[data-testid="cell-${badV.row}-${badV.col}"]`)
+    await page.waitForTimeout(600)
+    const badVState = await storeState(page)
+    check(
+      JSON.stringify(badVState.rects) === JSON.stringify(rectVState.rects) &&
+        JSON.stringify(badVState.folds) === JSON.stringify(rectVState.folds) &&
+        badVState.panels === rectVState.panels,
+      'illegal vertical placement left the design untouched',
+      `rects=${JSON.stringify(badVState.rects)} panels=${badVState.panels}`,
+    )
+    check(
+      badVState.lastErrors.includes('E_FOLD_ON_REMOVED_JOINT'),
+      'illegal vertical reported E_FOLD_ON_REMOVED_JOINT',
+      `lastErrors=${JSON.stringify(badVState.lastErrors)}`,
+    )
+    const inlineText = (await page.textContent('[data-testid="gridmap-error"]')) ?? ''
+    check(
+      inlineText.includes('E_FOLD_ON_REMOVED_JOINT') && inlineText.includes('rigid plate'),
+      'the full rejection message is shown inline under the grid map',
+      `${inlineText.length} chars`,
+    )
+    check(
+      !(await page.isVisible('[data-testid="last-errors"]')),
+      'the general error box does NOT repeat the plate rejection',
+    )
+  }
+  await page.screenshot({ path: `${OUT}/05-reject.png` })
+  console.log('  → tests/screenshots/05-reject.png')
+
+  // --- (g) JSON panel: a minimal v2 config in, a v1 config rejected --------
+  // Only `columns` is load-bearing (normalizeConfig will NOT invent it — its
+  // length is the grid width); everything else defaults.
+  const MINIMAL_V2 = {
+    version: 2,
     units: 'cm',
     name: 'pasted study',
+    columns: [
+      { foldsDeg: [30, 10, -20, -20] },
+      { foldsDeg: [20, 25, -25, -20] },
+      { foldsDeg: [10, 30, 0, -25] },
+      { foldsDeg: [0, 30, 10, -20] },
+      { foldsDeg: [0, 20, 25, -15] },
+      { foldsDeg: [0, 10, 30, 0] },
+    ],
+  }
+  const V1_CONFIG = {
+    version: 1,
+    units: 'cm',
+    name: 'v1 accordion study',
     rows: [
       { zigzagDeg: 0 },
       { zigzagDeg: 25 },
@@ -360,37 +594,62 @@ try {
     ],
     rowFoldsDeg: [20, 35, 25, -15],
   }
+
   await page.click('[data-testid="json-toggle"]')
-  await page.waitForTimeout(200)
-  check(
-    await page.isVisible('[data-testid="json-text"]'),
-    'JSON panel opened (textarea visible)',
-  )
+  await page.waitForTimeout(250)
+  check(await page.isVisible('[data-testid="json-text"]'), 'JSON panel opened (textarea visible)')
   const syncedText = await page.inputValue('[data-testid="json-text"]')
   check(
-    syncedText.includes('"version": 2') === false && syncedText.includes('"rowFoldsDeg"'),
-    'textarea was synced to the current config on open',
+    syncedText.includes('"version": 2') && syncedText.includes('"foldsDeg"'),
+    'textarea was synced to the current v2 config on open',
     `${syncedText.length} chars`,
   )
-  await page.fill('[data-testid="json-text"]', JSON.stringify(MINIMAL_CONFIG, null, 2))
+
+  await page.fill('[data-testid="json-text"]', JSON.stringify(MINIMAL_V2, null, 2))
   await page.click('[data-testid="json-apply"]')
-  await page.waitForTimeout(900)
+  await page.waitForTimeout(SETTLE_MS)
   const jsonState = await storeState(page)
-  check(jsonState.name === 'pasted study', 'pasted config applied (name took effect)', `name=${jsonState.name}`)
+  check(jsonState.name === 'pasted study', 'minimal v2 config applied (name took effect)', `name=${jsonState.name}`)
   check(
-    JSON.stringify(jsonState.zigzags) === JSON.stringify([0, 25, 45, 10, 5]) &&
-      JSON.stringify(jsonState.rowFolds) === JSON.stringify([20, 35, 25, -15]),
-    'pasted zig-zags and row folds took effect',
-    `zigzags=${JSON.stringify(jsonState.zigzags)} folds=${JSON.stringify(jsonState.rowFolds)}`,
+    JSON.stringify(jsonState.folds) === JSON.stringify(MINIMAL_V2.columns.map((c) => c.foldsDeg)),
+    'pasted fold sequences took effect',
+    JSON.stringify(jsonState.folds),
   )
   check(
-    jsonState.rects.length === 0 && jsonState.panels === 30 && jsonState.lastErrors.length === 0,
-    'normalizeConfig filled the omitted defaults (no rects, 30 panels, no errors)',
-    `rects=${jsonState.rects.length} panels=${jsonState.panels} errors=${JSON.stringify(jsonState.lastErrors)}`,
+    jsonState.cols === 6 &&
+      jsonState.rows === 5 &&
+      jsonState.gap === 2 &&
+      jsonState.rects.length === 0 &&
+      jsonState.panels === 30 &&
+      jsonState.lastErrors.length === 0,
+    'normalizeConfig filled every omitted default (6×5, gap 2, no rects, 30 panels)',
+    `cols=${jsonState.cols} rows=${jsonState.rows} gap=${jsonState.gap} panels=${jsonState.panels}`,
   )
-  await assertCanvasRenders(page, 'json')
-  await page.screenshot({ path: `${OUT}/07-json.png` })
-  console.log('  → tests/screenshots/07-json.png')
+  const jsonShot = await assertCanvasRenders(page, 'json')
+  check(canvasChanged(rectsShot, jsonShot), 'pasted config re-rendered the surface')
+  await page.screenshot({ path: `${OUT}/06-json.png` })
+  console.log('  → tests/screenshots/06-json.png')
+
+  await page.fill('[data-testid="json-text"]', JSON.stringify(V1_CONFIG, null, 2))
+  await page.click('[data-testid="json-apply"]')
+  await page.waitForTimeout(600)
+  const v1State = await storeState(page)
+  check(
+    v1State.name === 'pasted study' &&
+      JSON.stringify(v1State.folds) === JSON.stringify(MINIMAL_V2.columns.map((c) => c.foldsDeg)),
+    'v1 config was rejected — the v2 design is untouched',
+    `name=${v1State.name}`,
+  )
+  check(
+    v1State.lastErrors.includes('E_SHAPE') &&
+      v1State.lastErrorMessages.some((m) => /version must be 2/.test(m)),
+    'v1 config rejected with the "version must be 2" message',
+    `lastErrors=${JSON.stringify(v1State.lastErrors)}`,
+  )
+  check(
+    (await page.textContent('[data-testid="json-note"]')).includes('rejected'),
+    'the JSON panel reports the rejection inline',
+  )
 
   // --- (h) downloads -------------------------------------------------------
   const [objDownload] = await Promise.all([
@@ -434,23 +693,20 @@ try {
     fail('downloaded JSON parses', e.message)
   }
   check(
-    downloadedConfig?.name === 'pasted study' &&
+    downloadedConfig?.version === 2 &&
+      downloadedConfig?.name === 'pasted study' &&
       downloadedConfig?.grid?.cols === 6 &&
-      downloadedConfig?.rows?.length === 5 &&
+      downloadedConfig?.columns?.length === 6 &&
+      downloadedConfig?.columns?.[0]?.foldsDeg?.length === 4 &&
       downloadedConfig?.gap === 2,
-    'downloaded JSON is the current, fully-defaulted config',
+    'downloaded JSON is the current, fully-defaulted v2 config',
     `${jsonText.length} bytes`,
   )
 
   // --- byte-level differences ---------------------------------------------
-  const shots = [
-    '01-flat.png',
-    '02-wave.png',
-    '03-slider.png',
-    '04-rect-h.png',
-    '05-rect-v.png',
-    '07-json.png',
-  ].map((name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }))
+  const shots = ['01-flat.png', '02-wave.png', '03-fold.png', '04-rects.png', '05-reject.png', '06-json.png'].map(
+    (name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }),
+  )
   for (let i = 0; i + 1 < shots.length; i++) {
     const x = shots[i]
     const y = shots[i + 1]
@@ -470,7 +726,7 @@ try {
 // -----------------------------------------------------------------------------
 // summary
 // -----------------------------------------------------------------------------
-console.log('\n=== SCREENSHOT HARNESS (WP3 + WP4) ===')
+console.log('\n=== SCREENSHOT HARNESS (WP6 — column-strip UI) ===')
 for (const r of results) {
   console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`)
 }

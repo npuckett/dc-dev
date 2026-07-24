@@ -12,8 +12,12 @@
  *     emitted: squares as single cells, horizontal plates spanning two columns
  *     of a row, vertical plates spanning two rows of a column (tinted with the
  *     same cool blue the 3D rect material uses).
- *   - small amber dots on the in-row joints carrying a signed override, so the
- *     hand-tuned joints are visible next to the plates that depend on them.
+ *   - a per-cell PITCH WASH: each cell is tinted by its column chain's cumulative
+ *     pitch ψ at that row (`layout.columnChains[c].pitchesDeg[r]`), opacity rising
+ *     with |ψ| — cool blue where the strip has pitched UP, warm amber where it has
+ *     pitched back DOWN. A wave travelling across the window therefore reads as a
+ *     diagonal band in plan, which is exactly the thing the fold sliders are being
+ *     dragged to produce.
  *   - a blue rule plus a "window / shore" caption along row 0's outer edge.
  *
  * INTERACTION
@@ -24,8 +28,13 @@
  *       anchored there: H spans (r,c)+(r,c+1), V spans (r,c)+(r+1,c)
  *     - any cell of an existing plate → remove that plate
  *   Both go through the store's commit rule, so an illegal placement changes
- *   nothing and its validation errors appear in the control panel's error box
- *   immediately below this map.
+ *   nothing. The schema v2 constraints a click can trip are
+ *     E_FOLD_ON_REMOVED_JOINT    a V plate over a joint that is folded
+ *     E_CROSSCOL_ANGLE_MISMATCH  an H plate over two columns at different pitches
+ *     E_RECT_OVERLAP / E_SHAPE   overlapping, or off the edge of the grid
+ *   The three RECT-specific ones are reported INLINE under the map — the cell you
+ *   just clicked is what they are about — and the control panel's general error
+ *   box skips exactly those, so a rejected placement is explained once, not twice.
  */
 
 import { useState } from 'react'
@@ -39,7 +48,7 @@ const GAP = 4
 const PITCH = CELL + GAP
 const PAD_L = 13
 const PAD_R = 3
-const PAD_T = 3
+const PAD_T = 12
 const PAD_B = 17
 
 const SQUARE_FILL = '#272736'
@@ -47,7 +56,28 @@ const SQUARE_STROKE = '#3c3c56'
 const RECT_FILL = '#1f3350'
 const RECT_STROKE = '#4a7fc4'
 const SHORE = '#8fcaff'
-const OVERRIDE = '#e8b45a'
+
+/** Pitch wash: cool where the chain has pitched up, warm where it came back down. */
+const PITCH_UP = '#8fc4ff'
+const PITCH_DOWN = '#ffb27f'
+/** |ψ| that saturates the wash (a panel standing straight up). */
+const PITCH_FULL_DEG = 90
+const PITCH_MAX_OPACITY = 0.4
+
+/**
+ * The rect-specific validation codes, reported INLINE under the map (which is
+ * where the click that caused them happened). ControlPanel excludes exactly this
+ * set from its general error box, so a rejected placement is explained once.
+ *
+ * E_SHAPE is deliberately NOT here: it also covers pasted-config problems, which
+ * belong in the general box, and an out-of-bounds click is already impossible
+ * from the map's own hit grid.
+ */
+export const PLACEMENT_CODES = new Set([
+  'E_FOLD_ON_REMOVED_JOINT',
+  'E_CROSSCOL_ANGLE_MISMATCH',
+  'E_RECT_OVERLAP',
+])
 
 const MODES = [
   { id: 'horizontal', label: 'H', hint: 'place a horizontal plate: (r,c) + (r,c+1)' },
@@ -58,6 +88,7 @@ export default function GridMap() {
   const config = useStore((s) => s.config)
   const addRect = useStore((s) => s.addRect)
   const removeRectAt = useStore((s) => s.removeRectAt)
+  const lastErrors = useStore((s) => s.lastErrors)
   const { layout } = getDerived(config)
   const [mode, setMode] = useState('horizontal')
 
@@ -83,6 +114,14 @@ export default function GridMap() {
     if (ownerOf.get(`${r},${c}`)?.type === '2x4') removeRectAt(r, c)
     else addRect({ row: r, col: c, orientation: mode })
   }
+
+  /** Cumulative pitch of cell (r, c) — straight from the solved chain. */
+  const pitchOf = (r, c) => {
+    const p = layout.columnChains?.[c]?.pitchesDeg?.[r]
+    return Number.isFinite(p) ? p : 0
+  }
+
+  const placementErrors = lastErrors.filter((e) => PLACEMENT_CODES.has(e.code))
 
   return (
     <section className="grid-map" data-testid="grid-map">
@@ -119,6 +158,14 @@ export default function GridMap() {
             </text>
           ))}
 
+          {/* column indices — in PLAN view column 0 is at the left; the 3D camera
+              looks in from the window, so there it is the rightmost strip. */}
+          {Array.from({ length: cols }, (_, c) => (
+            <text key={`cl-${c}`} className="grid-map-collabel" x={x(c) + CELL / 2} y={PAD_T - 4}>
+              {c}
+            </text>
+          ))}
+
           {layout.panels.map((panel) => {
             const isRect = panel.type === '2x4'
             const horiz = panel.rectOrientation === 'horizontal'
@@ -138,17 +185,22 @@ export default function GridMap() {
             )
           })}
 
-          {config.rows.flatMap((row, r) =>
-            Object.keys(row.jointOverridesDeg ?? {}).map((key) => {
-              const j = Number(key)
-              if (!Number.isInteger(j) || j < 0 || j > cols - 2) return null
+          {/* pitch wash — one tint per cell, so the wave reads in plan */}
+          {Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: cols }, (_, c) => {
+              const psi = pitchOf(r, c)
+              const strength = Math.min(Math.abs(psi) / PITCH_FULL_DEG, 1)
+              if (strength < 0.02) return null
               return (
-                <circle
-                  key={`ov-${r}-${key}`}
-                  cx={x(j) + CELL + GAP / 2}
-                  cy={y(r) + CELL / 2}
-                  r={2.6}
-                  fill={OVERRIDE}
+                <rect
+                  key={`pitch-${r}-${c}`}
+                  x={x(c)}
+                  y={y(r)}
+                  width={CELL}
+                  height={CELL}
+                  rx={3}
+                  fill={psi >= 0 ? PITCH_UP : PITCH_DOWN}
+                  fillOpacity={strength * PITCH_MAX_OPACITY}
                 />
               )
             }),
@@ -192,7 +244,7 @@ export default function GridMap() {
                   onClick={() => onCellClick(r, c)}
                 >
                   <title>
-                    {`(${r}, ${c}) — ${occupied ? `click to remove the ${owner.rectOrientation} plate` : `click to place a ${mode} plate`}`}
+                    {`(${r}, ${c}) · pitch ${Math.round(pitchOf(r, c))}° — ${occupied ? `click to remove the ${owner.rectOrientation} plate` : `click to place a ${mode} plate`}`}
                   </title>
                 </rect>
               )
@@ -203,8 +255,21 @@ export default function GridMap() {
 
       <p className="grid-map-hint">
         click an empty cell to place a <b>{mode === 'horizontal' ? 'horizontal' : 'vertical'}</b>{' '}
-        60×121 plate · click a plate to remove it
+        60×121 plate · click a plate to remove it · cell tint = cumulative pitch{' '}
+        <span className="wash-up">up</span> / <span className="wash-down">back down</span> · col 0 is
+        at the left here, and on the <b>right</b> in the 3D view
       </p>
+
+      {placementErrors.length > 0 && (
+        <div className="grid-map-error" data-testid="gridmap-error">
+          <strong>plate rejected</strong>
+          {placementErrors.map((e, i) => (
+            <p key={i}>
+              <code>{e.code}</code> {e.message}
+            </p>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

@@ -7,110 +7,122 @@
  *   - same input → same output, no hidden state
  *
  * =============================================================================
- * WHAT THIS DESCRIBES
+ * WHAT THIS DESCRIBES  (schema v2 — "per-column fold strips")
  * =============================================================================
- * A single continuous folded surface made of a `cols × rows` grid of ceiling
- * light panels (Drop Ceiling installation V2, the "agentic body of water").
- * Row 0 is the SHORE: the row at the storefront window, fixed straight and flat
- * on the floor. Rows behind it (increasing row index, receding along +Z) fold
- * up and back.
+ * A `cols × rows` grid of ceiling light panels (Drop Ceiling installation V2,
+ * the "agentic body of water") standing on the floor of a storefront. The window
+ * / shore is the line z = 0; rows recede into the store along +Z; columns run
+ * across the window along +X.
  *
- * Two independent families of folds shape the surface:
- *   1. WITHIN-ROW ZIG-ZAG (accordion): each row has one base angle applied with
- *      alternating sign at the joints between its columns, plus optional signed
- *      per-joint overrides.
- *   2. ROW-TO-ROW DIHEDRAL: one hinge angle per row pair, pitching each
- *      successive row plane up (or down).
+ * FOLDING HAPPENS ONLY ALONG COLUMNS. Each column c is an independent STRIP: a
+ * chain of `rows` panels hinged at the `rows - 1` joints between consecutive
+ * rows, folding up and back from the window. There is NO in-row accordion — the
+ * v1 fold family (zigzagDeg / jointOverridesDeg / rowFoldsDeg) is gone.
  *
- * World conventions (for downstream placement, not enforced here): units cm,
- * Y up, columns along +X (c = 0..cols-1), rows recede along +Z (r = 0..rows-1),
- * cell pitch = cell.size + gap.
+ * Consequences worth internalizing before generating a config:
+ *   - Columns NEVER move in X. Column c occupies x ∈ [c·(size+gap),
+ *     c·(size+gap)+size] in every configuration, so column centers sit on the
+ *     lattice x = size/2 + c·(size+gap) (30, 92, 154, … at the defaults).
+ *   - Side-by-side joints along a row are therefore SIMPLE CONNECTIONS: a
+ *     constant `gap` in X by construction. Their 3D edge separation only grows
+ *     when two adjacent columns' fold profiles differ in pitch or in the height
+ *     / depth they have reached — that is exactly what report.js measures.
+ *   - Row 0 is the SHORE and is flat on the ground BY CONSTRUCTION: every chain
+ *     starts at pitch 0, z = 0, y = PANEL_PROFILE.overallThickness. There is no
+ *     shore validation rule; you cannot tilt row 0.
+ *   - WAVES ARE MADE BY PHASE-SHIFTING FOLD SEQUENCES ACROSS COLUMNS. Give
+ *     column c a fold sequence whose crest sits one step further back than
+ *     column c-1's, and the surface reads as a swell travelling across the
+ *     window. Identical sequences in every column give a cylindrical fold with
+ *     perfect in-row joints.
+ *   - GROUND SUPPORT MATTERS. Panels dipping below y = 0 have nothing to stand
+ *     on; placement.js emits W_BELOW_FLOOR for them. A chain that rises before
+ *     it descends (all cumulative pitches ≥ 0, or a descent no deeper than the
+ *     height already gained) stays supported.
  *
  * =============================================================================
- * JSON CONFIG SCHEMA (v1) — this is the shape an LLM generator should emit
+ * JSON CONFIG SCHEMA (v2) — this is the shape an LLM generator should emit
  * =============================================================================
  *
  *   {
- *     "version": 1,                            // must be exactly 1
+ *     "version": 2,                            // must be exactly 2
  *     "units": "cm",                           // must be "cm"
  *     "name": "wave study 3",                  // optional, free text
  *     "grid": { "cols": 6, "rows": 5 },        // 6 columns × 5 rows
  *     "cell": { "size": 60, "rectLength": 121 },  // square cell 60cm; 2-cell rect 121cm
  *     "gap": 2.0,                              // physical joint gap spanned by connectors
  *     "gapTolerance": 1.5,                     // report flags joints deviating > this from gap
- *     "rowAnchor": "center",                   // "center" (default) | "start"
- *     "rows": [                                // exactly grid.rows entries; index 0 = shore
- *       { "zigzagDeg": 0,  "jointOverridesDeg": {} },            // row 0 MUST be 0, no overrides
- *       { "zigzagDeg": 20, "jointOverridesDeg": { "2": -35 } },  // key = joint j, value = SIGNED absolute angle
- *       { "zigzagDeg": 35, "jointOverridesDeg": {} },
- *       { "zigzagDeg": 35, "jointOverridesDeg": {} },
- *       { "zigzagDeg": 10, "jointOverridesDeg": {} }
+ *     "columns": [                             // exactly grid.cols entries; 0 = leftmost (x = 0 side)
+ *       { "foldsDeg": [30, -60, 60, -30] },    // exactly grid.rows-1 SIGNED hinge angles
+ *       { "foldsDeg": [20, -40, 40, -20] },    // [k] = hinge between rows k and k+1
+ *       { "foldsDeg": [0, 0, 0, 0] },
+ *       { "foldsDeg": [0, 0, 0, 0] },
+ *       { "foldsDeg": [0, 0, 0, 0] },
+ *       { "foldsDeg": [0, 0, 0, 0] }
  *     ],
- *     "rowFoldsDeg": [15, 40, 55, -10],        // grid.rows-1 entries; [r] = dihedral between rows r and r+1
  *     "rects": [                               // optional 60×121 two-cell panels
- *       { "row": 1, "col": 2, "orientation": "horizontal" },  // occupies (1,2)+(1,3); removes joint j=2 of row 1
- *       { "row": 2, "col": 5, "orientation": "vertical" }     // occupies (2,5)+(3,5); one rigid plate
+ *       { "row": 1, "col": 2, "orientation": "horizontal" },  // (1,2)+(1,3): one plate across two columns
+ *       { "row": 2, "col": 5, "orientation": "vertical" }     // (2,5)+(3,5): removes joint k=2 of column 5
  *     ],
- *     "meta": { "preset": "wave", "seed": 42, "notes": "" }    // provenance, free-form
+ *     "meta": { "preset": "wave", "seed": 42, "notes": "" }   // provenance, free-form
  *   }
  *
  * =============================================================================
  * ANGLE SEMANTICS (verbatim rules — follow these exactly)
  * =============================================================================
- * Joint j sits between columns j and j+1 (j = 0 .. cols-2).
+ * Joint k of column c is the hinge between rows k and k+1 (k = 0 .. rows-2).
+ * `columns[c].foldsDeg[k]` is that hinge's SIGNED dihedral in degrees, clamped
+ * to ±120. A POSITIVE fold pitches the next panel UP (toward +Y).
  *
- *   Fold angle  φ(r,j) = (j % 2 === 0 ? +1 : −1) · rows[r].zigzagDeg
+ * Cumulative pitch of cell (r, c) is the running sum of the folds in front of it:
  *
- * unless `rows[r].jointOverridesDeg[j]` exists — that SIGNED value is used
- * as-is (it is an absolute angle, not a delta, and it carries its own sign;
- * the alternation rule does not apply to it). Fold angles are clamped to ±80°.
+ *   ψ(r, c) = Σ_{k < r} foldsDeg(c, k),   ψ(0, c) = 0
  *
- * Row pitch is cumulative:
+ * (see `cellPitches()`), and the chain's depth direction there is
+ * d = (0, sinψ, cosψ) — so ψ = 90° stands the panel straight up and ψ > 90°
+ * points it back toward the window.
  *
- *   ψ_r = Σ_{k < r} rowFoldsDeg[k],   ψ_0 = 0
- *
- * with each `rowFoldsDeg` entry clamped to ±120°. A positive `rowFoldsDeg[r]`
- * pitches row r+1 UP relative to row r.
- *
- * Per-cell in-row tilt is the running sum of the surviving folds to its left:
- * see `cellTilts()` below. A horizontal rect spanning columns c and c+1 REMOVES
- * joint j = c of that row, so no fold is applied there and both of its cells
- * share one tilt (it is a single rigid plate).
+ * A VERTICAL rect at (r, c) is one rigid 121cm plate spanning rows r and r+1 of
+ * column c: it REMOVES joint k = r of that column, so `foldsDeg[r]` must be 0.
+ * A HORIZONTAL rect at (r, c) is one rigid plate spanning columns c and c+1 at
+ * row r: both chains must have reached the SAME pitch at row r, or the plate
+ * cannot lie in both.
  *
  * =============================================================================
  * VALIDATION CODES
  * =============================================================================
  * Errors (ok === false):
- *   E_SHAPE                       structural problems: bad version/units, grid
- *                                 dims < 1, wrong rows / rowFoldsDeg lengths,
- *                                 malformed row or rect entries, out-of-bounds
- *                                 rects (message names the specific problem)
- *   E_RANGE                       zigzag or override outside ±80, rowFold
- *                                 outside ±120, gap not in (0, 10]
- *   E_SHORE_NOT_FLAT              row 0 has a non-zero zigzagDeg or any overrides
- *   E_RECT_OVERLAP                two rects share a cell
- *   E_OVERRIDE_ON_REMOVED_JOINT   a jointOverridesDeg entry targets a joint that
- *                                 a horizontal rect removed
- *   E_CROSSROW_ANGLE_MISMATCH     a vertical rect's two cells have different
- *                                 computed in-row tilts (> 0.1°) — a rigid plate
- *                                 cannot span them
+ *   E_SHAPE                     structural problems: bad version/units, grid
+ *                               dims < 1, wrong columns / foldsDeg lengths,
+ *                               malformed column or rect entries, out-of-bounds
+ *                               rects (message names the specific problem)
+ *   E_RANGE                     a fold outside ±120, gap not in (0, 10]
+ *   E_RECT_OVERLAP              two rects share a cell
+ *   E_FOLD_ON_REMOVED_JOINT     columns[c].foldsDeg[r] ≠ 0 at a joint removed by
+ *                               a vertical rect (the plate is rigid there)
+ *   E_CROSSCOL_ANGLE_MISMATCH   a horizontal rect's two cells sit at different
+ *                               cumulative pitches (> 0.1°)
  * Warnings (do not affect ok):
- *   W_CROSSROW_FOLD               a vertical rect spans a row boundary whose
- *                                 rowFoldsDeg ≠ 0 — the rigid plate cannot bend,
- *                                 so the joint report will show the deviation
- *   W_RECT_LENGTH                 cell.rectLength ≠ 2·cell.size + gap (the real
- *                                 hardware is 121 vs 122 — ~1cm of slack is
- *                                 accepted and surfaced, never silently corrected)
+ *   W_CROSSCOL_POSITION         a horizontal rect's two chains agree in pitch but
+ *                               their cell origins are more than `gapTolerance`
+ *                               apart in (y, z) — they diverged earlier and only
+ *                               re-converged in ANGLE, so one plate cannot span
+ *                               them cleanly; the joint report shows the cost
+ *   W_RECT_LENGTH               cell.rectLength ≠ 2·cell.size + gap (the real
+ *                               hardware is 121 vs 122 — ~1cm of slack is
+ *                               accepted and surfaced, never silently corrected)
  */
+
+import { PANEL_PROFILE } from '../config.js'
 
 // -----------------------------------------------------------------------------
 // Limits
 // -----------------------------------------------------------------------------
-export const MAX_ZIGZAG_DEG = 80
-export const MAX_ROW_FOLD_DEG = 120
+/** Per-joint signed dihedral limit, degrees. */
+export const MAX_FOLD_DEG = 120
 export const MAX_GAP_CM = 10
-/** Two cells of a vertical rect must agree in tilt to within this many degrees. */
-export const TILT_MATCH_EPSILON_DEG = 0.1
+/** Two cells of a horizontal rect must agree in pitch to within this many degrees. */
+export const PITCH_MATCH_EPSILON_DEG = 0.1
 
 // -----------------------------------------------------------------------------
 // Defaults
@@ -119,26 +131,26 @@ export const DEFAULT_GRID = { cols: 6, rows: 5 }
 export const DEFAULT_CELL = { size: 60, rectLength: 121 }
 export const DEFAULT_GAP = 2.0
 export const DEFAULT_GAP_TOLERANCE = 1.5
-export const DEFAULT_ROW_ANCHOR = 'center'
+/** Every chain starts with its lit face at this height (housings on the floor). */
+export const SHORE_Y = PANEL_PROFILE.overallThickness
 
-/** Flat 6×5 surface: no zig-zag, no row folds, no rects. */
+/** Flat 6×5 surface: every joint unfolded, no rects. */
 export const DEFAULT_CONFIG = Object.freeze({
-  version: 1,
+  version: 2,
   units: 'cm',
   name: 'flat 6×5',
   grid: { cols: 6, rows: 5 },
   cell: { size: 60, rectLength: 121 },
   gap: DEFAULT_GAP,
   gapTolerance: DEFAULT_GAP_TOLERANCE,
-  rowAnchor: DEFAULT_ROW_ANCHOR,
-  rows: [
-    { zigzagDeg: 0, jointOverridesDeg: {} },
-    { zigzagDeg: 0, jointOverridesDeg: {} },
-    { zigzagDeg: 0, jointOverridesDeg: {} },
-    { zigzagDeg: 0, jointOverridesDeg: {} },
-    { zigzagDeg: 0, jointOverridesDeg: {} },
+  columns: [
+    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0] },
   ],
-  rowFoldsDeg: [0, 0, 0, 0],
   rects: [],
   meta: { preset: 'flat', notes: '' },
 })
@@ -149,6 +161,8 @@ export const DEFAULT_CONFIG = Object.freeze({
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v)
 const isInt = (v) => isFiniteNumber(v) && Number.isInteger(v)
+
+const DEG = Math.PI / 180
 
 export function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v
@@ -162,9 +176,9 @@ export function clamp(v, lo, hi) {
  *
  * Never mutates `partial` — everything is deep-copied. Values that are present
  * are passed through untouched (even when invalid) so `validateConfig` can
- * report them; only *missing* pieces get defaults. `rows` and `rowFoldsDeg` are
- * deliberately NOT synthesized when absent: their lengths are load-bearing and
- * a missing array is a real error, not something to guess at.
+ * report them; only *missing* pieces get defaults. `columns` is deliberately NOT
+ * synthesized when absent: its length is load-bearing and a missing array is a
+ * real error, not something to guess at.
  *
  * @param {object} partial
  * @returns {object} a fresh, fully-defaulted config
@@ -186,15 +200,13 @@ export function normalizeConfig(partial) {
   }
 
   const out = {
-    version: src.version !== undefined ? src.version : 1,
+    version: src.version !== undefined ? src.version : 2,
     units: src.units !== undefined ? src.units : 'cm',
     grid,
     cell,
     gap: src.gap !== undefined ? src.gap : DEFAULT_GAP,
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
-    rowAnchor: src.rowAnchor !== undefined ? src.rowAnchor : DEFAULT_ROW_ANCHOR,
-    rows: normalizeRows(src.rows),
-    rowFoldsDeg: Array.isArray(src.rowFoldsDeg) ? src.rowFoldsDeg.slice() : src.rowFoldsDeg,
+    columns: normalizeColumns(src.columns),
     rects: Array.isArray(src.rects) ? src.rects.map(normalizeRect) : [],
     meta: { notes: '', ...(isPlainObject(src.meta) ? src.meta : {}) },
   }
@@ -205,19 +217,12 @@ export function normalizeConfig(partial) {
   return out
 }
 
-function normalizeRows(rows) {
-  if (!Array.isArray(rows)) return rows
-  return rows.map((row) => {
-    if (!isPlainObject(row)) return row
-    const overrides = {}
-    if (isPlainObject(row.jointOverridesDeg)) {
-      for (const key of Object.keys(row.jointOverridesDeg)) {
-        overrides[String(key)] = row.jointOverridesDeg[key]
-      }
-    }
+function normalizeColumns(columns) {
+  if (!Array.isArray(columns)) return columns
+  return columns.map((column) => {
+    if (!isPlainObject(column)) return column
     return {
-      zigzagDeg: row.zigzagDeg !== undefined ? row.zigzagDeg : 0,
-      jointOverridesDeg: isPlainObject(row.jointOverridesDeg) ? overrides : {},
+      foldsDeg: Array.isArray(column.foldsDeg) ? column.foldsDeg.slice() : column.foldsDeg,
     }
   })
 }
@@ -235,76 +240,192 @@ function normalizeRect(rect) {
 // Angle semantics
 // -----------------------------------------------------------------------------
 /**
- * The set of in-row joints removed by horizontal rects in row `r`.
- * A horizontal rect at (r, c) spans columns c and c+1, removing joint j = c.
+ * The set of fold joints of column `c` removed by vertical rects.
+ * A vertical rect at (r, c) spans rows r and r+1, removing joint k = r.
  *
  * @param {object} config normalized config
- * @param {number} r row index
+ * @param {number} c column index
  * @returns {Set<number>}
  */
-export function removedJoints(config, r) {
+export function removedJoints(config, c) {
   const removed = new Set()
   const rects = Array.isArray(config.rects) ? config.rects : []
   for (const rect of rects) {
     if (!isPlainObject(rect)) continue
-    if (rect.orientation === 'horizontal' && rect.row === r) removed.add(rect.col)
+    if (rect.orientation === 'vertical' && rect.col === c) removed.add(rect.row)
   }
   return removed
 }
 
 /**
- * Signed fold angle at joint j of row r, per the ANGLE SEMANTICS above:
- * alternating ±zigzagDeg, or the signed override used as-is. Clamped to ±80.
+ * Signed dihedral at joint k of column c, clamped to ±MAX_FOLD_DEG.
+ * Missing / non-numeric entries read as 0 so the walkers never produce NaN.
  *
  * @param {object} config normalized config
- * @param {number} r row index
- * @param {number} j joint index (0 .. cols-2)
+ * @param {number} c column index
+ * @param {number} k joint index (0 .. rows-2)
  * @returns {number} degrees
  */
-export function foldAngleDeg(config, r, j) {
-  const row = Array.isArray(config.rows) ? config.rows[r] : undefined
-  if (!isPlainObject(row)) return 0
-  const overrides = isPlainObject(row.jointOverridesDeg) ? row.jointOverridesDeg : {}
-  const key = String(j)
-  if (Object.prototype.hasOwnProperty.call(overrides, key)) {
-    const v = Number(overrides[key])
-    return Number.isFinite(v) ? clamp(v, -MAX_ZIGZAG_DEG, MAX_ZIGZAG_DEG) : 0
-  }
-  const base = Number(row.zigzagDeg)
-  if (!Number.isFinite(base)) return 0
-  const signed = (j % 2 === 0 ? 1 : -1) * base
-  return clamp(signed, -MAX_ZIGZAG_DEG, MAX_ZIGZAG_DEG)
+export function columnFoldDeg(config, c, k) {
+  const column = Array.isArray(config.columns) ? config.columns[c] : undefined
+  if (!isPlainObject(column) || !Array.isArray(column.foldsDeg)) return 0
+  const v = Number(column.foldsDeg[k])
+  if (!Number.isFinite(v)) return 0
+  return clamp(v, -MAX_FOLD_DEG, MAX_FOLD_DEG)
 }
 
 /**
- * Per-column in-row tilt (degrees) for row `r` — the cheap 2D accordion chain.
+ * The chain segments of column `c`, front (window) to back.
  *
- * Walk the row left to right: α starts at 0, so the tilt of the cell at column
- * 0 is 0. The tilt of the cell at column c is α after applying the folds of
- * joints 0..c-1. Joints removed by horizontal rects apply no fold, which is
- * what makes both cells of a horizontal rect share one tilt.
+ * Each segment consumes one or two rows and carries the length it advances the
+ * chain by:
+ *   'square'  → one row, `cell.size`
+ *   'vrect'   → TWO rows, `cell.rectLength` (a vertical plate; joint k = r is
+ *               interior to it and never visited, hence removed)
+ *   'hrect'   → one row, `cell.size`; the plate this column owns, whose 121cm
+ *               length runs across columns c and c+1
+ *   'phantom' → one row, `cell.size`, emits NO panel: the cell belongs to the
+ *               horizontal plate owned by column c-1. The chain advances exactly
+ *               as a square would, so the rest of the column is unaffected.
  *
- * Both the placement solver and E_CROSSROW_ANGLE_MISMATCH validation use this.
+ * Shared by placement.js (which emits panels) and the chain walker below (which
+ * validation uses), so the two can never disagree about the surface.
+ *
+ * @param {object} config normalized config
+ * @param {number} c column index
+ * @returns {Array<{rows:number[], length:number, kind:string}>}
+ */
+export function columnSegments(config, c) {
+  const rowCount = Number(config.grid.rows)
+  const size = Number(config.cell.size)
+  const rectLength = Number(config.cell.rectLength)
+  if (!Number.isFinite(rowCount) || rowCount < 1) return []
+
+  const vAnchor = new Set()
+  const hAnchor = new Set()
+  const hPhantom = new Set()
+  for (const rect of Array.isArray(config.rects) ? config.rects : []) {
+    if (!isPlainObject(rect)) continue
+    if (rect.orientation === 'vertical' && rect.col === c) vAnchor.add(rect.row)
+    else if (rect.orientation === 'horizontal' && rect.col === c) hAnchor.add(rect.row)
+    else if (rect.orientation === 'horizontal' && rect.col + 1 === c) hPhantom.add(rect.row)
+  }
+
+  const segments = []
+  for (let r = 0; r < rowCount; ) {
+    if (vAnchor.has(r) && r + 1 < rowCount) {
+      segments.push({ rows: [r, r + 1], length: rectLength, kind: 'vrect' })
+      r += 2
+      continue
+    }
+    if (hAnchor.has(r)) segments.push({ rows: [r], length: size, kind: 'hrect' })
+    else if (hPhantom.has(r)) segments.push({ rows: [r], length: size, kind: 'phantom' })
+    else segments.push({ rows: [r], length: size, kind: 'square' })
+    r += 1
+  }
+  return segments
+}
+
+/**
+ * Walk column `c`'s chain in the 2D (Y, Z) plane — the cheap model both
+ * validation and placement are checked against.
+ *
+ * Start at (y = SHORE_Y, z = 0) with pitch ψ = 0, then per segment:
+ *   d = (sinψ, cosψ)                             (in (y, z))
+ *   advance p += length · d
+ *   at the joint k after the segment (k = its last row, when k ≤ rows-2):
+ *     p += gap · bisector(d(ψ), d(ψ + f))        ← the gap along the BISECTOR
+ *     ψ += f                                      with f = columnFoldDeg(c, k)
+ * Advancing along the bisector is what makes every in-column joint exact: the
+ * near panel's trailing edge and the far panel's leading edge end up exactly
+ * `gap` apart, edge-parallel, with zero skew.
+ *
+ * `origins[r]` is where cell (r, c)'s own 60cm sub-rectangle STARTS along the
+ * chain. For a vertical plate's second cell that is `rectLength - size` past the
+ * plate's near edge (the plate's cells are credited from its outer ends — see
+ * placement.js `panelCellFaceRectLocal`), which is where the ~1cm of hardware
+ * slack shows up.
  *
  * @param {object} config config (raw or normalized — normalized internally)
- * @param {number} r row index
- * @returns {number[]} length cols, tilt in degrees per column
+ * @param {number} c column index
+ * @returns {{ col:number, pitchesDeg:number[], origins:Array<[number,number]>,
+ *             points:Array<[number,number]>, segments:Array }}
  */
-export function cellTilts(config, r) {
+export function columnChain(config, c) {
   const cfg = normalizeConfig(config)
-  const cols = Number(cfg.grid.cols)
-  if (!Number.isFinite(cols) || cols < 1) return []
-  const removed = removedJoints(cfg, r)
-  const tilts = new Array(cols)
-  let alpha = 0
-  for (let c = 0; c < cols; c++) {
-    tilts[c] = alpha
-    const j = c // joint between columns c and c+1
-    if (j <= cols - 2 && !removed.has(j)) {
-      alpha += foldAngleDeg(cfg, r, j)
+  const rowCount = Number(cfg.grid.rows)
+  const size = Number(cfg.cell.size)
+  const gapRaw = Number(cfg.gap)
+  const gap = Number.isFinite(gapRaw) ? gapRaw : 0
+  if (!Number.isFinite(rowCount) || rowCount < 1) {
+    return { col: c, pitchesDeg: [], origins: [], points: [], segments: [] }
+  }
+
+  const segments = columnSegments(cfg, c)
+  const pitchesDeg = new Array(rowCount).fill(0)
+  const origins = new Array(rowCount)
+  const points = []
+
+  let y = SHORE_Y
+  let z = 0
+  let psi = 0
+  points.push([y, z])
+
+  for (const seg of segments) {
+    const dy = Math.sin(psi * DEG)
+    const dz = Math.cos(psi * DEG)
+    seg.pitchDeg = psi
+    seg.origin = [y, z]
+
+    for (const r of seg.rows) pitchesDeg[r] = psi
+    origins[seg.rows[0]] = [y, z]
+    if (seg.rows.length === 2) {
+      const back = Number(seg.length) - size
+      origins[seg.rows[1]] = [y + back * dy, z + back * dz]
+    }
+
+    const L = Number.isFinite(Number(seg.length)) ? Number(seg.length) : 0
+    y += L * dy
+    z += L * dz
+    points.push([y, z])
+
+    const k = seg.rows[seg.rows.length - 1]
+    if (k <= rowCount - 2) {
+      const f = columnFoldDeg(cfg, c, k)
+      const ny = Math.sin((psi + f) * DEG)
+      const nz = Math.cos((psi + f) * DEG)
+      let bx = dy + ny
+      let bz = dz + nz
+      const len = Math.hypot(bx, bz)
+      // |f| ≤ 120° means d(ψ) and d(ψ+f) are never antiparallel; guard anyway.
+      if (len < 1e-12) {
+        bx = dy
+        bz = dz
+      } else {
+        bx /= len
+        bz /= len
+      }
+      y += gap * bx
+      z += gap * bz
+      points.push([y, z])
+      psi += f
     }
   }
-  return tilts
+
+  return { col: c, pitchesDeg, origins, points, segments }
+}
+
+/**
+ * Per-row cumulative pitch (degrees) for column `c` — the transpose of v1's
+ * `cellTilts`. Both validation (E_CROSSCOL_ANGLE_MISMATCH) and the placement
+ * solver use it, so the surface being checked is the surface being placed.
+ *
+ * @param {object} config config (raw or normalized — normalized internally)
+ * @param {number} c column index
+ * @returns {number[]} length grid.rows, cumulative pitch in degrees per row
+ */
+export function cellPitches(config, c) {
+  return columnChain(config, c).pitchesDeg
 }
 
 // -----------------------------------------------------------------------------
@@ -332,18 +453,15 @@ export function validateConfig(config) {
   const cfg = normalizeConfig(config)
 
   // --- 1a. Top-level shape -------------------------------------------------
-  if (cfg.version !== 1) {
-    err('E_SHAPE', `version must be 1 (got ${JSON.stringify(cfg.version)})`, 'version')
+  if (cfg.version !== 2) {
+    err(
+      'E_SHAPE',
+      `version must be 2 — v1 (row-accordion) configs are not supported (got ${JSON.stringify(cfg.version)})`,
+      'version',
+    )
   }
   if (cfg.units !== 'cm') {
     err('E_SHAPE', `units must be "cm" (got ${JSON.stringify(cfg.units)})`, 'units')
-  }
-  if (cfg.rowAnchor !== 'center' && cfg.rowAnchor !== 'start') {
-    err(
-      'E_SHAPE',
-      `rowAnchor must be "center" or "start" (got ${JSON.stringify(cfg.rowAnchor)})`,
-      'rowAnchor',
-    )
   }
 
   const cols = cfg.grid.cols
@@ -383,116 +501,69 @@ export function validateConfig(config) {
     err('E_RANGE', `gap must be in (0, ${MAX_GAP_CM}] cm (got ${cfg.gap})`, 'gap')
   }
 
-  // --- 1c. rows array ------------------------------------------------------
-  let rowsOk = true
-  if (!Array.isArray(cfg.rows)) {
-    err('E_SHAPE', 'rows must be an array', 'rows')
-    rowsOk = false
-  } else if (gridOk && cfg.rows.length !== rowCount) {
+  // --- 1c. columns ---------------------------------------------------------
+  let columnsOk = true
+  if (!Array.isArray(cfg.columns)) {
     err(
       'E_SHAPE',
-      `rows must have exactly grid.rows (${rowCount}) entries (got ${cfg.rows.length})`,
-      'rows',
+      'columns must be an array of { foldsDeg: [...] } — one entry per grid column',
+      'columns',
     )
-    rowsOk = false
+    columnsOk = false
+  } else if (gridOk && cfg.columns.length !== cols) {
+    err(
+      'E_SHAPE',
+      `columns must have exactly grid.cols (${cols}) entries (got ${cfg.columns.length})`,
+      'columns',
+    )
+    columnsOk = false
   }
 
-  const maxJoint = gridOk ? cols - 2 : Infinity
-
-  if (Array.isArray(cfg.rows)) {
-    cfg.rows.forEach((row, r) => {
-      const path = `rows[${r}]`
-      if (!isPlainObject(row)) {
-        err('E_SHAPE', 'row entry must be an object', path)
-        rowsOk = false
+  if (Array.isArray(cfg.columns)) {
+    cfg.columns.forEach((column, c) => {
+      const path = `columns[${c}]`
+      if (!isPlainObject(column)) {
+        err('E_SHAPE', 'column entry must be an object', path)
+        columnsOk = false
         return
       }
-      if (!isFiniteNumber(row.zigzagDeg)) {
-        err('E_SHAPE', `zigzagDeg must be a number (got ${JSON.stringify(row.zigzagDeg)})`, `${path}.zigzagDeg`)
-        rowsOk = false
-      } else if (Math.abs(row.zigzagDeg) > MAX_ZIGZAG_DEG) {
+      if (!Array.isArray(column.foldsDeg)) {
         err(
-          'E_RANGE',
-          `zigzagDeg must be within ±${MAX_ZIGZAG_DEG}° (got ${row.zigzagDeg})`,
-          `${path}.zigzagDeg`,
+          'E_SHAPE',
+          `foldsDeg must be an array of signed hinge angles (got ${JSON.stringify(column.foldsDeg)})`,
+          `${path}.foldsDeg`,
         )
+        columnsOk = false
+        return
       }
-
-      const overrides = row.jointOverridesDeg
-      if (!isPlainObject(overrides)) {
-        err('E_SHAPE', 'jointOverridesDeg must be an object', `${path}.jointOverridesDeg`)
-        rowsOk = false
-      } else {
-        for (const key of Object.keys(overrides)) {
-          const jPath = `${path}.jointOverridesDeg["${key}"]`
-          const j = Number(key)
-          if (!Number.isInteger(j) || key.trim() === '') {
-            err('E_SHAPE', `override key must be an integer joint index (got "${key}")`, jPath)
-            continue
-          }
-          if (gridOk && (j < 0 || j > maxJoint)) {
-            err(
-              'E_SHAPE',
-              `joint index ${j} out of range — joints are 0..${maxJoint} for ${cols} columns`,
-              jPath,
-            )
-            continue
-          }
-          const v = overrides[key]
-          if (!isFiniteNumber(v)) {
-            err('E_SHAPE', `override value must be a number (got ${JSON.stringify(v)})`, jPath)
-          } else if (Math.abs(v) > MAX_ZIGZAG_DEG) {
-            err('E_RANGE', `override must be within ±${MAX_ZIGZAG_DEG}° (got ${v})`, jPath)
-          }
+      if (gridOk && column.foldsDeg.length !== rowCount - 1) {
+        err(
+          'E_SHAPE',
+          `foldsDeg must have exactly grid.rows-1 (${rowCount - 1}) entries — one per joint between consecutive rows (got ${column.foldsDeg.length})`,
+          `${path}.foldsDeg`,
+        )
+        columnsOk = false
+      }
+      column.foldsDeg.forEach((v, k) => {
+        if (!isFiniteNumber(v)) {
+          err(
+            'E_SHAPE',
+            `foldsDeg entry must be a number (got ${JSON.stringify(v)})`,
+            `${path}.foldsDeg[${k}]`,
+          )
+          columnsOk = false
+        } else if (Math.abs(v) > MAX_FOLD_DEG) {
+          err(
+            'E_RANGE',
+            `fold must be within ±${MAX_FOLD_DEG}° (got ${v})`,
+            `${path}.foldsDeg[${k}]`,
+          )
         }
-      }
-    })
-
-    // --- 2. Shore row must be flat ----------------------------------------
-    const shore = cfg.rows[0]
-    if (isPlainObject(shore)) {
-      if (isFiniteNumber(shore.zigzagDeg) && shore.zigzagDeg !== 0) {
-        err(
-          'E_SHORE_NOT_FLAT',
-          `row 0 is the shore (at the window) and must stay flat: zigzagDeg must be 0 (got ${shore.zigzagDeg})`,
-          'rows[0].zigzagDeg',
-        )
-      }
-      if (isPlainObject(shore.jointOverridesDeg) && Object.keys(shore.jointOverridesDeg).length > 0) {
-        err(
-          'E_SHORE_NOT_FLAT',
-          'row 0 is the shore (at the window) and must stay flat: no jointOverridesDeg allowed',
-          'rows[0].jointOverridesDeg',
-        )
-      }
-    }
-  }
-
-  // --- 1d. rowFoldsDeg -----------------------------------------------------
-  if (!Array.isArray(cfg.rowFoldsDeg)) {
-    err('E_SHAPE', 'rowFoldsDeg must be an array', 'rowFoldsDeg')
-  } else {
-    if (gridOk && cfg.rowFoldsDeg.length !== rowCount - 1) {
-      err(
-        'E_SHAPE',
-        `rowFoldsDeg must have exactly grid.rows-1 (${rowCount - 1}) entries (got ${cfg.rowFoldsDeg.length})`,
-        'rowFoldsDeg',
-      )
-    }
-    cfg.rowFoldsDeg.forEach((v, i) => {
-      if (!isFiniteNumber(v)) {
-        err('E_SHAPE', `rowFoldsDeg entry must be a number (got ${JSON.stringify(v)})`, `rowFoldsDeg[${i}]`)
-      } else if (Math.abs(v) > MAX_ROW_FOLD_DEG) {
-        err(
-          'E_RANGE',
-          `rowFoldsDeg must be within ±${MAX_ROW_FOLD_DEG}° (got ${v})`,
-          `rowFoldsDeg[${i}]`,
-        )
-      }
+      })
     })
   }
 
-  // --- 3. Rects ------------------------------------------------------------
+  // --- 2. Rects ------------------------------------------------------------
   if (!Array.isArray(cfg.rects)) {
     err('E_SHAPE', 'rects must be an array', 'rects')
     return finish(errors, warnings)
@@ -573,59 +644,66 @@ export function validateConfig(config) {
     }
   }
 
-  // Override on a joint removed by a horizontal rect.
-  if (rowsOk) {
-    for (const { rect, index } of validRects) {
-      if (rect.orientation !== 'horizontal') continue
-      const row = cfg.rows[rect.row]
-      if (!isPlainObject(row) || !isPlainObject(row.jointOverridesDeg)) continue
-      const key = String(rect.col)
-      if (Object.prototype.hasOwnProperty.call(row.jointOverridesDeg, key)) {
-        err(
-          'E_OVERRIDE_ON_REMOVED_JOINT',
-          `rows[${rect.row}].jointOverridesDeg["${key}"] targets joint ${key}, which the horizontal rect rects[${index}] at (${rect.row}, ${rect.col}) removes — delete the override or move the rect`,
-          `rows[${rect.row}].jointOverridesDeg["${key}"]`,
-        )
-      }
-    }
-  }
-
-  // Cross-row rigid-plate checks for vertical rects.
-  if (rowsOk && gridOk) {
-    const tiltCache = new Map()
-    const tiltsFor = (r) => {
-      if (!tiltCache.has(r)) tiltCache.set(r, cellTilts(cfg, r))
-      return tiltCache.get(r)
-    }
+  // --- 3. Vertical rects: the joint they remove must not be folded ---------
+  if (columnsOk && gridOk) {
     for (const { rect, index } of validRects) {
       if (rect.orientation !== 'vertical') continue
-      const r = rect.row
-      const c = rect.col
-      const tA = tiltsFor(r)[c]
-      const tB = tiltsFor(r + 1)[c]
-      if (
-        isFiniteNumber(tA) &&
-        isFiniteNumber(tB) &&
-        Math.abs(tA - tB) > TILT_MATCH_EPSILON_DEG
-      ) {
+      const fold = Number(cfg.columns[rect.col]?.foldsDeg?.[rect.row])
+      if (isFiniteNumber(fold) && fold !== 0) {
         err(
-          'E_CROSSROW_ANGLE_MISMATCH',
-          `vertical rect rects[${index}] at (${r}, ${c}) is one rigid plate but cell (${r}, ${c}) tilts ${tA.toFixed(2)}° and cell (${r + 1}, ${c}) tilts ${tB.toFixed(2)}° — make them equal (adjust rows[${r}]/rows[${r + 1}] zigzagDeg, or add jointOverridesDeg for joints 0..${c - 1} of those rows)`,
-          `rects[${index}]`,
+          'E_FOLD_ON_REMOVED_JOINT',
+          `columns[${rect.col}].foldsDeg[${rect.row}] is ${fold}°, but the vertical rect rects[${index}] at (${rect.row}, ${rect.col}) is one rigid plate spanning rows ${rect.row} and ${rect.row + 1} — that joint is removed, so set it to 0 or remove the rect`,
+          `columns[${rect.col}].foldsDeg[${rect.row}]`,
         )
       }
-      const fold = Array.isArray(cfg.rowFoldsDeg) ? cfg.rowFoldsDeg[r] : undefined
-      if (isFiniteNumber(fold) && fold !== 0) {
+    }
+  }
+
+  // --- 4. Horizontal rects: the two chains must agree at that row ---------
+  if (columnsOk && gridOk) {
+    const chainCache = new Map()
+    const chainFor = (c) => {
+      if (!chainCache.has(c)) chainCache.set(c, columnChain(cfg, c))
+      return chainCache.get(c)
+    }
+    for (const { rect, index } of validRects) {
+      if (rect.orientation !== 'horizontal') continue
+      const r = rect.row
+      const c = rect.col
+      const A = chainFor(c)
+      const B = chainFor(c + 1)
+      const pA = A.pitchesDeg[r]
+      const pB = B.pitchesDeg[r]
+      if (
+        isFiniteNumber(pA) &&
+        isFiniteNumber(pB) &&
+        Math.abs(pA - pB) > PITCH_MATCH_EPSILON_DEG
+      ) {
+        err(
+          'E_CROSSCOL_ANGLE_MISMATCH',
+          `horizontal rect rects[${index}] at (${r}, ${c}) is one rigid plate but cell (${r}, ${c}) sits at pitch ${pA.toFixed(2)}° and cell (${r}, ${c + 1}) at ${pB.toFixed(2)}° — make the two columns' cumulative pitches equal at row ${r} (adjust columns[${c}].foldsDeg[0..${r - 1}] / columns[${c + 1}].foldsDeg[0..${r - 1}])`,
+          `rects[${index}]`,
+        )
+        continue
+      }
+      const oA = A.origins[r]
+      const oB = B.origins[r]
+      if (
+        Array.isArray(oA) &&
+        Array.isArray(oB) &&
+        isFiniteNumber(cfg.gapTolerance) &&
+        Math.hypot(oA[0] - oB[0], oA[1] - oB[1]) > cfg.gapTolerance
+      ) {
         warn(
-          'W_CROSSROW_FOLD',
-          `vertical rect rects[${index}] at (${r}, ${c}) spans the row ${r}/${r + 1} boundary, which folds ${fold}° — the rigid plate cannot bend, so the joint report will show the deviation`,
+          'W_CROSSCOL_POSITION',
+          `horizontal rect rects[${index}] at (${r}, ${c}) spans two chains that agree in pitch but not in position: cell (${r}, ${c}) starts at (y ${oA[0].toFixed(2)}, z ${oA[1].toFixed(2)}) and cell (${r}, ${c + 1}) at (y ${oB[0].toFixed(2)}, z ${oB[1].toFixed(2)}) — the columns diverged in front of this row, so the rigid plate cannot lie in both; the joint report shows the deviation`,
           `rects[${index}]`,
         )
       }
     }
   }
 
-  // Rect length slack — surfaced, never corrected.
+  // --- 5. Rect length slack — surfaced, never corrected --------------------
   if (cfg.rects.length > 0 && isFiniteNumber(cfg.cell.size) && isFiniteNumber(cfg.gap) && isFiniteNumber(cfg.cell.rectLength)) {
     const ideal = 2 * cfg.cell.size + cfg.gap
     if (cfg.cell.rectLength !== ideal) {

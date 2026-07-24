@@ -15,19 +15,23 @@
  * =============================================================================
  * The surface is deliberately NOT solved as rigid origami: rigid plates sharing
  * vertices cannot fold in both families at once, but the real hardware has a
- * ~2cm gap at every joint bridged by a printed connector. `placement.js` places
- * rows as rigid pitched planes with an exact in-row accordion, which leaves all
- * of the slack on the row-to-row joints. This module measures that slack and
+ * ~2cm gap at every joint bridged by a printed connector. `placement.js` solves
+ * each COLUMN as an exact fold chain, which parks all of the slack on the
+ * side-by-side connections BETWEEN columns. This module measures that slack and
  * flags joints a connector could not physically span.
  *
  * =============================================================================
  * WHAT COUNTS AS A JOINT
  * =============================================================================
  * A LOGICAL joint is the shared boundary between two adjacent OCCUPIED cells:
- *   - 'in-row'   : (r, c) and (r, c+1)
- *   - 'row-pair' : (r, c) and (r+1, c)
+ *   - 'in-row'    : (r, c) and (r, c+1) — a SIMPLE CONNECTION between two
+ *                   columns; 2cm apart in X by construction, deviating in 3D
+ *                   only as the two chains' fold profiles diverge
+ *   - 'in-column' : (r, c) and (r+1, c) — a HINGE inside one column's fold strip;
+ *                   exact by construction (the bisector gap advance), except
+ *                   across the phantom cell next to a horizontal plate
  * Boundaries interior to a single panel are NOT joints — a horizontal rect's
- * removed middle joint and a vertical rect's spanned row boundary both fall out
+ * middle boundary and a vertical rect's spanned row boundary both fall out
  * automatically, because both cells map to the same owning panel.
  *
  * =============================================================================
@@ -40,16 +44,21 @@
  * (`panelCellFaceRectLocal`), and each panel publishes how its local axes map to
  * the grid directions (`panelLocalAxes`, which encodes the horizontal rect's
  * +90° yaw). The joint's two edges are then exactly:
- *   in-row   : the +col side of the left cell's sub-rect, and the −col side of
- *              the right cell's sub-rect
- *   row-pair : the +row side of the near cell's sub-rect, and the −row side of
- *              the far cell's sub-rect
- * Endpoints of both edges are ordered along a shared JOINT AXIS, chosen so a
- * positive configured fold reads as a positive dihedral:
- *   in-row   → the +row (depth) direction
- *   row-pair → the −col direction
- * so an ideal joint's `dihedralDeg` reproduces `foldAngleDeg(cfg, r, j)` for
- * in-row joints and `rowFoldsDeg[r]` for row-pair joints.
+ *   in-row    : the +col side of the left cell's sub-rect, and the −col side of
+ *               the right cell's sub-rect
+ *   in-column : the +row side of the near cell's sub-rect, and the −row side of
+ *               the far cell's sub-rect
+ * Endpoints of both edges are ordered along a shared JOINT AXIS:
+ *   in-row    → the +row (depth) direction
+ *   in-column → the −col direction
+ * so an ideal in-column joint's `dihedralDeg` reproduces its configured
+ * `columns[c].foldsDeg[r]`, sign included.
+ *
+ * An in-row joint is NOT a hinge: when two columns sit at different pitches the
+ * two panels differ by a rotation about world X, which is PERPENDICULAR to the
+ * joint axis. Its `dihedralDeg` is therefore reported unsigned (the magnitude of
+ * the pitch difference — a twist, not a fold) and its `expectedFoldDeg` is 0: a
+ * simple connection expects no relative rotation at all.
  *
  * =============================================================================
  * METRICS AND FLAGS
@@ -69,25 +78,21 @@
  * =============================================================================
  * EXPECTED PHYSICS (what a healthy report looks like)
  * =============================================================================
- *   - Every in-row joint between two panels belonging to the SAME row's chain is
- *     EXACT by construction: gapMid = gapMin = gapMax = gap, skew 0. The
- *     bisector advance in `placement.js` guarantees it. (The one exception is a
- *     vertical rect's lower cell, whose in-row neighbours live in the next row's
- *     plane — see below.)
- *   - Row-pair joints are exact when the two adjacent rows have identical
- *     zig-zag profiles (including a flat pair), and deviate as the profiles
- *     diverge — that is where all of the surface's slack is deliberately parked.
- *   - A vertical rect's far-side joints (its lower cell against row r+1's
- *     in-row neighbours, and against row r+2 across the next row boundary)
- *     deviate as soon as the spanned rowFold ≠ 0: the plate is rigid and stays
- *     in row r's plane while its neighbours pitch away. Validation already warns
- *     W_CROSSROW_FOLD; this report quantifies it.
- *   - The 121 vs 2·60 + 2 = 122 hardware slack shows up as a ≈1cm deviation on
- *     the far side of every rect. Accepted, surfaced, never corrected.
+ *   - Every in-column joint inside one column's chain is EXACT by construction:
+ *     gapMid = gapMin = gapMax = gap, skew 0, dihedral = the configured fold.
+ *     The bisector advance in the chain walk guarantees it.
+ *   - In-row joints are exact when the two adjacent columns have identical fold
+ *     profiles up to that row (including two flat columns), and deviate as the
+ *     profiles diverge — that is where all of the surface's slack is parked, and
+ *     it is the price of a wave travelling across the grid.
+ *   - The cells next to a HORIZONTAL plate deviate on the far side: the plate is
+ *     positioned by column c's chain while cell (r, c+1)'s in-column neighbours
+ *     belong to column c+1's chain, and the 121 vs 2·60 + 2 = 122 hardware slack
+ *     shows up there as a ≈1cm deviation. Accepted, surfaced, never corrected.
  */
 
 import * as THREE from 'three'
-import { foldAngleDeg, normalizeConfig } from './schema.js'
+import { columnFoldDeg, normalizeConfig } from './schema.js'
 import {
   cellEdgeWorld,
   negAxis,
@@ -129,7 +134,7 @@ export function jointReport(layout, config) {
 
   const joints = []
 
-  // --- in-row joints ------------------------------------------------------
+  // --- in-row joints (column to column — the simple connections) ----------
   for (let r = 0; r < rowCount; r++) {
     for (let j = 0; j + 1 < cols; j++) {
       const A = at(r, j)
@@ -154,7 +159,8 @@ export function jointReport(layout, config) {
           B,
           edgeA,
           edgeB,
-          expectedFoldDeg: foldAngleDeg(cfg, r, j),
+          // A simple connection is meant to carry no relative rotation at all.
+          expectedFoldDeg: 0,
           gap,
           tol,
         }),
@@ -162,7 +168,7 @@ export function jointReport(layout, config) {
     }
   }
 
-  // --- row-pair joints ----------------------------------------------------
+  // --- in-column joints (the fold hinges) ---------------------------------
   for (let r = 0; r + 1 < rowCount; r++) {
     for (let c = 0; c < cols; c++) {
       const A = at(r, c)
@@ -175,12 +181,10 @@ export function jointReport(layout, config) {
       const edgeA = cellEdgeWorld(A.panel, A.cellIndex, axA.row, negAxis(axA.col), cfg)
       const edgeB = cellEdgeWorld(B.panel, B.cellIndex, negAxis(axB.row), negAxis(axB.col), cfg)
 
-      const fold = Array.isArray(cfg.rowFoldsDeg) ? Number(cfg.rowFoldsDeg[r]) : 0
-
       joints.push(
         measureJoint({
-          id: `row-pair:r${r}:c${c}`,
-          klass: 'row-pair',
+          id: `in-column:c${c}:k${r}`,
+          klass: 'in-column',
           row: r,
           col: c,
           cellA: [r, c],
@@ -189,7 +193,7 @@ export function jointReport(layout, config) {
           B,
           edgeA,
           edgeB,
-          expectedFoldDeg: Number.isFinite(fold) ? fold : 0,
+          expectedFoldDeg: columnFoldDeg(cfg, c, r),
           gap,
           tol,
         }),
@@ -313,7 +317,7 @@ export function formatReport(reportResult) {
   )
   lines.push('')
   lines.push(
-    pad('CLASS', 9) +
+    pad('CLASS', 11) +
       pad('JOINT', 18) +
       pad('PANELS', 16) +
       rpad('FOLD', 8) +
@@ -324,11 +328,11 @@ export function formatReport(reportResult) {
       rpad('dihed', 9) +
       '  FLAGS',
   )
-  lines.push('-'.repeat(104))
+  lines.push('-'.repeat(106))
 
   for (const j of joints) {
     lines.push(
-      pad(j.class, 9) +
+      pad(j.class, 11) +
         pad(`(${j.cellA}) (${j.cellB})`, 18) +
         pad(`${j.panelA}→${j.panelB}`, 16) +
         rpad(`${fx(j.expectedFoldDeg, 1)}°`, 8) +
@@ -342,7 +346,7 @@ export function formatReport(reportResult) {
     )
   }
 
-  lines.push('-'.repeat(104))
+  lines.push('-'.repeat(106))
   lines.push(
     `total ${summary.total}   ok ${summary.ok}   flagged ${summary.flagged}   ` +
       `worst gap deviation ${fx(summary.worstGapDeviation, 3)}cm   ` +

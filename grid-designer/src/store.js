@@ -18,8 +18,8 @@
  *   3. commits ONLY if `ok`; otherwise the previous config is kept untouched
  *      and the errors are stashed in `lastErrors` for the UI to display.
  * So the store can never hold an invalid config, and the UI never has to guard
- * against one. (Example: `setRowZigzag(0, 20)` is rejected by
- * E_SHORE_NOT_FLAT — row 0 is the shore and stays flat.)
+ * against one. (Example: `setColumnFold(c, k, 20)` on a joint a vertical plate
+ * removed is rejected by E_FOLD_ON_REMOVED_JOINT — that plate cannot bend.)
  *
  * =============================================================================
  * DERIVED DATA MEMOIZATION
@@ -39,8 +39,7 @@
 import { create } from 'zustand'
 import { produce } from 'immer'
 import {
-  MAX_ROW_FOLD_DEG,
-  MAX_ZIGZAG_DEG,
+  MAX_FOLD_DEG,
   clamp,
   normalizeConfig,
   validateConfig,
@@ -148,41 +147,81 @@ const useStore = create((set, get) => {
 
     // --- actions ----------------------------------------------------------
     /**
-     * Set a row's base zig-zag amplitude. Clamped to ±80°.
-     * Row 0 is the shore: any non-zero value is rejected by validation.
+     * Set the signed dihedral at joint k of column c (the hinge between rows k
+     * and k+1 of that fold strip). Clamped to ±120°; positive pitches the next
+     * panel UP. Rejected by E_FOLD_ON_REMOVED_JOINT when a vertical plate spans
+     * that joint.
      */
-    setRowZigzag: (r, deg) =>
+    setColumnFold: (c, k, deg) =>
       commit((draft) => {
-        const row = draft.rows?.[r]
-        if (!row) return
+        const folds = draft.columns?.[c]?.foldsDeg
+        if (!Array.isArray(folds) || k < 0 || k >= folds.length) return
         const n = numOrNull(deg)
-        row.zigzagDeg = n === null ? 0 : clamp(n, -MAX_ZIGZAG_DEG, MAX_ZIGZAG_DEG)
+        folds[k] = n === null ? 0 : clamp(n, -MAX_FOLD_DEG, MAX_FOLD_DEG)
       }),
 
     /**
-     * Set the row-to-row dihedral between rows i and i+1. Clamped to ±120°.
-     * Positive pitches row i+1 up.
+     * Give every column the fold sequence of column `c` — a cylindrical fold,
+     * whose in-row joints are all exact by construction (identical profiles).
+     *
+     * Rejected (leaving the config untouched) when a rect forbids the result:
+     * a vertical plate whose joint would end up folded → E_FOLD_ON_REMOVED_JOINT,
+     * a horizontal plate whose two columns would stop agreeing in pitch →
+     * E_CROSSCOL_ANGLE_MISMATCH. In practice copying makes every column identical,
+     * so only the vertical-plate case can fire.
+     *
+     * @param {number} c source column
+     * @returns {boolean} whether the change was committed
      */
-    setRowFold: (i, deg) =>
+    copyColumnToAll: (c) =>
       commit((draft) => {
-        if (!Array.isArray(draft.rowFoldsDeg) || i < 0 || i >= draft.rowFoldsDeg.length) return
-        const n = numOrNull(deg)
-        draft.rowFoldsDeg[i] = n === null ? 0 : clamp(n, -MAX_ROW_FOLD_DEG, MAX_ROW_FOLD_DEG)
+        const source = draft.columns?.[c]?.foldsDeg
+        if (!Array.isArray(source)) return
+        const folds = source.slice()
+        draft.columns.forEach((column, i) => {
+          if (i === c) return
+          if (!column || !Array.isArray(column.foldsDeg)) return
+          column.foldsDeg = folds.slice()
+        })
       }),
 
     /**
-     * Set (or clear) the signed per-joint override at joint j of row r.
-     * `null` removes the override so the alternating ±zigzag rule applies again.
+     * Rotate every column's fold sequence one step up in index (column c's folds
+     * move to column c+1; the last column's wrap around to column 0).
+     *
+     * This is the one-click phase shift that turns a static fold into a TRAVELLING
+     * wave: repeated clicks walk the crest across the window. Note the 3D view
+     * looks in from the shore, so rising column index runs right-to-left on screen.
+     *
+     * @returns {boolean} whether the change was committed
      */
-    setJointOverride: (r, j, degOrNull) =>
+    shiftColumnsRight: () =>
       commit((draft) => {
-        const row = draft.rows?.[r]
-        if (!row) return
-        if (!row.jointOverridesDeg) row.jointOverridesDeg = {}
-        const key = String(j)
-        const n = numOrNull(degOrNull)
-        if (n === null) delete row.jointOverridesDeg[key]
-        else row.jointOverridesDeg[key] = clamp(n, -MAX_ZIGZAG_DEG, MAX_ZIGZAG_DEG)
+        const columns = draft.columns
+        if (!Array.isArray(columns) || columns.length < 2) return
+        const before = columns.map((column) =>
+          Array.isArray(column?.foldsDeg) ? column.foldsDeg.slice() : null,
+        )
+        columns.forEach((column, i) => {
+          const source = before[(i - 1 + columns.length) % columns.length]
+          if (!column || !Array.isArray(column.foldsDeg) || !source) return
+          column.foldsDeg = source.slice()
+        })
+      }),
+
+    /**
+     * Set every hinge of every column to 0° — the flat reference surface.
+     * Rects are KEPT (a flat surface satisfies every rect constraint, so this
+     * always commits), which makes it a safe escape hatch from a rejected state.
+     *
+     * @returns {boolean} whether the change was committed
+     */
+    flattenFolds: () =>
+      commit((draft) => {
+        for (const column of Array.isArray(draft.columns) ? draft.columns : []) {
+          if (!column || !Array.isArray(column.foldsDeg)) continue
+          column.foldsDeg = column.foldsDeg.map(() => 0)
+        }
       }),
 
     /**
@@ -212,9 +251,10 @@ const useStore = create((set, get) => {
      * Add a 60×121 two-cell plate.
      *
      * Goes through the same commit rule as everything else, so an illegal
-     * placement (overlapping an existing rect, out of bounds, or — for a
-     * vertical plate — landing on two cells whose in-row tilts disagree) leaves
-     * the config untouched and lands in `lastErrors` for the grid map to show.
+     * placement (overlapping an existing rect, out of bounds, a vertical plate on
+     * a folded joint, or a horizontal plate across two columns at different
+     * pitches) leaves the config untouched and lands in `lastErrors` for the grid
+     * map to show.
      *
      * @param {{row:number, col:number, orientation:'horizontal'|'vertical'}} rect
      * @returns {boolean} whether the placement was committed
@@ -229,9 +269,7 @@ const useStore = create((set, get) => {
     /**
      * Remove the rect occupying cell (r, c), if any.
      *
-     * Still validated: dropping a horizontal plate restores the in-row joint it
-     * removed, which can retroactively break a vertical plate elsewhere in the
-     * same rows — that rejection is reported rather than silently applied.
+     * Still validated, so any rejection is reported rather than silently applied.
      *
      * @param {number} r row
      * @param {number} c column

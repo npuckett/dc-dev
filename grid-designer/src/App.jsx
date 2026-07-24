@@ -2,7 +2,7 @@
  * grid-designer — root shell.
  *
  *   top bar : title + preset buttons + export buttons
- *   left    : grid map, messages, row controls, config JSON (fixed 320px)
+ *   left    : grid map, messages, column fold controls, config JSON (fixed 320px)
  *   main    : 3D viewport
  *
  * The store is exposed as `window.__gridDesignerStore` for Playwright and
