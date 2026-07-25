@@ -57,6 +57,12 @@
  *                  diffuser inside a crisp frame flange) and panels showing their
  *                  BACK (a closed, inward-tapering tray). This is the visual proof
  *                  that the panel solid is no longer inside-out.
+ *   14-merge.png   the WP14 PAIR-CLICK MERGE on 'swell': column 4's spine plate split
+ *                  back into two squares, then cell (2,4) ARMED — a warm outline —
+ *                  with its two mergeable neighbours highlighted in the two styles at
+ *                  once: (3,4) FREE (green, solid, "+") across the joint the split
+ *                  left flat, and (1,4) COERCE (amber, dashed, "~") across a folded
+ *                  joint the merge would have to flatten
  *
  * Placement cells are never hard-coded: legal / illegal candidates are derived
  * from the live config's fold sequences and the solved `columnChains[c].pitchesDeg`
@@ -84,9 +90,19 @@
  *   - a hinge slider (or setColumnFold) moves one column's fold and the block's
  *     cumulative-pitch readout follows
  *   - "Shift →" rotates every column's fold sequence by one index, wrapping
- *   - grid-map clicks add / remove plates, and reject the two v2 rect
- *     constraints with the right codes surfaced inline next to the map (and NOT
- *     duplicated in the control panel's general error box)
+ *   - grid-map PAIR CLICKS combine two squares into a plate and split plates back,
+ *     and the two v2 rect constraints still reject a plate placed straight at the
+ *     store (`addRect`, the path the JSON panel and console use), with the right
+ *     codes surfaced inline next to the map (and NOT duplicated in the control
+ *     panel's general error box)
+ *   - THE MERGE AFFORDANCE end to end (WP14): arming a square highlights every
+ *     neighbour it can merge with, in two distinguishable styles — FREE (nothing
+ *     else changes) and COERCE (the merge must also flatten the joint it spans or
+ *     match the neighbouring column) — with the consequence in the tooltip before
+ *     the click and in a calm notice after it; Escape disarms; the merge flattens
+ *     exactly one joint and touches nothing else; Undo / Redo (buttons and
+ *     Cmd/Ctrl+Z) walk it back and forward; and splitting the new plate again leaves
+ *     the joint flat, the documented non-inverse
  *   - a vertical plate DISABLES the slider for the joint it removes
  *   - the GROUNDED-END rule end to end: flat and Wave report "all grounded ✓";
  *     lifting a column's last hinge raises exactly one E_END_FLOATING and surfaces
@@ -871,11 +887,21 @@ try {
   )
 
   // --- (e) place a legal H plate, then a legal V plate ---------------------
+  // Placed by the PAIR-CLICK MERGE (WP14): arm the anchor cell, then click the
+  // neighbour that makes the plate. Both of these pairs are FREE candidates — the
+  // pitches already agree / the joint is already flat — so the merge adds the plate
+  // and changes no geometry, exactly as the old H/V placement did.
   const hCell = findLegalHorizontal(shiftState)
   check(!!hCell, 'found a row where two neighbouring columns agree in pitch (H candidate)', JSON.stringify(hCell))
   if (!hCell) throw new Error('no legal horizontal placement under the current folds')
-  await page.click('[data-testid="gridmap-mode-horizontal"]')
   await page.click(`[data-testid="cell-${hCell.row}-${hCell.col}"]`)
+  await page.waitForTimeout(150)
+  check(
+    (await page.getAttribute(`[data-testid="cell-${hCell.row}-${hCell.col + 1}"]`, 'data-merge')) ===
+      'free',
+    `the pitch-matched neighbour of (${hCell.row}, ${hCell.col}) is highlighted as a FREE merge`,
+  )
+  await page.click(`[data-testid="cell-${hCell.row}-${hCell.col + 1}"]`)
   await page.waitForTimeout(SETTLE_MS)
   const rectHState = await storeState(page)
   check(
@@ -892,8 +918,14 @@ try {
   const vCell = findLegalVertical(rectHState)
   check(!!vCell, 'found an unfolded joint for a V plate', JSON.stringify(vCell))
   if (!vCell) throw new Error('no legal vertical placement under the current folds')
-  await page.click('[data-testid="gridmap-mode-vertical"]')
   await page.click(`[data-testid="cell-${vCell.row}-${vCell.col}"]`)
+  await page.waitForTimeout(150)
+  check(
+    (await page.getAttribute(`[data-testid="cell-${vCell.row + 1}-${vCell.col}"]`, 'data-merge')) ===
+      'free',
+    `the cell behind (${vCell.row}, ${vCell.col}) is highlighted as a FREE merge over the flat joint`,
+  )
+  await page.click(`[data-testid="cell-${vCell.row + 1}-${vCell.col}"]`)
   await page.waitForTimeout(SETTLE_MS)
   const rectVState = await storeState(page)
   check(
@@ -916,11 +948,26 @@ try {
   console.log('  → tests/screenshots/06-rects.png')
 
   // --- (f) the two illegal placements --------------------------------------
+  // The map's pair-click merge can no longer OFFER these — mergeCandidates only
+  // highlights merges core/merge.js has proven, and both of these would need
+  // geometry it is not being asked to change. So they are driven straight at
+  // `addRect`, the store action the JSON panel and the console still reach, to prove
+  // the v2 rect constraints still bite and that the map still explains them inline.
+  const placeRaw = (rect) =>
+    page.evaluate((r) => window.__gridDesignerStore.getState().addRect(r), rect)
+
   const badH = findIllegalHorizontal(rectVState)
   check(!!badH, 'found a row where two columns DISAGREE in pitch (illegal H)', JSON.stringify(badH))
   if (badH) {
-    await page.click('[data-testid="gridmap-mode-horizontal"]')
     await page.click(`[data-testid="cell-${badH.row}-${badH.col}"]`)
+    await page.waitForTimeout(200)
+    check(
+      (await page.getAttribute(`[data-testid="cell-${badH.row}-${badH.col + 1}"]`, 'data-merge')) ===
+        'coerce',
+      `the pitch-mismatched neighbour of (${badH.row}, ${badH.col}) is offered only as a COERCE merge`,
+    )
+    await page.keyboard.press('Escape')
+    await placeRaw({ row: badH.row, col: badH.col, orientation: 'horizontal' })
     await page.waitForTimeout(600)
     const badHState = await storeState(page)
     check(
@@ -939,8 +986,7 @@ try {
   const badV = findIllegalVertical(rectVState)
   check(!!badV, 'found a folded joint to try a V plate on (illegal V)', JSON.stringify(badV))
   if (badV) {
-    await page.click('[data-testid="gridmap-mode-vertical"]')
-    await page.click(`[data-testid="cell-${badV.row}-${badV.col}"]`)
+    await placeRaw({ row: badV.row, col: badV.col, orientation: 'vertical' })
     await page.waitForTimeout(600)
     const badVState = await storeState(page)
     check(
@@ -1575,6 +1621,193 @@ try {
   await page.screenshot({ path: `${OUT}/13-panel-detail.png` })
   console.log('  → tests/screenshots/13-panel-detail.png')
 
+  // --- (n) WP14: PAIR-CLICK MERGE — two squares into one plate -------------
+  // The inverse of clicking a plate to split it, on the one preset where it costs
+  // something: every joint of 'swell' is folded and no two columns agree in pitch,
+  // so a merge there has to CHANGE the surface (core/merge.js). Splitting column 4's
+  // spine plate first leaves joint 2 of that column flat, which is what puts a FREE
+  // candidate and a COERCE candidate in the same frame.
+  await page.evaluate(() => window.__gridDesignerCamera([182.5, 220, -320], [182.5, 30, 150]))
+  // The control panel may have been scrolled by earlier clicks (the JSON panel is
+  // expanded by now) — put the map back in frame before shooting it.
+  await page.evaluate(() => document.querySelector('.control-panel').scrollTo(0, 0))
+  await page.click('[data-testid="preset-swell"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const mergeBase = await storeState(page)
+  check(
+    mergeBase.preset === 'swell' && mergeBase.rects.includes('v(2,4)'),
+    'merge stage starts from swell, spine plate on column 4 included',
+    JSON.stringify(mergeBase.rects),
+  )
+  const mergeBaseShot = await assertCanvasRenders(page, 'merge-base')
+
+  await page.click('[data-testid="cell-2-4"]')
+  await page.waitForTimeout(400)
+  const splitState = await storeState(page)
+  check(
+    !splitState.rects.includes('v(2,4)') && splitState.rects.length === mergeBase.rects.length - 1,
+    'clicking a plate splits it back into two squares',
+    JSON.stringify(splitState.rects),
+  )
+  check(
+    splitState.folds[4][2] === 0,
+    "the split plate's joint is flat, so re-merging that pair is free",
+    `${splitState.folds[4][2]}`,
+  )
+
+  await page.click('[data-testid="cell-2-4"]')
+  await page.waitForTimeout(300)
+  check(await page.isVisible('[data-testid="gridmap-armed-label"]'), 'clicking a square ARMS it')
+  const armedLabel = (await page.textContent('[data-testid="gridmap-armed-label"]')) ?? ''
+  check(
+    armedLabel.includes('armed (2, 4)') && /Esc/.test(armedLabel),
+    'the map says which square is armed, and how to let go',
+    armedLabel,
+  )
+  check(
+    (await page.getAttribute('[data-testid="cell-3-4"]', 'data-merge')) === 'free',
+    'the cell across the flattened joint is highlighted as a FREE merge',
+  )
+  check(
+    (await page.getAttribute('[data-testid="cell-1-4"]', 'data-merge')) === 'coerce',
+    'the cell across a FOLDED joint is highlighted as a COERCE merge',
+  )
+  check(
+    (await page.isVisible('[data-testid="candidate-3-4"]')) &&
+      (await page.isVisible('[data-testid="candidate-1-4"]')),
+    'both candidate styles are drawn on the map at once',
+  )
+  check(
+    (await page.getAttribute('[data-testid="candidate-3-4"]', 'data-kind')) === 'free' &&
+      (await page.getAttribute('[data-testid="candidate-1-4"]', 'data-kind')) === 'coerce',
+    'the two highlights are drawn in different styles (free vs coerce)',
+  )
+  const coerceTip = (await page.textContent('[data-testid="cell-1-4"] title')) ?? ''
+  check(
+    /flattened joint 1 of column 4/.test(coerceTip),
+    'the coerce candidate spells its consequence out BEFORE the click',
+    coerceTip,
+  )
+  await page.screenshot({ path: `${OUT}/14-merge.png` })
+  console.log('  → tests/screenshots/14-merge.png')
+
+  // Escape lets go.
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(250)
+  check(
+    !(await page.isVisible('[data-testid="gridmap-armed-label"]')) &&
+      (await page.getAttribute('[data-testid="cell-1-4"]', 'data-merge')) === null,
+    'Escape disarms the square and clears the highlights',
+  )
+
+  // Merge the COERCE pair: one plate added, one joint flattened, nothing else.
+  await page.click('[data-testid="cell-2-4"]')
+  await page.waitForTimeout(200)
+  await page.click('[data-testid="cell-1-4"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const mergedState = await storeState(page)
+  check(
+    mergedState.rects.includes('v(1,4)') && mergedState.rects.length === splitState.rects.length + 1,
+    'clicking a highlighted candidate merged the two squares into a 121cm plate',
+    JSON.stringify(mergedState.rects),
+  )
+  check(
+    mergedState.folds[4][1] === 0 && splitState.folds[4][1] !== 0,
+    'the merge flattened the joint the rigid plate now spans',
+    `${splitState.folds[4][1]}° → ${mergedState.folds[4][1]}°`,
+  )
+  check(
+    mergedState.folds.every((col, c) =>
+      col.every((v, k) => v === splitState.folds[c][k] || (c === 4 && k === 1)),
+    ),
+    'and it changed no other joint in the grid',
+    JSON.stringify(mergedState.folds),
+  )
+  check(mergedState.lastErrors.length === 0, 'the merge committed through validation', JSON.stringify(mergedState.lastErrors))
+  const notice = (await page.textContent('[data-testid="gridmap-notice"]')) ?? ''
+  check(
+    /flattened joint 1 of column 4/.test(notice) && /121cm plate/.test(notice),
+    'the notice under the map names the plate and the joint it flattened',
+    notice,
+  )
+  check(
+    !(await page.isVisible('[data-testid="gridmap-armed-label"]')),
+    'the merge disarmed the square it started from',
+  )
+  const mergedShot = await assertCanvasRenders(page, 'merged')
+  check(canvasChanged(mergeBaseShot, mergedShot), 'the merged surface renders differently from swell')
+
+  // Undo / redo — the way back from a merge's geometry coercion.
+  check(!(await page.isDisabled('[data-testid="tool-undo"]')), 'Undo is enabled after the merge')
+  await page.click('[data-testid="tool-undo"]')
+  await page.waitForTimeout(400)
+  const undoneState = await storeState(page)
+  check(
+    JSON.stringify(undoneState.folds) === JSON.stringify(splitState.folds) &&
+      JSON.stringify(undoneState.rects) === JSON.stringify(splitState.rects),
+    'Undo restored the config exactly as it was before the merge',
+    JSON.stringify(undoneState.rects),
+  )
+  check(!(await page.isDisabled('[data-testid="tool-redo"]')), 'Redo is enabled after undoing')
+  await page.click('[data-testid="tool-redo"]')
+  await page.waitForTimeout(400)
+  const redoneState = await storeState(page)
+  check(
+    JSON.stringify(redoneState.folds) === JSON.stringify(mergedState.folds) &&
+      JSON.stringify(redoneState.rects) === JSON.stringify(mergedState.rects),
+    'Redo re-applied the merge',
+    JSON.stringify(redoneState.rects),
+  )
+  // …and the keyboard does the same thing as the buttons.
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z')
+  await page.waitForTimeout(400)
+  const shortcutState = await storeState(page)
+  check(
+    JSON.stringify(shortcutState.rects) === JSON.stringify(splitState.rects),
+    'Cmd/Ctrl+Z undoes as well as the toolbar button',
+    JSON.stringify(shortcutState.rects),
+  )
+  await page.keyboard.press(process.platform === 'darwin' ? 'Shift+Meta+z' : 'Shift+Control+z')
+  await page.waitForTimeout(400)
+  check(
+    JSON.stringify((await storeState(page)).rects) === JSON.stringify(mergedState.rects),
+    'Shift+Cmd/Ctrl+Z redoes it',
+  )
+
+  // A merge is NOT undone by splitting the plate again: the joint stays flat.
+  await page.click('[data-testid="cell-1-4"]')
+  await page.waitForTimeout(400)
+  const resplitState = await storeState(page)
+  check(
+    !resplitState.rects.includes('v(1,4)'),
+    'the merged plate splits back into two squares',
+    JSON.stringify(resplitState.rects),
+  )
+  check(
+    resplitState.folds[4][1] === 0 && resplitState.lastErrors.length === 0,
+    'but the flattened joint STAYS flat — a split is not an undo (that is what Undo is for)',
+    `${resplitState.folds[4][1]}`,
+  )
+
+  // Finally a FREE merge, to show the other half of the pair-click.
+  await page.click('[data-testid="cell-2-4"]')
+  await page.waitForTimeout(200)
+  await page.click('[data-testid="cell-3-4"]')
+  await page.waitForTimeout(400)
+  const freeMergeState = await storeState(page)
+  const freeNotice = (await page.textContent('[data-testid="gridmap-notice"]')) ?? ''
+  check(
+    freeMergeState.rects.includes('v(2,4)') &&
+      JSON.stringify(freeMergeState.folds) === JSON.stringify(resplitState.folds),
+    'a FREE merge adds the plate and changes no geometry at all',
+    JSON.stringify(freeMergeState.rects),
+  )
+  check(
+    /already flat/.test(freeNotice),
+    'and its notice says so',
+    freeNotice,
+  )
+
   // --- byte-level differences ---------------------------------------------
   const shots = [
     '01-flat.png',
@@ -1590,6 +1823,7 @@ try {
     '11-rows.png',
     '12-front.png',
     '13-panel-detail.png',
+    '14-merge.png',
   ].map(
     (name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }),
   )

@@ -33,6 +33,21 @@
  * WALL-SUPPORTED column (`endSupport: 'wall'`, legal only on the last column) is
  * exempt from the rule and skipped by both actions.
  *
+ * MERGING two squares into a plate (`mergeCells`) is the one editing action whose
+ * whole point is that it CHANGES GEOMETRY: a rigid plate cannot bend, so the merge
+ * flattens the joint it spans (vertical) or matches the two columns in front of the
+ * plate (horizontal). core/merge.js decides that and returns ONE finished config,
+ * which comes through the same commit gate as everything else; the store only adds
+ * the human-readable `lastNotice` afterwards. Because a merge is deliberately NOT
+ * the inverse of a split (the flattened joint stays flat), UNDO is what makes it
+ * safe to offer — see the history stack below.
+ *
+ * UNDO / REDO keeps a capped stack of previously committed configs. Every accepted
+ * commit pushes the outgoing one and clears the redo stack; `undo()` / `redo()`
+ * restore stored configs WITHOUT re-validating (they were valid when stored, and
+ * their warnings were stored with them). It is view state, not design state, so it
+ * never reaches the exporters.
+ *
  * `setRows(n)` is the one action that changes the SHAPE of the config rather than a
  * value in it — it resizes every `foldsDeg` and drops plates that no longer fit,
  * all through the same single commit, so the store never holds a half-resized grid.
@@ -64,6 +79,7 @@ import {
   validateConfig,
 } from './core/schema.js'
 import { buildPreset } from './core/presets.js'
+import { mergeCells as coreMergeCells } from './core/merge.js'
 import { layoutBounds, solveLayout } from './core/placement.js'
 import { groundAllFolds, solveGroundingFold } from './core/ground.js'
 import { jointReport } from './core/report.js'
@@ -141,6 +157,12 @@ function rectCoversCell(rect, r, c) {
   return false
 }
 
+/**
+ * How many previous configs the undo stack keeps. Deep enough to walk back out of
+ * a run of merges, shallow enough that the WeakMap of derived data stays small.
+ */
+export const HISTORY_LIMIT = 50
+
 // -----------------------------------------------------------------------------
 // Store
 // -----------------------------------------------------------------------------
@@ -157,14 +179,33 @@ const useStore = create((set, get) => {
     return commitConfig(next)
   }
 
-  /** Validate and commit a whole config object. */
+  /**
+   * Validate and commit a whole config object.
+   *
+   * On success the OUTGOING config (with the warnings it was carrying) is pushed
+   * onto the undo stack and the redo stack is dropped — the standard linear
+   * history. `lastNotice` is cleared here so a merge's note never outlives the
+   * change it describes; `mergeCells` sets it again right after.
+   */
   function commitConfig(candidate) {
     const result = validateConfig(candidate)
     if (!result.ok) {
       set({ lastErrors: result.errors, lastWarnings: result.warnings })
       return false
     }
-    set({ config: candidate, lastErrors: [], lastWarnings: result.warnings })
+    const state = get()
+    const past = [...state.past, { config: state.config, warnings: state.lastWarnings }]
+    while (past.length > HISTORY_LIMIT) past.shift()
+    set({
+      config: candidate,
+      lastErrors: [],
+      lastWarnings: result.warnings,
+      lastNotice: null,
+      past,
+      future: [],
+      canUndo: past.length > 0,
+      canRedo: false,
+    })
     return true
   }
 
@@ -179,6 +220,25 @@ const useStore = create((set, get) => {
     lastErrors: initialValidation.errors,
     /** Warnings from the most recent accepted config (informational). */
     lastWarnings: initialValidation.warnings,
+    /**
+     * A calm one-line note about the most recent SUCCESSFUL change that did more
+     * than it was literally asked to — today only `mergeCells`, which reports the
+     * geometry it had to coerce (and any end it left floating). Not an error, and
+     * cleared by the next commit.
+     */
+    lastNotice: null,
+    /**
+     * The square the plan view is holding, waiting for a second click to merge it
+     * with one of its neighbours (`{ row, col }`), or null. Plain UI state — a
+     * selection, not a property of the design, so it never enters `config`.
+     */
+    armedCell: null,
+    /** Undo stack: `{ config, warnings }` entries, oldest first, capped. */
+    past: [],
+    /** Redo stack: entries popped by `undo()`, most recently undone first. */
+    future: [],
+    canUndo: false,
+    canRedo: false,
     /**
      * Draw the overall measuring box (and its cm dimension labels) in the 3D view?
      *
@@ -493,6 +553,129 @@ const useStore = create((set, get) => {
         const i = rects.findIndex((rect) => rectCoversCell(rect, r, c))
         if (i >= 0) rects.splice(i, 1)
       }),
+
+    /**
+     * COMBINE TWO SQUARES INTO ONE 60×121 PLATE — the inverse affordance to
+     * clicking a plate to split it, and the reason core/merge.js exists.
+     *
+     * `cellA` is the cell that was ARMED (clicked first): for a horizontal merge
+     * its column's profile is the one that survives. The core function decides the
+     * geometric consequence (flatten the spanned joint / match the two columns in
+     * front of the plate) and returns one finished config, which goes through the
+     * normal commit gate here — so a merge is exactly as validated as any other
+     * edit, and undoable like any other.
+     *
+     * On success `lastNotice` describes what happened, including any END LEFT
+     * FLOATING by the coercion (read from the freshly derived layout, so it is the
+     * same violation "Ground end" will fix). On failure the core function's code and
+     * message land in `lastErrors`, which the grid map shows inline.
+     *
+     * @param {{row:number,col:number}} cellA the armed cell
+     * @param {{row:number,col:number}} cellB its orthogonal neighbour
+     * @returns {boolean} whether the merge was committed
+     */
+    mergeCells: (cellA, cellB) => {
+      const before = get().config
+      const result = coreMergeCells(before, cellA, cellB)
+      if (!result.ok) {
+        set({
+          lastErrors: [{ code: result.code, message: result.message, path: 'rects' }],
+          lastNotice: null,
+          armedCell: null,
+        })
+        return false
+      }
+      const floatingBefore = new Set(getDerived(before).violations.map((v) => v.col))
+      if (!commitConfig(result.config)) {
+        set({ armedCell: null })
+        return false
+      }
+      // Columns whose geometry this merge touched — the only ones whose end can
+      // newly float because of it.
+      const touched = new Set(
+        result.changes.flatMap((change) =>
+          change.kind === 'match-columns' ? [change.to] : [change.col],
+        ),
+      )
+      const nowFloating = getDerived(get().config).violations.filter(
+        (v) => touched.has(v.col) && !floatingBefore.has(v.col),
+      )
+      const note = nowFloating
+        .map(
+          (v) =>
+            ` — column ${v.col} now ends ${v.clearanceCm.toFixed(0)}cm up; use "Ground end"`,
+        )
+        .join('')
+      set({ lastNotice: `${result.description}${note}`, armedCell: null })
+      return true
+    },
+
+    /**
+     * Hold a square, waiting for a second click on one of its mergeable
+     * neighbours. UI-only; passing null is the same as `clearArmed()`.
+     */
+    armCell: (cell) =>
+      set({
+        armedCell:
+          cell && Number.isInteger(cell.row) && Number.isInteger(cell.col)
+            ? { row: cell.row, col: cell.col }
+            : null,
+      }),
+
+    /** Drop the armed square (Escape, a click on it again, or a click elsewhere). */
+    clearArmed: () => set({ armedCell: null }),
+
+    /**
+     * Step back to the previously committed config.
+     *
+     * NOT re-validated: every entry on the stack passed `validateConfig` on its way
+     * in, and its warnings were stored with it, so restoring is a pure swap. This is
+     * the way back from a merge's geometry coercion, which no re-split undoes.
+     *
+     * @returns {boolean} whether anything was restored
+     */
+    undo: () => {
+      const state = get()
+      if (state.past.length === 0) return false
+      const entry = state.past[state.past.length - 1]
+      set({
+        config: entry.config,
+        lastWarnings: entry.warnings,
+        lastErrors: [],
+        lastNotice: 'undo — restored the previous state',
+        armedCell: null,
+        past: state.past.slice(0, -1),
+        future: [{ config: state.config, warnings: state.lastWarnings }, ...state.future],
+        canUndo: state.past.length - 1 > 0,
+        canRedo: true,
+      })
+      return true
+    },
+
+    /**
+     * Re-apply the change the last `undo()` took back. Also not re-validated.
+     *
+     * @returns {boolean} whether anything was re-applied
+     */
+    redo: () => {
+      const state = get()
+      if (state.future.length === 0) return false
+      const entry = state.future[0]
+      const past = [...state.past, { config: state.config, warnings: state.lastWarnings }]
+      while (past.length > HISTORY_LIMIT) past.shift()
+      set({
+        config: entry.config,
+        lastWarnings: entry.warnings,
+        lastErrors: [],
+        lastNotice: 'redo — re-applied the change',
+        armedCell: null,
+        past,
+        future: state.future.slice(1),
+        canUndo: past.length > 0,
+        canRedo: state.future.length - 1 > 0,
+      })
+      return true
+    },
 
     /**
      * Replace the config wholesale (WP4's JSON import path).

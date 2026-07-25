@@ -39,25 +39,47 @@
  *     core/schema.js, reported as `layout.violations`. Its tooltip carries the
  *     clearance ("end floating — X cm off the floor").
  *
- * INTERACTION
+ * INTERACTION — PAIR-CLICK MERGE / CLICK-TO-SPLIT
  *   A transparent 1-cell hit grid sits on top of the artwork (which is
- *   pointer-events: none), so every one of the 30 cells is a uniform click
- *   target regardless of what shape covers it:
- *     - empty cell → place a plate of the toolbar's current orientation,
- *       anchored there: H spans (r,c)+(r,c+1), V spans (r,c)+(r+1,c)
- *     - any cell of an existing plate → remove that plate
- *   Both go through the store's commit rule, so an illegal placement changes
- *   nothing. The schema v2 constraints a click can trip are
+ *   pointer-events: none), so every cell is a uniform click target regardless of
+ *   what shape covers it:
+ *     - click a SQUARE          → it is ARMED (a warm outline), and every neighbour
+ *                                 it could be merged with lights up
+ *     - click a HIGHLIGHTED     → the two squares become one 60×121 plate
+ *       neighbour
+ *     - click the armed cell
+ *       again / a non-candidate → disarm.  Escape does the same.
+ *     - click a PLATE           → split it back into two squares
+ *   The orientation is IMPLIED by which pair you pick — H when the two cells sit
+ *   side by side in a row, V when one is behind the other in a column — so there is
+ *   no mode to set any more.
+ *
+ *   THE TWO CANDIDATE STYLES matter, because a merge is not always free: a plate is
+ *   RIGID, so it may have to change the surface to exist (see core/merge.js).
+ *     FREE   (green, solid outline, "+")  nothing changes but the plate list
+ *     COERCE (amber, dashed outline, "~") the merge also flattens the joint it
+ *            spans, or matches the neighbouring column's profile in front of it
+ *   Each candidate's tooltip spells the consequence out BEFORE the click, and
+ *   `lastNotice` (the calm line under the map) repeats what actually happened after
+ *   it. Undo in the toolbar (or Cmd/Ctrl+Z) is the way back — a merge is
+ *   deliberately not undone by re-splitting the plate.
+ *
+ *   Everything still goes through the store's commit rule, so nothing illegal can
+ *   land. Because `mergeCandidates` only offers merges core/merge.js has already
+ *   proven, a highlighted cell never bounces; the rejection box below is for the
+ *   remaining paths (a merge whose coercion would break another plate, and plates
+ *   placed from the JSON panel or the console):
  *     E_FOLD_ON_REMOVED_JOINT    a V plate over a joint that is folded
  *     E_CROSSCOL_ANGLE_MISMATCH  an H plate over two columns at different pitches
- *     E_RECT_OVERLAP / E_SHAPE   overlapping, or off the edge of the grid
- *   The three RECT-specific ones are reported INLINE under the map — the cell you
- *   just clicked is what they are about — and the control panel's general error
- *   box skips exactly those, so a rejected placement is explained once, not twice.
+ *     E_RECT_OVERLAP / E_MERGE_* overlapping, or an impossible pair
+ *   Those are reported INLINE under the map — the cell you just clicked is what
+ *   they are about — and the control panel's general error box skips exactly them,
+ *   so a rejection is explained once, not twice.
  */
 
-import { useState } from 'react'
+import { useEffect } from 'react'
 import useStore, { getDerived } from '../store.js'
+import { mergeCandidates } from '../core/merge.js'
 
 // -----------------------------------------------------------------------------
 // SVG metrics (user units; the <svg> scales to the panel width via viewBox)
@@ -82,6 +104,13 @@ const WALL = '#3ad0c0'
 /** A column whose last panel does not reach the floor. */
 const FLOATING = '#ff5f6d'
 
+/** The square being held, waiting for a partner to merge with. */
+const ARMED = '#ffd479'
+/** A merge that changes nothing but the plate list. */
+const FREE = '#5fd08a'
+/** A merge that must also flatten a joint / match a column. */
+const COERCE = '#ffa94d'
+
 /** Pitch wash: cool where the chain has pitched up, warm where it came back down. */
 const PITCH_UP = '#8fc4ff'
 const PITCH_DOWN = '#ffb27f'
@@ -102,20 +131,34 @@ export const PLACEMENT_CODES = new Set([
   'E_FOLD_ON_REMOVED_JOINT',
   'E_CROSSCOL_ANGLE_MISMATCH',
   'E_RECT_OVERLAP',
+  'E_MERGE_SHAPE',
+  'E_MERGE_BOUNDS',
+  'E_MERGE_SAME_CELL',
+  'E_MERGE_NOT_ADJACENT',
+  'E_MERGE_OCCUPIED',
+  'E_MERGE_REJECTED',
 ])
-
-const MODES = [
-  { id: 'horizontal', label: 'H', hint: 'place a horizontal plate: (r,c) + (r,c+1)' },
-  { id: 'vertical', label: 'V', hint: 'place a vertical plate: (r,c) + (r+1,c)' },
-]
 
 export default function GridMap() {
   const config = useStore((s) => s.config)
-  const addRect = useStore((s) => s.addRect)
   const removeRectAt = useStore((s) => s.removeRectAt)
   const lastErrors = useStore((s) => s.lastErrors)
+  const lastNotice = useStore((s) => s.lastNotice)
+  const armedCell = useStore((s) => s.armedCell)
+  const armCell = useStore((s) => s.armCell)
+  const clearArmed = useStore((s) => s.clearArmed)
+  const mergeCells = useStore((s) => s.mergeCells)
   const { layout, violations } = getDerived(config)
-  const [mode, setMode] = useState('horizontal')
+
+  // Escape disarms — the standard way out of a held selection.
+  useEffect(() => {
+    if (!armedCell) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') clearArmed()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [armedCell, clearArmed])
 
   const cols = config.grid.cols
   const rows = config.grid.rows
@@ -133,11 +176,33 @@ export default function GridMap() {
     for (const [r, c] of panel.cells) ownerOf.set(`${r},${c}`, panel)
   }
 
+  // The armed square's mergeable neighbours, keyed "r,c" — every one of them is a
+  // merge core/merge.js has already proven, so clicking it cannot bounce.
+  const candidates = new Map()
+  if (armedCell) {
+    for (const cand of mergeCandidates(config, armedCell)) {
+      candidates.set(`${cand.row},${cand.col}`, cand)
+    }
+  }
+  const isArmed = (r, c) => Boolean(armedCell) && armedCell.row === r && armedCell.col === c
+
   // A cell owned by a '2x2' square counts as EMPTY here: squares are the default
-  // state of a cell, so the only thing a click can do there is place a plate.
+  // state of a cell, so a click either arms it or completes a merge with it.
   const onCellClick = (r, c) => {
-    if (ownerOf.get(`${r},${c}`)?.type === '2x4') removeRectAt(r, c)
-    else addRect({ row: r, col: c, orientation: mode })
+    if (ownerOf.get(`${r},${c}`)?.type === '2x4') {
+      if (armedCell) clearArmed()
+      removeRectAt(r, c) // split the plate back into two squares
+      return
+    }
+    if (isArmed(r, c)) {
+      clearArmed()
+      return
+    }
+    if (candidates.has(`${r},${c}`)) {
+      mergeCells(armedCell, { row: r, col: c })
+      return
+    }
+    armCell({ row: r, col: c })
   }
 
   /** Cumulative pitch of cell (r, c) — straight from the solved chain. */
@@ -162,21 +227,11 @@ export default function GridMap() {
     <section className="grid-map" data-testid="grid-map">
       <header className="grid-map-head">
         <span className="grid-map-title">plan view</span>
-        <span className="grid-map-modes">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              data-testid={`gridmap-mode-${m.id}`}
-              className={`mode-btn${mode === m.id ? ' mode-active' : ''}`}
-              title={m.hint}
-              aria-pressed={mode === m.id}
-              onClick={() => setMode(m.id)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </span>
+        {armedCell && (
+          <span className="grid-map-armed-label" data-testid="gridmap-armed-label">
+            armed ({armedCell.row}, {armedCell.col}) · {candidates.size} to merge with · Esc
+          </span>
+        )}
       </header>
 
       {rectPattern && (
@@ -278,6 +333,59 @@ export default function GridMap() {
             </g>
           ))}
 
+          {/* the armed square, and the neighbours it can be merged with. FREE =
+              solid green + "+", COERCE = dashed amber + "~": the difference is
+              whether the merge also has to change the surface. */}
+          {armedCell && (
+            <g data-testid="gridmap-armed">
+              <rect
+                x={x(armedCell.col) + 1}
+                y={y(armedCell.row) + 1}
+                width={CELL - 2}
+                height={CELL - 2}
+                rx={2.5}
+                fill={ARMED}
+                fillOpacity={0.16}
+                stroke={ARMED}
+                strokeWidth={2.4}
+              />
+              <circle cx={x(armedCell.col) + CELL / 2} cy={y(armedCell.row) + CELL / 2} r={3.4} fill={ARMED} />
+            </g>
+          )}
+
+          {[...candidates.values()].map((cand) => {
+            const free = cand.kind === 'free'
+            const color = free ? FREE : COERCE
+            return (
+              <g
+                key={`cand-${cand.row}-${cand.col}`}
+                data-testid={`candidate-${cand.row}-${cand.col}`}
+                data-kind={cand.kind}
+              >
+                <rect
+                  x={x(cand.col) + 1}
+                  y={y(cand.row) + 1}
+                  width={CELL - 2}
+                  height={CELL - 2}
+                  rx={2.5}
+                  fill={color}
+                  fillOpacity={free ? 0.2 : 0.13}
+                  stroke={color}
+                  strokeWidth={2}
+                  strokeDasharray={free ? undefined : '4 2.5'}
+                />
+                <text
+                  className="grid-map-candmark"
+                  x={x(cand.col) + CELL / 2}
+                  y={y(cand.row) + CELL / 2 + 5}
+                  fill={color}
+                >
+                  {free ? '+' : '~'}
+                </text>
+              </g>
+            )
+          })}
+
           <line
             x1={PAD_L}
             y1={y(0) + CELL + 2.5}
@@ -325,10 +433,22 @@ export default function GridMap() {
               const owner = ownerOf.get(`${r},${c}`)
               const occupied = owner?.type === '2x4'
               const floats = r === rows - 1 && floatingClearance.has(c)
+              const cand = candidates.get(`${r},${c}`)
+              const armed = isArmed(r, c)
+              const action = occupied
+                ? `click to split the ${owner.rectOrientation} plate back into two squares`
+                : armed
+                  ? 'armed — click a highlighted neighbour to merge, or click here again to let go'
+                  : cand
+                    ? `click to merge: ${cand.description}`
+                    : armedCell
+                      ? 'not mergeable with the armed square — click to arm this one instead'
+                      : 'click to arm this square, then click a neighbour to merge them into a 121cm plate'
               return (
                 <rect
                   key={`hit-${r}-${c}`}
                   data-testid={`cell-${r}-${c}`}
+                  data-merge={cand ? cand.kind : armed ? 'armed' : undefined}
                   className="grid-map-hit"
                   x={x(c)}
                   y={y(r)}
@@ -341,8 +461,7 @@ export default function GridMap() {
                   <title>
                     {(floats
                       ? `end floating — ${floatingClearance.get(c).toFixed(1)}cm off the floor · `
-                      : '') +
-                      `(${r}, ${c}) · pitch ${Math.round(pitchOf(r, c))}° — ${occupied ? `click to remove the ${owner.rectOrientation} plate` : `click to place a ${mode} plate`}`}
+                      : '') + `(${r}, ${c}) · pitch ${Math.round(pitchOf(r, c))}° — ${action}`}
                   </title>
                 </rect>
               )
@@ -352,12 +471,19 @@ export default function GridMap() {
       </svg>
 
       <p className="grid-map-hint">
-        click an empty cell to place a <b>{mode === 'horizontal' ? 'horizontal' : 'vertical'}</b>{' '}
-        60×121 plate · click a plate to remove it · cell tint = cumulative pitch{' '}
-        <span className="wash-up">up</span> / <span className="wash-down">back down</span> · col 0 is
-        at the left here, and on the <b>right</b> in the 3D view · the{' '}
-        <span className="wash-wall">wall</span> closes the left edge (col 0)
+        click a square, then a highlighted neighbour, to <b>combine</b> them into one 60×121 plate —{' '}
+        <span className="cand-free">green +</span> is free, <span className="cand-coerce">amber ~</span>{' '}
+        also changes geometry (Esc lets go) · click a plate to <b>split</b> it · tint = pitch{' '}
+        <span className="wash-up">up</span> / <span className="wash-down">down</span> · col 0: left
+        here, <b>right</b> in 3D · the <span className="wash-wall">wall</span> closes the left edge
+        (col 0)
       </p>
+
+      {lastNotice && (
+        <p className="grid-map-notice" data-testid="gridmap-notice" title="what the last change did">
+          {lastNotice}
+        </p>
+      )}
 
       {placementErrors.length > 0 && (
         <div className="grid-map-error" data-testid="gridmap-error">

@@ -256,6 +256,10 @@ export function ColumnToolbar({ selected, floating = 0, rows = MIN_ROWS }) {
   const setRows = useStore((s) => s.setRows)
   const showBounds = useStore((s) => s.showBounds)
   const toggleBounds = useStore((s) => s.toggleBounds)
+  const undo = useStore((s) => s.undo)
+  const redo = useStore((s) => s.redo)
+  const canUndo = useStore((s) => s.canUndo)
+  const canRedo = useStore((s) => s.canRedo)
 
   const rowsTitle =
     `row resolution — how many panels deep each column strip is (${MIN_ROWS}–${MAX_ROWS}). ` +
@@ -333,6 +337,30 @@ export function ColumnToolbar({ selected, floating = 0, rows = MIN_ROWS }) {
         onClick={() => toggleBounds()}
       >
         bounds
+      </button>
+      <button
+        type="button"
+        className="tool-btn"
+        data-testid="tool-undo"
+        disabled={!canUndo}
+        title={
+          canUndo
+            ? 'undo the last change (Cmd/Ctrl+Z) — the way back from a merge, which flattens the joint it spans and is deliberately not undone by re-splitting the plate'
+            : 'nothing to undo yet (Cmd/Ctrl+Z)'
+        }
+        onClick={() => undo()}
+      >
+        Undo
+      </button>
+      <button
+        type="button"
+        className="tool-btn"
+        data-testid="tool-redo"
+        disabled={!canRedo}
+        title={canRedo ? 'redo the change you just undid (Shift+Cmd/Ctrl+Z)' : 'nothing to redo (Shift+Cmd/Ctrl+Z)'}
+        onClick={() => redo()}
+      >
+        Redo
       </button>
       <button
         type="button"
