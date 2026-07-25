@@ -187,34 +187,35 @@ function geometryDiff(a, b) {
   check('swell: each coercion is exactly one change', mixedChanges === 0)
   check('swell: no candidate is a cell the spine plates cover', plateNeighbourOffered === 0)
 
-  // The spine plate occupies rows 2–3 of every column, so cell (1,c) can only merge
-  // sideways and forward — never with the plated cell behind it.
-  const behindPlate = mergeCandidates(cfg, { row: 1, col: 2 })
+  // The spine plate occupies rows 3–4 of every column, so the climb cell (2,c) in
+  // front of it can only merge sideways and forward — never with the plated cell
+  // behind it.
+  const behindPlate = mergeCandidates(cfg, { row: 2, col: 2 })
   check(
-    'swell (1,2): the plated cell (2,2) behind it is NOT offered',
-    behindPlate.every((k) => !(k.row === 2 && k.col === 2)),
+    'swell (2,2): the plated cell (3,2) behind it is NOT offered',
+    behindPlate.every((k) => !(k.row === 3 && k.col === 2)),
     JSON.stringify(behindPlate.map(cellKey)),
   )
   check(
-    'swell (1,2): its three free neighbours (0,2) (1,1) (1,3) are',
-    ['0,2', '1,1', '1,3'].every((key) => behindPlate.some((k) => cellKey(k) === key)),
+    'swell (2,2): its three free neighbours (1,2) (2,1) (2,3) are',
+    ['1,2', '2,1', '2,3'].every((key) => behindPlate.some((k) => cellKey(k) === key)),
     JSON.stringify(behindPlate.map(cellKey)),
   )
 
   // A cell INSIDE a plate arms nothing — a plate is exactly two cells.
-  check('swell: a cell inside a plate offers no candidates', mergeCandidates(cfg, { row: 2, col: 0 }).length === 0)
+  check('swell: a cell inside a plate offers no candidates', mergeCandidates(cfg, { row: 3, col: 0 }).length === 0)
 
   // The description is the tooltip text, so it has to name the consequence.
-  const vertical = behindPlate.find((k) => k.row === 0 && k.col === 2)
+  const vertical = behindPlate.find((k) => k.row === 1 && k.col === 2)
   check(
     'swell: a vertical candidate names the joint it will flatten',
-    /flattened joint 0 of column 2/.test(vertical.description),
+    /flattened joint 1 of column 2/.test(vertical.description),
     vertical.description,
   )
-  const horizontal = behindPlate.find((k) => k.row === 1 && k.col === 3)
+  const horizontal = behindPlate.find((k) => k.row === 2 && k.col === 3)
   check(
     'swell: a horizontal candidate names the column it will match',
-    /matched column 3 to column 2 through row 1/.test(horizontal.description),
+    /matched column 3 to column 2 through row 2/.test(horizontal.description),
     horizontal.description,
   )
   check('swell: descriptions carry the plate length', /121cm plate/.test(vertical.description), vertical.description)
@@ -383,9 +384,9 @@ function geometryDiff(a, b) {
   expectReject('a cell off the shore edge', { row: 0, col: 0 }, { row: -1, col: 0 }, 'E_MERGE_BOUNDS')
   expectReject('a cell past the last row', { row: rows - 1, col: 0 }, { row: rows, col: 0 }, 'E_MERGE_BOUNDS')
   expectReject('a cell past the last column', { row: 0, col: cols - 1 }, { row: 0, col: cols }, 'E_MERGE_BOUNDS')
-  // (1,c) + (2,c): the spine plate already owns rows 2–3 of every column.
-  expectReject('a cell an existing plate covers', { row: 1, col: 2 }, { row: 2, col: 2 }, 'E_MERGE_OCCUPIED')
-  expectReject('arming from inside a plate', { row: 3, col: 2 }, { row: 4, col: 2 }, 'E_MERGE_OCCUPIED')
+  // (2,c) + (3,c): the spine plate already owns rows 3–4 of every column.
+  expectReject('a cell an existing plate covers', { row: 2, col: 2 }, { row: 3, col: 2 }, 'E_MERGE_OCCUPIED')
+  expectReject('arming from inside a plate', { row: 4, col: 2 }, { row: 5, col: 2 }, 'E_MERGE_OCCUPIED')
   expectReject('junk cells', { row: 1.5, col: 0 }, { row: 2, col: 0 }, 'E_MERGE_SHAPE')
   expectReject('a missing cell', null, { row: 2, col: 0 }, 'E_MERGE_SHAPE')
 
@@ -431,18 +432,20 @@ function geometryDiff(a, b) {
 // =============================================================================
 {
   const before = swell()
-  const foldBefore = before.columns[1].foldsDeg[4]
-  const merged = mergeCells(before, { row: 4, col: 1 }, { row: 5, col: 1 })
+  // Column 1 carries plates at rows 3–4 (its spine) and 5–6 (its slipface), so the
+  // free pair to merge is in front of them: the shoulder and climb rows.
+  const foldBefore = before.columns[1].foldsDeg[1]
+  const merged = mergeCells(before, { row: 1, col: 1 }, { row: 2, col: 1 })
   check('non-inverse: the vertical merge went through', merged.ok, merged.ok ? '' : merged.message)
   if (merged.ok) {
     const split = structuredClone(merged.config)
-    split.rects = split.rects.filter((r) => !(r.orientation === 'vertical' && r.row === 4 && r.col === 1))
+    split.rects = split.rects.filter((r) => !(r.orientation === 'vertical' && r.row === 1 && r.col === 1))
     const result = validateConfig(split)
     check('non-inverse: the config still validates after splitting the plate again', result.ok, JSON.stringify(result.errors))
     check(
       'non-inverse: the flattened joint STAYS flat — a split is not an undo',
-      split.columns[1].foldsDeg[4] === 0 && foldBefore !== 0,
-      `was ${foldBefore}°, is ${split.columns[1].foldsDeg[4]}°`,
+      split.columns[1].foldsDeg[1] === 0 && foldBefore !== 0,
+      `was ${foldBefore}°, is ${split.columns[1].foldsDeg[1]}°`,
     )
     check(
       'non-inverse: everything else came back to where it started',
@@ -471,7 +474,7 @@ function geometryDiff(a, b) {
   check('mergeCandidates does not mutate its input', JSON.stringify(cfg) === snapshot)
   check(
     'mergeCandidates order is fixed (row−1, row+1, col−1, col+1)',
-    JSON.stringify(c1.map(cellKey)) === JSON.stringify(['0,1', '1,0', '1,2']),
+    JSON.stringify(c1.map(cellKey)) === JSON.stringify(['0,1', '2,1', '1,0', '1,2']),
     JSON.stringify(c1.map(cellKey)),
   )
 

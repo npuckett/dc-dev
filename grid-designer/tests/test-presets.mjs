@@ -37,7 +37,12 @@ import {
   presetSurge,
   presetWallcrash,
 } from '../src/core/presets.js'
-import { panelSolidMinY, solveLayout } from '../src/core/placement.js'
+import {
+  layoutBounds,
+  panelSolidMinY,
+  panelWorldNormal,
+  solveLayout,
+} from '../src/core/placement.js'
 
 let passed = 0
 const failures = []
@@ -657,7 +662,7 @@ for (const [label, cfg] of stormNamed) {
   )
 }
 
-// --- swell: 7 rows, spine plates, a low asymmetric drift banking on THE WALL -----
+// --- swell: 8 rows, doubled spine plates, a DEEP crest on a drift banking on THE WALL
 //
 // The design intent, encoded so it cannot silently regress:
 //   1. A BROKEN SHORELINE. The two rows at the window are NOT one smooth incline:
@@ -668,33 +673,46 @@ for (const [label, cfg] of stormNamed) {
 //      [SWELL_PEAK_MIN, SWELL_PEAK_MAX] and the far jamb (column 5) starts inside
 //      [SWELL_START_MIN, SWELL_START_MAX] — the "much lower on the left, and don't
 //      build to such a high point" band. Regressing to the old 150 → 80cm ramp
-//      fails both.
+//      fails both. The BOX HEIGHT is checked against the same ceiling, since that
+//      is the number the user reads off the panel.
 //   3. EVERYTHING RAMPS TOWARD THE WALL. The wall is beside column 0
 //      (schema.js WALL_COLUMN), so both the front pitch and the crest height fall
 //      monotonically with the column index and column 0 is the strict maximum of
 //      each.
-//   4. DRIFT ASYMMETRY. Each column rises gradually over its 241cm windward run
-//      (rows 0–3) and falls more steeply over its 180cm lee (rows 4–6) — the
+//   4. DRIFT ASYMMETRY. Each column rises gradually over its 301cm windward run
+//      (rows 0–4) and falls more steeply over its ~180cm lee (rows 5–7) — the
 //      slipface. Measured as mean |Δy| per cm of chain, not as angles.
 //   5. ALL SIX COLUMNS STILL LAND ON THE FLOOR — that is what separates swell from
 //      'wallcrash'; nothing here may take endSupport 'wall'.
+//   6. THE CREST SITS DEEP — at the far end of the spine plate, row 4 of 8, one unit
+//      deeper than the rows 2–3 spine of the previous build put it. The reason is the
+//      VIEWING POSITION: the room is read from the window side, so a crest close to
+//      the glass hides everything behind it. Asserted three ways — the plate rows,
+//      the sign pattern of the pitch profile (rows 0–4 climb, rows 5–7 fall), and a
+//      direct count of the panels presenting their LIT FACE to a window-side eye
+//      point, which the previous build could only get to 23 of 36.
+//   7. EIGHT PLATES BY ONE CLAUSE: one spine plate per column, DOUBLED on the two
+//      wall-most (tallest) columns, whose second plate is their slipface.
 {
   const swell = presetSwell()
   const layout = solveLayout(swell)
   /** The shore bend has to be a CREASE, not a 5° continuation of the ramp. */
   const SWELL_MIN_SHORE_BEND_DEG = 12
   /** The crest band at the wall, cm — low enough to walk past, tall enough to read. */
-  const SWELL_PEAK_MIN = 110
-  const SWELL_PEAK_MAX = 120
+  const SWELL_PEAK_MIN = 113
+  const SWELL_PEAK_MAX = 122
   /** …and how low the far jamb, the LEFT of the 3D view, is allowed to start. */
   const SWELL_START_MIN = 35
   const SWELL_START_MAX = 45
   /** How much steeper the lee must be than the windward slope. */
-  const SWELL_MIN_ASYMMETRY = 1.2
+  const SWELL_MIN_ASYMMETRY = 1.4
+  /** The crest row: the far end of the spine plate, one unit deeper than the old build. */
+  const SWELL_CREST_ROW = 4
   const fronts = swell.columns.map((col) => col.startPitchDeg)
   check(
-    'swell: 7 rows — three lee panels, so the slipface is a slope and not a clamped vertical cliff',
-    swell.grid.rows === 7,
+    'swell: 8 rows — the crest sits a row deeper AND 180cm of lee is left behind it, so the ' +
+      'slipface is a slope and not a clamped vertical cliff',
+    swell.grid.rows === 8,
     String(swell.grid.rows),
   )
   check(
@@ -725,36 +743,114 @@ for (const [label, cfg] of stormNamed) {
     new Set(shoreBends.map(Math.abs)).size >= 4,
     JSON.stringify(shoreBends),
   )
-  // The shore detail must not eat the climb: the spine plate still does the lifting.
+  // --- 6. THE CREST ONE UNIT DEEPER ----------------------------------------
+  // The pitch profile itself says where the crest is: the chain climbs while ψ > 0 and
+  // falls once ψ < 0, so the crest is the last row with a positive pitch. It must be
+  // the far end of the spine plate — row SWELL_CREST_ROW — in EVERY column, which is
+  // one row deeper than the rows 2–3 spine of the previous build could reach.
+  {
+    const crestRows = profiles(swell).map((p) => {
+      let last = -1
+      for (let r = 0; r < p.length; r++) if (p[r] > 0) last = r
+      return last
+    })
+    check(
+      `swell: the crest is at row ${SWELL_CREST_ROW} in every column — rows 0–${SWELL_CREST_ROW} ` +
+        'all climb and every row behind it falls, so the windward approach from the window is ' +
+        'the LONG side of the surface',
+      crestRows.every((r) => r === SWELL_CREST_ROW) &&
+        profiles(swell).every((p) =>
+          p.every((psi, r) => (r <= SWELL_CREST_ROW ? psi >= 0 : psi < 0)),
+        ),
+      JSON.stringify(profiles(swell)),
+    )
+    check(
+      'swell: …and that crest row IS the far end of the spine plate, so moving the plate moves ' +
+        'the crest with it',
+      swell.rects.every((r) => r.row !== SWELL_CREST_ROW) &&
+        swell.rects.filter((r) => r.row === SWELL_CREST_ROW - 1).length === swell.grid.cols,
+      JSON.stringify(swell.rects.map((r) => `${r.row},${r.col}`)),
+    )
+    // …and in PANELS, not rows: four of every column's panels climb (the two window
+    // rows, the climb row and the spine plate) against two or three that fall.
+    const sides = swell.columns.map((_, c) => {
+      const own = layout.panels.filter((p) => p.col === c)
+      return [
+        own.filter((p) => p.rowPitchDeg > 0).length,
+        own.filter((p) => p.rowPitchDeg < 0).length,
+      ]
+    })
+    check(
+      'swell: FOUR panels of every column are windward and at most three lee — the ratio the ' +
+        'window-side viewpoint asked for (the old build was three against three)',
+      sides.every(([up, down]) => up === 4 && down <= 3 && up > down),
+      JSON.stringify(sides),
+    )
+  }
+  // The windward rise must be SPREAD over its four rows — a long gradual slope, not one
+  // steep row and three flat ones. Every one of the shore rows, the climb row and the
+  // spine plate lifts a real share, and the climb row is steeper than the plate behind
+  // it so the surface DECELERATES into the crest instead of turning a corner.
   {
     const size = Number(swell.cell.size)
     const rectLength = Number(swell.cell.rectLength)
-    const spineShare = layout.columnChains.map((chain) => {
+    const rise = (L, psi) => Math.abs(L * Math.sin((psi * Math.PI) / 180))
+    const shares = layout.columnChains.map((chain) => {
       const psi = chain.pitchesDeg
-      const shore = Math.abs(size * Math.sin((psi[0] * Math.PI) / 180)) +
-        Math.abs(size * Math.sin((psi[1] * Math.PI) / 180))
-      const spine = Math.abs(rectLength * Math.sin((psi[2] * Math.PI) / 180))
-      return spine / (shore + spine)
+      const parts = [
+        rise(size, psi[0]),
+        rise(size, psi[1]),
+        rise(size, psi[2]),
+        rise(rectLength, psi[3]),
+      ]
+      const total = parts.reduce((a, b) => a + b, 0)
+      return parts.map((p) => p / total)
     })
     check(
-      'swell: the shore detail has NOT eaten the climb — the spine plate still lifts a quarter ' +
-        'of the windward rise in every column, and a third of it in the four tallest',
-      spineShare.every((share) => share >= 0.25) &&
-        spineShare.filter((share) => share >= 0.33).length >= 4,
-      JSON.stringify(spineShare.map((s) => Number(s.toFixed(2)))),
+      'swell: the windward rise is SPREAD over its four windward runs — no run carries more ' +
+        'than 60% of it and none less than 5%',
+      shares.every((s) => s.every((share) => share >= 0.05 && share <= 0.6)),
+      JSON.stringify(shares.map((s) => s.map((v) => Number(v.toFixed(2))))),
+    )
+    check(
+      'swell: the spine plate still lifts a real share of the windward rise (≥ 15%) in every ' +
+        'column — the shore and climb detail has not eaten the climb',
+      shares.every((s) => s[3] >= 0.15),
+      JSON.stringify(shares.map((s) => Number(s[3].toFixed(2)))),
+    )
+    check(
+      'swell: the crest is ROUNDED — the climb row (row 2) is steeper than the spine plate ' +
+        'behind it in every column, so the rise decelerates into the crest',
+      layout.columnChains.every((ch) => ch.pitchesDeg[2] > ch.pitchesDeg[3]),
+      JSON.stringify(layout.columnChains.map((ch) => [ch.pitchesDeg[2], ch.pitchesDeg[3]])),
     )
   }
+  // --- 7. EIGHT PLATES, ONE CLAUSE -----------------------------------------
   check(
-    "swell: 'spine plates' — one vertical plate mid-strip (rows 2–3) in every column",
-    swell.meta.rectPattern === 'spine plates' &&
-      swell.rects.length === 6 &&
-      swell.rects.every((r) => r.row === 2 && r.orientation === 'vertical') &&
-      new Set(swell.rects.map((r) => r.col)).size === 6,
-    JSON.stringify([swell.meta.rectPattern, swell.rects]),
+    "swell: 'doubled spine plates' — EIGHT plates: one vertical spine at rows 3–4 in every " +
+      'column, plus a second one at rows 5–6 in the two wall-most columns',
+    swell.meta.rectPattern === 'doubled spine plates' &&
+      swell.rects.length === 8 &&
+      swell.rects.every((r) => r.orientation === 'vertical') &&
+      swell.rects.filter((r) => r.row === 3).length === 6 &&
+      new Set(swell.rects.filter((r) => r.row === 3).map((r) => r.col)).size === 6 &&
+      JSON.stringify(
+        swell.rects.filter((r) => r.row !== 3).map((r) => `${r.row},${r.col}`).sort(),
+      ) === JSON.stringify(['5,0', '5,1']),
+    JSON.stringify([swell.meta.rectPattern, swell.rects.map((r) => `${r.row},${r.col}`)]),
   )
   check(
-    "swell: each spine plate's two rows share one pitch (the plate is rigid)",
-    swell.columns.every((col) => col.foldsDeg[2] === 0),
+    'swell: the doubled columns are the TALLEST ones — the rule is "the biggest strips get a ' +
+      'second plate", not "wherever one fitted"',
+    swell.rects
+      .filter((r) => r.row !== 3)
+      .every((r) => r.col < 2) &&
+      [0, 1].every((c) => swell.rects.filter((r) => r.col === c).length === 2),
+    JSON.stringify(swell.rects.map((r) => `${r.row},${r.col}`)),
+  )
+  check(
+    "swell: every plate's two rows share one pitch (the plate is rigid)",
+    swell.rects.every((r) => swell.columns[r.col].foldsDeg[r.row] === 0),
     JSON.stringify(swell.columns.map((col) => col.foldsDeg)),
   )
   check(
@@ -804,19 +900,32 @@ for (const [label, cfg] of stormNamed) {
     JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
   )
   // --- 4. DRIFT ASYMMETRY ---------------------------------------------------
-  // Mean height change per cm of chain, windward (rows 0–3, 2·size + rectLength of
-  // panel) against lee (rows 4–6, 3·size). A snow drift's lee is the steeper side;
-  // a water swell's two sides would match. Derived from the solved chains and the
-  // config's own cell dimensions — no hard-coded runs.
+  // Mean height change per cm of chain, windward (rows 0–4: three squares plus the
+  // 121cm spine plate) against lee (rows 5–7: three squares, or the 121cm slipface
+  // plate plus one square in the doubled columns). A snow drift's lee is the steeper
+  // side; a water swell's two sides would match. Runs are DERIVED from the config's
+  // own cell dimensions and its plate positions — no hard-coded tables.
   {
     const size = Number(swell.cell.size)
-    const windwardRun = 2 * size + Number(swell.cell.rectLength)
-    const leeRun = 3 * size
+    const rectLength = Number(swell.cell.rectLength)
+    /** Panel run along the chain over rows [from, to], accounting for plates. */
+    const runOf = (c, from, to) => {
+      let run = 0
+      for (let r = from; r <= to; r++) {
+        const plate = swell.rects.find((x) => x.col === c && x.row === r)
+        if (plate) {
+          run += rectLength
+          r++ // the plate covers r and r+1
+        } else run += size
+      }
+      return run
+    }
+    const crestRow = SWELL_CREST_ROW
     const ratios = layout.columnChains.map((chain, c) => {
       const startY = chain.points[0][0]
       const endY = chain.points[chain.points.length - 1][0]
-      const rise = (peaks[c] - startY) / windwardRun
-      const fall = (peaks[c] - endY) / leeRun
+      const rise = (peaks[c] - startY) / runOf(c, 0, crestRow)
+      const fall = (peaks[c] - endY) / runOf(c, crestRow + 1, swell.grid.rows - 1)
       return fall / rise
     })
     check(
@@ -826,10 +935,71 @@ for (const [label, cfg] of stormNamed) {
       JSON.stringify(ratios.map((r) => Number(r.toFixed(2)))),
     )
     check(
-      'swell: …and it is the ROW SPLIT that does it (241cm of rise, 180cm of fall), not one ' +
-        'violent joint — no hinge past 60°',
-      windwardRun > leeRun && maxFold(swell) <= 60,
-      `windward ${windwardRun}cm vs lee ${leeRun}cm, worst hinge ${maxFold(swell)}°`,
+      'swell: …and it is the ROW SPLIT that does it (301cm of rise against ~180cm of fall), not ' +
+        'one violent joint — no hinge past 60°',
+      swell.columns.every((_, c) => runOf(c, 0, crestRow) === 3 * size + rectLength) &&
+        swell.columns.every(
+          (_, c) => runOf(c, crestRow + 1, swell.grid.rows - 1) < runOf(c, 0, crestRow),
+        ) &&
+        maxFold(swell) <= 60,
+      JSON.stringify(
+        swell.columns.map((_, c) => [
+          runOf(c, 0, crestRow),
+          runOf(c, crestRow + 1, swell.grid.rows - 1),
+        ]),
+      ) + ` worst hinge ${maxFold(swell)}°`,
+    )
+  }
+  // --- 2b. THE BOX — the number the user actually reads off the panel -------
+  {
+    const box = layoutBounds(layout, swell)
+    check(
+      `swell: the BOX HEIGHT lands in [${SWELL_PEAK_MIN}, ${SWELL_PEAK_MAX}]cm — the ceiling the ` +
+        'retune exists to respect, measured over the panel SOLIDS and not just the chains',
+      box.size[1] >= SWELL_PEAK_MIN && box.size[1] <= SWELL_PEAK_MAX,
+      JSON.stringify(box.size.map((v) => Number(v.toFixed(1)))),
+    )
+    // THE PRICE OF THE 8th ROW, kept in sight: the crest one unit deeper cost 61cm of
+    // floor (417 → 478cm). The ceiling is a guard, not a target — if a future change
+    // pushes the footprint past it, that is a decision to take deliberately.
+    check(
+      'swell: the FOOTPRINT is the 8-row price and no more — depth inside (470, 485]cm',
+      box.size[2] > 470 && box.size[2] <= 485,
+      `${box.size[2].toFixed(1)}cm deep`,
+    )
+    check(
+      'swell: the box starts on the floor and its peak agrees with the tallest column',
+      Math.abs(box.min[1]) < 1e-6 && Math.abs(box.max[1] - peaks[WALL_COLUMN]) < 6,
+      `min.y ${box.min[1]} max.y ${box.max[1].toFixed(1)} vs peak ${peaks[WALL_COLUMN].toFixed(1)}`,
+    )
+  }
+  // --- 6b. THE WINDOW-SIDE VIEW — the reason the crest moved ---------------
+  // The metric the retune was steered by: from an eye point OUTSIDE THE WINDOW (−z,
+  // raised, centred on the grid — the same one the screenshot harness frames the plan
+  // view from), how many panels present their LIT FACE rather than their back? A
+  // panel's world lit direction is `panelWorldNormal`; the sign of its dot product
+  // with (eye − panel) decides. The previous build — 7 rows, crest at row 3 — reached
+  // 23 of 36 (64%). A deeper crest turns another row of panels toward the viewer.
+  {
+    const EYE = [182.5, 220, -320]
+    const MIN_FACING = 26
+    const MIN_FRACTION = 0.66
+    let facing = 0
+    for (const panel of layout.panels) {
+      const n = panelWorldNormal(panel)
+      const d = [
+        EYE[0] - panel.position[0],
+        EYE[1] - panel.position[1],
+        EYE[2] - panel.position[2],
+      ]
+      if (n.x * d[0] + n.y * d[1] + n.z * d[2] > 0) facing++
+    }
+    check(
+      `swell: at least ${MIN_FACING} panels show their LIT FACE from the window-side viewpoint, ` +
+        `and at least ${MIN_FRACTION * 100}% of them — the old crest-at-row-3 build managed 23 ` +
+        'of 36 (64%), and this is the measurement the deeper crest exists to move',
+      facing >= MIN_FACING && facing / layout.panels.length >= MIN_FRACTION,
+      `${facing} of ${layout.panels.length} (${((100 * facing) / layout.panels.length).toFixed(0)}%)`,
     )
   }
   check(

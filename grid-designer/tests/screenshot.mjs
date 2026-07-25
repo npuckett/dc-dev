@@ -36,13 +36,15 @@
  *                  moved; the map explains why inline.
  *   08-json.png    after pasting a MINIMAL v2 config (columns only — everything
  *                  else defaulted by normalizeConfig) and hitting Apply
- *   09-swell.png   the STORM family's 'Swell': 7 rows, a PITCHED FRONT in every
- *                  column (42° → 20°, the family's signature) and a 121cm spine
- *                  plate mid-strip in each. Half swell, half snow drift — the
- *                  shoreline BREAKS at joint 0 (a 13–22° counter-bend, different in
- *                  every column) and everything ramps toward the −X WALL beside
- *                  column 0, the RIGHT of the 3D view, from a ~42cm start at the far
- *                  jamb to a ~116cm crest; still every column on the floor
+ *   09-swell.png   the STORM family's 'Swell': 8 rows, a PITCHED FRONT in every
+ *                  column (42° → 20°, the family's signature) and a 121cm spine plate
+ *                  at the CREST of each — rows 3–4, so the crest sits DEEP and the
+ *                  approach from the window is the long, gradual side — doubled in the
+ *                  two wall-most columns for eight plates in all. Half swell, half snow
+ *                  drift — the shoreline BREAKS at joint 0 (a 13–22° counter-bend,
+ *                  different in every column) and everything ramps toward the −X WALL
+ *                  beside column 0, the RIGHT of the 3D view, from a ~42cm start at the
+ *                  far jamb to a ~117cm crest; still every column on the floor
  *   10-wallcrash.png the one design that engages the −X WALL: column 0 — the
  *                  column against it — is `endSupport: 'wall'`, ends ~170cm up, and
  *                  raises NO violation while columns 1–5 land normally
@@ -57,12 +59,12 @@
  *                  diffuser inside a crisp frame flange) and panels showing their
  *                  BACK (a closed, inward-tapering tray). This is the visual proof
  *                  that the panel solid is no longer inside-out.
- *   14-merge.png   the WP14 PAIR-CLICK MERGE on 'swell': column 4's spine plate split
- *                  back into two squares, then cell (2,4) ARMED — a warm outline —
- *                  with its two mergeable neighbours highlighted in the two styles at
- *                  once: (3,4) FREE (green, solid, "+") across the joint the split
- *                  left flat, and (1,4) COERCE (amber, dashed, "~") across a folded
- *                  joint the merge would have to flatten
+ *   14-merge.png   the WP14 PAIR-CLICK MERGE on 'swell': column 4's spine plate (rows
+ *                  3–4) split back into two squares, then cell (3,4) ARMED — a warm
+ *                  outline — with its two mergeable neighbours highlighted in the two
+ *                  styles at once: (4,4) FREE (green, solid, "+") across the joint the
+ *                  split left flat, and (2,4) COERCE (amber, dashed, "~") across a
+ *                  folded joint the merge would have to flatten
  *
  * Placement cells are never hard-coded: legal / illegal candidates are derived
  * from the live config's fold sequences and the solved `columnChains[c].pitchesDeg`
@@ -1184,23 +1186,25 @@ try {
   )
 
   // --- (i) THE STORM FAMILY: pitched fronts, a deeper grid, the wall --------
-  // 'swell' is 7 rows with a STEEP pitched front in EVERY column and a spine plate
-  // mid-strip in each — the family's two signatures at once — and everything ramps
-  // toward the wall beside column 0, where it peaks.
+  // 'swell' is 8 rows with a STEEP pitched front in EVERY column and a spine plate at
+  // the CREST of each — the family's two signatures at once — and everything ramps
+  // toward the wall beside column 0, where it peaks. The crest sits DEEP (row 4 of 8)
+  // so the approach from the window is the long side of the surface, and the two
+  // wall-most columns carry a second plate: eight in all.
   await page.click('[data-testid="preset-swell"]')
   await page.waitForTimeout(SETTLE_MS)
   const swellShot = await assertCanvasRenders(page, 'swell')
   const swellState = await storeState(page)
   check(swellState.preset === 'swell', 'Swell preset applied', `preset=${swellState.preset}`)
   check(
-    swellState.rows === 7 &&
-      (await page.textContent('[data-testid="rows-value"]')).includes('7 rows'),
-    'the rows stepper followed the preset to 7 rows',
+    swellState.rows === 8 &&
+      (await page.textContent('[data-testid="rows-value"]')).includes('8 rows'),
+    'the rows stepper followed the preset to 8 rows — the grid ceiling',
     `rows=${swellState.rows} stepper="${(await page.textContent('[data-testid="rows-value"]')).trim()}"`,
   )
   check(
-    swellState.folds.every((f) => f.length === 6),
-    'every column carries grid.rows-1 = 6 hinges',
+    swellState.folds.every((f) => f.length === 7),
+    'every column carries grid.rows-1 = 7 hinges',
     JSON.stringify(swellState.folds.map((f) => f.length)),
   )
   check(
@@ -1215,14 +1219,24 @@ try {
     JSON.stringify(swellState.folds.map((f) => f[0])),
   )
   check(
-    swellState.panels === 36 && swellState.rectObjs.length === 6,
-    'swell: 42 cells − 6 spine plates = 36 panels',
+    swellState.panels === 40 && swellState.rectObjs.length === 8,
+    'swell: 48 cells − 8 plates = 40 panels',
     `panels=${swellState.panels} rects=${swellState.rectObjs.length}`,
+  )
+  check(
+    JSON.stringify([...swellState.rects].sort()) ===
+      JSON.stringify(
+        ['v(3,0)', 'v(3,1)', 'v(3,2)', 'v(3,3)', 'v(3,4)', 'v(3,5)', 'v(5,0)', 'v(5,1)'].sort(),
+      ),
+    "swell: 'doubled spine plates' — a spine at rows 3–4 in every column, doubled at rows 5–6 " +
+      'in the two wall-most (tallest) ones',
+    JSON.stringify(swellState.rects),
   )
   const swellCaption = (await page.textContent('[data-testid="rect-pattern"]')) ?? ''
   check(
-    swellState.rectPattern === 'spine plates' && swellCaption.includes('spine plates'),
-    'the grid map captions the "spine plates" pattern',
+    swellState.rectPattern === 'doubled spine plates' &&
+      swellCaption.includes('doubled spine plates'),
+    'the grid map captions the "doubled spine plates" pattern',
     swellCaption.trim(),
   )
   check(
@@ -1250,11 +1264,11 @@ try {
   // a LOW start at the far jamb (the LEFT) to a moderate crest — no longer 150cm.
   check(
     swellState.peaks.every((y, c) => c === 0 || y < swellState.peaks[c - 1]) &&
-      swellState.peaks[0] >= 110 &&
-      swellState.peaks[0] <= 120 &&
+      swellState.peaks[0] >= 113 &&
+      swellState.peaks[0] <= 122 &&
       swellState.peaks[5] >= 35 &&
       swellState.peaks[5] <= 45,
-    'swell: the surface RAMPS from a ~42cm start at the far jamb to a ~116cm crest at the wall',
+    'swell: the surface RAMPS from a ~43cm start at the far jamb to a ~117cm crest at the wall',
     JSON.stringify(swellState.peaks.map((y) => Number(y.toFixed(1)))),
   )
   // The measuring box follows the design: the peak label is the number being tuned.
@@ -1625,8 +1639,8 @@ try {
   // The inverse of clicking a plate to split it, on the one preset where it costs
   // something: every joint of 'swell' is folded and no two columns agree in pitch,
   // so a merge there has to CHANGE the surface (core/merge.js). Splitting column 4's
-  // spine plate first leaves joint 2 of that column flat, which is what puts a FREE
-  // candidate and a COERCE candidate in the same frame.
+  // spine plate (rows 3–4) first leaves joint 3 of that column flat, which is what puts
+  // a FREE candidate and a COERCE candidate in the same frame.
   await page.evaluate(() => window.__gridDesignerCamera([182.5, 220, -320], [182.5, 30, 150]))
   // The control panel may have been scrolled by earlier clicks (the JSON panel is
   // expanded by now) — put the map back in frame before shooting it.
@@ -1635,56 +1649,56 @@ try {
   await page.waitForTimeout(SETTLE_MS)
   const mergeBase = await storeState(page)
   check(
-    mergeBase.preset === 'swell' && mergeBase.rects.includes('v(2,4)'),
+    mergeBase.preset === 'swell' && mergeBase.rects.includes('v(3,4)'),
     'merge stage starts from swell, spine plate on column 4 included',
     JSON.stringify(mergeBase.rects),
   )
   const mergeBaseShot = await assertCanvasRenders(page, 'merge-base')
 
-  await page.click('[data-testid="cell-2-4"]')
+  await page.click('[data-testid="cell-3-4"]')
   await page.waitForTimeout(400)
   const splitState = await storeState(page)
   check(
-    !splitState.rects.includes('v(2,4)') && splitState.rects.length === mergeBase.rects.length - 1,
+    !splitState.rects.includes('v(3,4)') && splitState.rects.length === mergeBase.rects.length - 1,
     'clicking a plate splits it back into two squares',
     JSON.stringify(splitState.rects),
   )
   check(
-    splitState.folds[4][2] === 0,
+    splitState.folds[4][3] === 0,
     "the split plate's joint is flat, so re-merging that pair is free",
-    `${splitState.folds[4][2]}`,
+    `${splitState.folds[4][3]}`,
   )
 
-  await page.click('[data-testid="cell-2-4"]')
+  await page.click('[data-testid="cell-3-4"]')
   await page.waitForTimeout(300)
   check(await page.isVisible('[data-testid="gridmap-armed-label"]'), 'clicking a square ARMS it')
   const armedLabel = (await page.textContent('[data-testid="gridmap-armed-label"]')) ?? ''
   check(
-    armedLabel.includes('armed (2, 4)') && /Esc/.test(armedLabel),
+    armedLabel.includes('armed (3, 4)') && /Esc/.test(armedLabel),
     'the map says which square is armed, and how to let go',
     armedLabel,
   )
   check(
-    (await page.getAttribute('[data-testid="cell-3-4"]', 'data-merge')) === 'free',
+    (await page.getAttribute('[data-testid="cell-4-4"]', 'data-merge')) === 'free',
     'the cell across the flattened joint is highlighted as a FREE merge',
   )
   check(
-    (await page.getAttribute('[data-testid="cell-1-4"]', 'data-merge')) === 'coerce',
+    (await page.getAttribute('[data-testid="cell-2-4"]', 'data-merge')) === 'coerce',
     'the cell across a FOLDED joint is highlighted as a COERCE merge',
   )
   check(
-    (await page.isVisible('[data-testid="candidate-3-4"]')) &&
-      (await page.isVisible('[data-testid="candidate-1-4"]')),
+    (await page.isVisible('[data-testid="candidate-4-4"]')) &&
+      (await page.isVisible('[data-testid="candidate-2-4"]')),
     'both candidate styles are drawn on the map at once',
   )
   check(
-    (await page.getAttribute('[data-testid="candidate-3-4"]', 'data-kind')) === 'free' &&
-      (await page.getAttribute('[data-testid="candidate-1-4"]', 'data-kind')) === 'coerce',
+    (await page.getAttribute('[data-testid="candidate-4-4"]', 'data-kind')) === 'free' &&
+      (await page.getAttribute('[data-testid="candidate-2-4"]', 'data-kind')) === 'coerce',
     'the two highlights are drawn in different styles (free vs coerce)',
   )
-  const coerceTip = (await page.textContent('[data-testid="cell-1-4"] title')) ?? ''
+  const coerceTip = (await page.textContent('[data-testid="cell-2-4"] title')) ?? ''
   check(
-    /flattened joint 1 of column 4/.test(coerceTip),
+    /flattened joint 2 of column 4/.test(coerceTip),
     'the coerce candidate spells its consequence out BEFORE the click',
     coerceTip,
   )
@@ -1696,29 +1710,29 @@ try {
   await page.waitForTimeout(250)
   check(
     !(await page.isVisible('[data-testid="gridmap-armed-label"]')) &&
-      (await page.getAttribute('[data-testid="cell-1-4"]', 'data-merge')) === null,
+      (await page.getAttribute('[data-testid="cell-2-4"]', 'data-merge')) === null,
     'Escape disarms the square and clears the highlights',
   )
 
   // Merge the COERCE pair: one plate added, one joint flattened, nothing else.
-  await page.click('[data-testid="cell-2-4"]')
+  await page.click('[data-testid="cell-3-4"]')
   await page.waitForTimeout(200)
-  await page.click('[data-testid="cell-1-4"]')
+  await page.click('[data-testid="cell-2-4"]')
   await page.waitForTimeout(SETTLE_MS)
   const mergedState = await storeState(page)
   check(
-    mergedState.rects.includes('v(1,4)') && mergedState.rects.length === splitState.rects.length + 1,
+    mergedState.rects.includes('v(2,4)') && mergedState.rects.length === splitState.rects.length + 1,
     'clicking a highlighted candidate merged the two squares into a 121cm plate',
     JSON.stringify(mergedState.rects),
   )
   check(
-    mergedState.folds[4][1] === 0 && splitState.folds[4][1] !== 0,
+    mergedState.folds[4][2] === 0 && splitState.folds[4][2] !== 0,
     'the merge flattened the joint the rigid plate now spans',
-    `${splitState.folds[4][1]}° → ${mergedState.folds[4][1]}°`,
+    `${splitState.folds[4][2]}° → ${mergedState.folds[4][2]}°`,
   )
   check(
     mergedState.folds.every((col, c) =>
-      col.every((v, k) => v === splitState.folds[c][k] || (c === 4 && k === 1)),
+      col.every((v, k) => v === splitState.folds[c][k] || (c === 4 && k === 2)),
     ),
     'and it changed no other joint in the grid',
     JSON.stringify(mergedState.folds),
@@ -1726,7 +1740,7 @@ try {
   check(mergedState.lastErrors.length === 0, 'the merge committed through validation', JSON.stringify(mergedState.lastErrors))
   const notice = (await page.textContent('[data-testid="gridmap-notice"]')) ?? ''
   check(
-    /flattened joint 1 of column 4/.test(notice) && /121cm plate/.test(notice),
+    /flattened joint 2 of column 4/.test(notice) && /121cm plate/.test(notice),
     'the notice under the map names the plate and the joint it flattened',
     notice,
   )
@@ -1775,29 +1789,29 @@ try {
   )
 
   // A merge is NOT undone by splitting the plate again: the joint stays flat.
-  await page.click('[data-testid="cell-1-4"]')
+  await page.click('[data-testid="cell-2-4"]')
   await page.waitForTimeout(400)
   const resplitState = await storeState(page)
   check(
-    !resplitState.rects.includes('v(1,4)'),
+    !resplitState.rects.includes('v(2,4)'),
     'the merged plate splits back into two squares',
     JSON.stringify(resplitState.rects),
   )
   check(
-    resplitState.folds[4][1] === 0 && resplitState.lastErrors.length === 0,
+    resplitState.folds[4][2] === 0 && resplitState.lastErrors.length === 0,
     'but the flattened joint STAYS flat — a split is not an undo (that is what Undo is for)',
-    `${resplitState.folds[4][1]}`,
+    `${resplitState.folds[4][2]}`,
   )
 
   // Finally a FREE merge, to show the other half of the pair-click.
-  await page.click('[data-testid="cell-2-4"]')
-  await page.waitForTimeout(200)
   await page.click('[data-testid="cell-3-4"]')
+  await page.waitForTimeout(200)
+  await page.click('[data-testid="cell-4-4"]')
   await page.waitForTimeout(400)
   const freeMergeState = await storeState(page)
   const freeNotice = (await page.textContent('[data-testid="gridmap-notice"]')) ?? ''
   check(
-    freeMergeState.rects.includes('v(2,4)') &&
+    freeMergeState.rects.includes('v(3,4)') &&
       JSON.stringify(freeMergeState.folds) === JSON.stringify(resplitState.folds),
     'a FREE merge adds the plate and changes no geometry at all',
     JSON.stringify(freeMergeState.rects),
