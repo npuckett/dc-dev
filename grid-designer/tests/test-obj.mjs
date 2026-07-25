@@ -55,8 +55,12 @@ function checkNoThrow(name, fn) {
 }
 
 /**
- * Parse an OBJ into `{ name → [[x,y,z], …] }`, preserving object order.
- * Written from scratch here rather than reusing anything from src/.
+ * Parse an OBJ into `{ name, vertices: [[x,y,z], …], faces: n }`, preserving
+ * object order. Written from scratch here rather than reusing anything from src/.
+ *
+ * `faces` matters since WP11: the panel geometry now carries two material groups,
+ * and OBJExporter walks the FULL index buffer regardless of groups — so the face
+ * count is the check that grouping did not silently truncate the export.
  */
 function parseObjObjects(text) {
   const objects = []
@@ -64,11 +68,13 @@ function parseObjObjects(text) {
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (line.startsWith('o ')) {
-      current = { name: line.slice(2).trim(), vertices: [] }
+      current = { name: line.slice(2).trim(), vertices: [], faces: 0 }
       objects.push(current)
     } else if (line.startsWith('v ') && current) {
       const [x, y, z] = line.slice(2).trim().split(/\s+/).map(Number)
       current.vertices.push([x, y, z])
+    } else if (line.startsWith('f ') && current) {
+      current.faces++
     }
   }
   return objects
@@ -76,8 +82,10 @@ function parseObjObjects(text) {
 
 /** Expected vertex count for a panel type, straight from the geometry builder. */
 const typeVertexCount = (type) =>
-  buildPanelGeometry({ type, sidedness: 'single', powerSupplyEdge: 0 }).getAttribute('position')
-    .count
+  buildPanelGeometry({ type }).getAttribute('position').count
+
+/** Expected triangle count for a panel type, straight from the geometry builder. */
+const typeTriangleCount = (type) => buildPanelGeometry({ type }).getIndex().count / 3
 
 const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -170,6 +178,22 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
     `wave OBJ: per-object vertex counts match buildPanelGeometry (2x2=${expectCount['2x2']}, 2x4=${expectCount['2x4']})`,
     counts,
     countDetail,
+  )
+
+  // The geometry carries two MATERIAL GROUPS (diffuser / housing) since WP11.
+  // OBJExporter walks the full index buffer and ignores groups, so every triangle
+  // must still be emitted — a grouped geometry silently exporting only its first
+  // group would show up here as 2 faces per object instead of 36.
+  const expectFaces = { '2x2': typeTriangleCount('2x2'), '2x4': typeTriangleCount('2x4') }
+  check(
+    `wave OBJ: every object emits ALL its triangles despite the material groups (${expectFaces['2x2']} faces/panel)`,
+    objects.every((o, i) => o.faces === expectFaces[layout.panels[i].type]),
+    JSON.stringify(objects.slice(0, 3).map((o) => [o.name, o.faces])),
+  )
+  check(
+    'wave OBJ: 36 faces per panel — the closed frame + diffuser + tapered-tray shell',
+    expectFaces['2x2'] === 36 && expectFaces['2x4'] === 36,
+    JSON.stringify(expectFaces),
   )
 
   // Every panel's four lit-face corners must appear among that object's

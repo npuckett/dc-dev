@@ -47,6 +47,12 @@
  *                  plates surviving throughout
  *   12-front.png   the FRONT slider dragged on one column: its window panel pitched
  *                  to 35°, the whole strip pitching with it, no hinge touched
+ *   13-panel-detail.png the WP11 PANEL CLOSE-UP — the camera parked (through
+ *                  `window.__gridDesignerCamera`) beside the 'surge' surface so the
+ *                  same frame holds panels showing their LIT FACE (a recessed glowing
+ *                  diffuser inside a crisp frame flange) and panels showing their
+ *                  BACK (a closed, inward-tapering tray). This is the visual proof
+ *                  that the panel solid is no longer inside-out.
  *
  * Placement cells are never hard-coded: legal / illegal candidates are derived
  * from the live config's fold sequences and the solved `columnChains[c].pitchesDeg`
@@ -95,6 +101,11 @@
  *   - ROW RESOLUTION end to end: the stepper reads the preset's row count, walks the
  *     flat grid 5 → 6 → 8 → 6, grows and shrinks the panel count accordingly, appends
  *     hinges at the BACK of every strip and keeps the plates that still fit
+ *   - THE PANEL SOLID (WP11): with the camera parked beside the 'surge' surface, the
+ *     visible panels genuinely split into ones presenting their LIT FACE to the camera
+ *     and ones presenting their BACK — computed from each panel's world normal
+ *     (`quaternion · +Y`) against the camera position, which is exactly the test the
+ *     old inside-out caps failed silently
  *   - Export OBJ / Download JSON fire real downloads with the expected names, the
  *     OBJ payload contains `o panel_r0_c0`, one object per panel, and the JSON is
  *     the current fully-defaulted v2 config
@@ -1344,6 +1355,100 @@ try {
   await page.screenshot({ path: `${OUT}/12-front.png` })
   console.log('  → tests/screenshots/12-front.png')
 
+  // --- (l) THE PANEL CLOSE-UP (WP11) ---------------------------------------
+  // The panel solid used to be built with its front and back caps wound
+  // inside-out: under FrontSide materials both were culled, so panels rendered
+  // with no lit face and no housing back. Nothing in this harness noticed,
+  // because every whole-surface view happens to look at the panels' EDGES and
+  // silhouettes as much as their faces.
+  //
+  // So: park the camera beside the deepest storm surface, close enough that two
+  // or three adjacent panels fill the frame, and at an angle where the SAME
+  // frame holds panels facing the camera and panels facing away from it. Then
+  // assert, from the layout itself, that both really are in shot.
+  const errorsBeforeDetail = consoleErrors.length
+  await page.click('[data-testid="preset-surge"]')
+  await page.waitForTimeout(SETTLE_MS)
+  check(
+    await page.evaluate(() => typeof window.__gridDesignerCamera === 'function'),
+    'the viewport exposes window.__gridDesignerCamera for close-up framing',
+  )
+  const DETAIL_CAM = [470, 120, 315]
+  const DETAIL_TARGET = [345, 100, 240]
+  await page.evaluate(
+    ([pos, target]) => window.__gridDesignerCamera(pos, target),
+    [DETAIL_CAM, DETAIL_TARGET],
+  )
+  await page.waitForTimeout(SETTLE_MS)
+
+  // Which panels near the camera show their LIT FACE, and which their BACK?
+  // A panel's world lit direction is its stored quaternion applied to +Y; the
+  // sign of its dot product with (camera − panel) says which side we can see.
+  const facing = await page.evaluate(
+    ([cam, radius]) => {
+      const { layout } = window.__gridDesignerDerived()
+      /**
+       * The panel's world LIT direction: its stored quaternion applied to the
+       * local +Y axis. Written out longhand (three's Vector3.applyQuaternion
+       * specialized to v = (0,1,0)) so nothing from src/ is involved:
+       *   t = 2·(q.xyz × v) = (−2qz, 0, 2qx)
+       *   v' = v + qw·t + q.xyz × t
+       */
+      const litDirection = (q) => {
+        const norm = Math.hypot(q[0], q[1], q[2], q[3]) || 1
+        const qx = q[0] / norm
+        const qy = q[1] / norm
+        const qz = q[2] / norm
+        const qw = q[3] / norm
+        const tx = -2 * qz
+        const ty = 0
+        const tz = 2 * qx
+        return [
+          0 + qw * tx + (qy * tz - qz * ty),
+          1 + qw * ty + (qz * tx - qx * tz),
+          0 + qw * tz + (qx * ty - qy * tx),
+        ]
+      }
+      let face = 0
+      let back = 0
+      let near = 0
+      for (const panel of layout.panels) {
+        const d = [
+          cam[0] - panel.position[0],
+          cam[1] - panel.position[1],
+          cam[2] - panel.position[2],
+        ]
+        if (Math.hypot(d[0], d[1], d[2]) > radius) continue
+        near++
+        const n = litDirection(panel.quaternion)
+        const dot = n[0] * d[0] + n[1] * d[1] + n[2] * d[2]
+        if (dot > 0) face++
+        else back++
+      }
+      return { near, face, back }
+    },
+    [DETAIL_CAM, 260],
+  )
+  check(
+    facing.near >= 3,
+    'the close-up camera sits within 260cm of at least three panels',
+    JSON.stringify(facing),
+  )
+  check(
+    facing.face > 0 && facing.back > 0,
+    'the close-up frames BOTH lit faces and backs — the two surfaces the inside-out caps used to hide',
+    `${facing.face} facing the camera, ${facing.back} showing their back (of ${facing.near} nearby)`,
+  )
+  const detailShot = await assertCanvasRenders(page, 'panel-detail')
+  check(canvasChanged(frontShot, detailShot), 'the close-up render differs from the wide front view')
+  check(
+    consoleErrors.length === errorsBeforeDetail,
+    'the close-up produced no console errors',
+    consoleErrors.slice(errorsBeforeDetail).join(' | '),
+  )
+  await page.screenshot({ path: `${OUT}/13-panel-detail.png` })
+  console.log('  → tests/screenshots/13-panel-detail.png')
+
   // --- byte-level differences ---------------------------------------------
   const shots = [
     '01-flat.png',
@@ -1358,6 +1463,7 @@ try {
     '10-wallcrash.png',
     '11-rows.png',
     '12-front.png',
+    '13-panel-detail.png',
   ].map(
     (name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }),
   )
@@ -1380,7 +1486,7 @@ try {
 // -----------------------------------------------------------------------------
 // summary
 // -----------------------------------------------------------------------------
-console.log('\n=== SCREENSHOT HARNESS (WP9 — the plate-pattern rule) ===')
+console.log('\n=== SCREENSHOT HARNESS (WP11 — the panel solid) ===')
 for (const r of results) {
   console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`)
 }

@@ -6,9 +6,31 @@
  * solid; its +90° yaw is already baked into the quaternion `solveLayout`
  * produced, so nothing extra is needed here.
  *
- * Materials read as light fixtures rather than plates: warm near-white with a
- * gentle emissive lift for the square panels, a cooler tint for the 60×121
- * rects so the modularity of the surface is legible at a glance.
+ * TWO MATERIALS PER PANEL
+ * =============================================================================
+ * `buildPanelGeometry` emits two material groups, so every mesh carries two
+ * materials attached by slot (r3f's `attach="material-0"` / `"material-1"`):
+ *
+ *   slot 0 — THE DIFFUSER (`DIFFUSER_MATERIAL_INDEX`): the recessed glowing
+ *     panel, the light source itself. Bright and clearly emissive, nearly
+ *     smooth, non-metallic. This is where the square-vs-rect colour distinction
+ *     now lives — warm near-white for the 60×60 squares, a cooler blue for the
+ *     60×121 plates — so plate modularity stays legible at a glance across a
+ *     whole folded surface.
+ *
+ *   slot 1 — FRAME + HOUSING (`HOUSING_MATERIAL_INDEX`): the flange around the
+ *     diffuser, the outer side wall, the tapered tray and its back plate. Matte
+ *     mid-grey aluminium — much darker than the diffuser, rough, slightly
+ *     metallic — so the frame reads as a crisp border around the glow and a
+ *     folded-up panel's back reads as a solid tray rather than a lit plate. It is
+ *     tinted per type too (a hair warmer / cooler to match its diffuser).
+ *
+ *     Its small `emissiveIntensity` is deliberate and NOT decoration: the tray
+ *     back faces away from both directional lights, and with a purely reflective
+ *     material it crushed to solid black — the closed tapered housing was there
+ *     but unreadable, which is the very thing this material has to prove. The
+ *     emissive is a visibility floor, low enough that the frame never competes
+ *     with the diffuser and the array still reads as light fixtures, not plastic.
  */
 
 import { useMemo } from 'react'
@@ -20,23 +42,45 @@ const geometryCache = new Map()
 
 function geometryFor(type) {
   if (!geometryCache.has(type)) {
-    geometryCache.set(
-      type,
-      buildPanelGeometry({ type, sidedness: 'single', powerSupplyEdge: 0 }),
-    )
+    geometryCache.set(type, buildPanelGeometry({ type }))
   }
   return geometryCache.get(type)
 }
 
+/** Warm near-white glow for the 60×60 squares. */
 const SQUARE = {
-  color: '#f6efe2',
-  emissive: '#ffd9a0',
-  emissiveIntensity: 0.42,
+  diffuser: {
+    color: '#fbf4e4',
+    emissive: '#ffd6a0',
+    emissiveIntensity: 0.6,
+    roughness: 0.35,
+    metalness: 0,
+  },
+  housing: {
+    color: '#8b857a',
+    emissive: '#2c2318',
+    emissiveIntensity: 0.16,
+    roughness: 0.72,
+    metalness: 0.4,
+  },
 }
+
+/** Cooler blue glow for the 60×121 plates, so the modules stay countable. */
 const RECT = {
-  color: '#e6eef8',
-  emissive: '#8fb9ff',
-  emissiveIntensity: 0.36,
+  diffuser: {
+    color: '#e7f0fd',
+    emissive: '#8fb9ff',
+    emissiveIntensity: 0.55,
+    roughness: 0.35,
+    metalness: 0,
+  },
+  housing: {
+    color: '#7c828c',
+    emissive: '#1b2230',
+    emissiveIntensity: 0.16,
+    roughness: 0.72,
+    metalness: 0.4,
+  },
 }
 
 export default function SurfaceMeshes() {
@@ -61,12 +105,23 @@ export default function SurfaceMeshes() {
             castShadow={false}
             receiveShadow={false}
           >
+            {/* slot 0 — the diffuser (geometry group 0) */}
             <meshStandardMaterial
-              color={look.color}
-              emissive={look.emissive}
-              emissiveIntensity={look.emissiveIntensity}
-              roughness={0.55}
-              metalness={0.05}
+              attach="material-0"
+              color={look.diffuser.color}
+              emissive={look.diffuser.emissive}
+              emissiveIntensity={look.diffuser.emissiveIntensity}
+              roughness={look.diffuser.roughness}
+              metalness={look.diffuser.metalness}
+            />
+            {/* slot 1 — frame flange, side walls, tapered tray, back plate */}
+            <meshStandardMaterial
+              attach="material-1"
+              color={look.housing.color}
+              emissive={look.housing.emissive}
+              emissiveIntensity={look.housing.emissiveIntensity}
+              roughness={look.housing.roughness}
+              metalness={look.housing.metalness}
             />
           </mesh>
         )

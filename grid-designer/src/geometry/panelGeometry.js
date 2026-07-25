@@ -1,285 +1,214 @@
 /**
- * Copied from panel-designer/src/geometry/panelGeometry.js — do not edit the original.
- * Verbatim except the config import below, which now carries an explicit `.js`
- * extension (required for node ESM; the original omits it, which is why
- * panel-designer's node tests cannot load it).
+ * grid-designer — parametric solid mesh for one LED flat panel.
  *
- * Panel Geometry — Parametric solid mesh builder
+ * PROVENANCE / WHY THIS DIVERGED FROM panel-designer
+ * =============================================================================
+ * This file BEGAN as a copy of panel-designer/src/geometry/panelGeometry.js (do
+ * not edit that original), but it is no longer verbatim — the copy was wrong in
+ * three ways that only showed up once whole grids of panels were rendered:
  *
- * Constructs a THREE.BufferGeometry representing a single LED panel as an
- * extruded solid with the physical cross-section:
+ *   1. The front and back CAPS were wound inside-out. Measured on the built
+ *      output: the triangles at y = 0 had geometric normal −Y (pointing into the
+ *      solid) and those at y = −overallThickness had +Y. Under FrontSide
+ *      materials both were culled, so the lit face and the housing back were
+ *      simply absent — panels appeared to be "missing several faces on the front
+ *      and the back".
+ *   2. The recessed "lip annulus" ring at y = −outerThickness was buried
+ *      directly beneath a FULL-footprint front face at y = 0, so it contributed
+ *      nothing: there was no frame-versus-diffuser distinction at all.
+ *   3. `powerSupplyEdge` left one edge flush (no inset, no bevel), which
+ *      collapsed that edge's quads onto each other — a panel-designer
+ *      connector-modelling detail, and the source of the degenerate/coincident
+ *      geometry. It is gone: a real drop-in fixture has a frame on ALL FOUR
+ *      edges, so the profile here is uniform around the perimeter.
  *
- *   - A thin front slab (the display face) at full footprint × outerThickness.
- *   - A raised back body (the housing) inset from 3 edges by BODY_INSET,
- *     rising to overallThickness, with beveled (slanted) transitions.
- *   - The powerSupplyEdge is flush: the body extends to that edge with no
- *     inset and no bevel (full depth right to the rim).
+ * Also dropped: the half-implemented `sidedness: 'double'` mode (never used),
+ * and the unreferenced `buildPanelEdges` / `panelFrontCorners` helpers.
  *
- * Single vs double-sided:
- *   - single: one lit face (+Y). Back is the opaque housing.
- *   - double: symmetric — a lit face on both +Y and -Y, housing frame between.
+ * `PANEL_PROFILE.slantWidth` no longer appears directly; it participates only
+ * through `BODY_INSET` (= lipWidth + slantWidth), the horizontal run of the
+ * tapered housing wall.
  *
- * The geometry is centered at panel-local origin with +Y = front (display) and
- * the face spanning the local XZ-plane.
+ * WHAT IS BUILT
+ * =============================================================================
+ * A closed, outward-oriented 2-manifold shell of a drop-in LED flat panel: a
+ * frame flange all the way around a slightly recessed diffuser, with a closed,
+ * inward-tapering tray behind it holding the LEDs.
+ *
+ * Cross-section (looking along an edge; same on all four edges):
+ *
+ *        frame flange (visible border, material 1)
+ *        ┌────┐                              ┌────┐   y =  0     ← FULL footprint
+ *        │    │  ← frame inner reveal        │    │
+ *        │    └──────────────────────────────┘    │   y = −t     ← LIP footprint
+ *        │      diffuser cap (material 0, lit)    │
+ *        │                                        │
+ *         ╲                                      ╱              ← tapered housing:
+ *          ╲                                    ╱                 BODY_INSET across,
+ *           ╲__________________________________╱     y = −D       (D − t) down
+ *                     back plate (material 1)         ← BODY footprint
+ *
+ *   t = PANEL_PROFILE.outerThickness   (1.0 cm — frame flange depth / diffuser recess)
+ *   D = PANEL_PROFILE.overallThickness (3.7 cm — full depth, front face → tray back)
+ *   frame ring width = PANEL_PROFILE.lipWidth (2.5 cm) on every side
+ *   BODY_INSET       = 4.0 cm (the tapered wall's horizontal run)
+ *
+ * PANEL LOCAL FRAME (unchanged — core/placement.js depends on it)
+ * =============================================================================
+ *   - The panel is centred on the local origin in X and Z; width runs along X,
+ *     height along Z.
+ *   - +Y is the LIT direction. The OUTERMOST FRONT SURFACE IS STILL THE PLANE
+ *     y = 0 (the frame flange top, on the full footprint), and the housing runs
+ *     back to y = −D. So `core/placement.js`'s solid-corner and grounding math —
+ *     which reasons about the face plane at y = 0 and a thickness of D — is
+ *     completely unaffected by this rewrite. No panel moves.
+ *   - The diffuser itself sits one `t` behind that plane, at y = −t. That recess
+ *     is what makes the frame read as a border rather than a painted outline.
+ *
+ * The shell is emitted as a tube traversed front → around → back, built from
+ * five rectangular rings plus two horizontal caps:
+ *
+ *   cap A: diffuser   LIP  @ y = −t   facing +Y   (material 0)
+ *   R1 = LIP  @ y = −t   diffuser edge
+ *   R2 = LIP  @ y =  0   frame inner top edge
+ *   R3 = FULL @ y =  0   frame outer top edge
+ *   R4 = FULL @ y = −t   frame outer bottom edge
+ *   R5 = BODY @ y = −D   back plate edge
+ *   cap B: back plate BODY @ y = −D   facing −Y   (material 1)
+ *
+ *   R1→R2  frame inner reveal   (outward normal points toward the panel centre —
+ *                                it is the wall of the open recess)
+ *   R2→R3  frame flange top ring (+Y — THE VISIBLE FRAME)
+ *   R3→R4  frame outer side wall
+ *   R4→R5  tapered housing wall
+ *
+ * Every ring has exactly two faces meeting it, so the result is closed and
+ * watertight. 18 quads = 72 vertices = 36 triangles; vertices are DUPLICATED per
+ * quad so `computeVertexNormals()` yields crisp per-face normals and hard edges
+ * (the frame has to read sharply against the glow).
+ *
+ * tests/test-geometry.mjs is the regression guard for all of the above: it
+ * re-checks the manifold property, the edge orientation consistency, the signed
+ * volume against the closed-form profile volume, and the cap normals.
  */
 
 import * as THREE from 'three'
-import {
-  PANEL_DIMENSIONS,
-  PANEL_PROFILE,
-  BODY_INSET,
-  edgeEndpoints,
-  edgeOutwardNormal,
-} from '../config.js'
+import { PANEL_DIMENSIONS, PANEL_PROFILE, BODY_INSET } from '../config.js'
 
-const { overallThickness, outerThickness, lipWidth, slantWidth } = PANEL_PROFILE
+const { overallThickness, outerThickness, lipWidth } = PANEL_PROFILE
+
+/** Material slot of the diffuser cap — the lit surface. */
+export const DIFFUSER_MATERIAL_INDEX = 0
+/** Material slot of the frame flange, side walls, taper and back plate. */
+export const HOUSING_MATERIAL_INDEX = 1
 
 /**
- * Build the panel solid geometry.
+ * The four corners of a rectangle in the STANDARD RING ORDER used throughout
+ * this file: [SW, SE, NE, NW] = [(minX,minZ), (maxX,minZ), (maxX,maxZ), (minX,maxZ)].
+ *
+ * @param {number} halfW half-width along X
+ * @param {number} halfH half-height along Z
+ * @returns {Array<[number, number]>} 4 [x, z] pairs
+ */
+function ring(halfW, halfH) {
+  return [
+    [-halfW, -halfH], // SW
+    [halfW, -halfH],  // SE
+    [halfW, halfH],   // NE
+    [-halfW, halfH],  // NW
+  ]
+}
+
+/**
+ * Build one panel's solid geometry.
  *
  * @param {object} opts
- * @param {string} opts.type        - '2x2' | '2x4'
- * @param {string} opts.sidedness   - 'single' | 'double'
- * @param {number} opts.powerSupplyEdge - 0..3 (which edge is flush, no lip)
- * @returns {THREE.BufferGeometry}
+ * @param {string} opts.type '2x2' | '2x4'
+ * @returns {THREE.BufferGeometry} indexed, with two material groups
+ *          (`DIFFUSER_MATERIAL_INDEX` then `HOUSING_MATERIAL_INDEX`)
  */
-export function buildPanelGeometry({ type, sidedness = 'single', powerSupplyEdge = 0 }) {
+export function buildPanelGeometry({ type }) {
   const dim = PANEL_DIMENSIONS[type]
-  const w = dim.width
-  const h = dim.height
-  const hw = w / 2
-  const hh = h / 2
+  if (!dim) throw new Error(`buildPanelGeometry: unknown panel type ${JSON.stringify(type)}`)
+
+  const hw = dim.width / 2
+  const hh = dim.height / 2
+
+  const t = outerThickness      //  1.0 — flange depth / diffuser recess
+  const D = overallThickness    //  3.7 — full depth
+  const lw = lipWidth           //  2.5 — frame ring width
+  const inset = BODY_INSET      //  4.0 — tapered wall horizontal run
+
+  const FULL = ring(hw, hh)
+  const LIP = ring(hw - lw, hh - lw)
+  const BODY = ring(hw - inset, hh - inset)
 
   const positions = []
   const indices = []
+  let next = 0
 
-  // Depth levels (Y). +Y = front display face (y=0); -Y = back (y = -overall).
-  const FRONT = 0
-  const RIM = -outerThickness       // -1.0
-  const BACK = -overallThickness    // -3.7
-
-  // For double-sided panels the profile mirrors about the mid-depth plane.
-  // We compute a "mid" offset so the geometry is symmetric about Y = -overall/2.
-  const midY = sidedness === 'double' ? -overallThickness / 2 : 0
-  // In double-sided, front face is at +midY, back housing at -midY-mirror... but
-  // keep it simple: double = two front slabs back-to-back. Front slab +Y, a
-  // mirrored front slab -Y, housing between. We implement by building the
-  // single-sided solid then mirroring the front-face portion to the back.
-  // For V1 we model double-sided as a full solid block (both faces lit visually
-  // via material) to keep the collision volume correct and simple.
-  const yFront = sidedness === 'double' ? midY + overallThickness / 2 : FRONT
-  const yBack = sidedness === 'double' ? midY - overallThickness / 2 : BACK
-  // Note: for double, thickness is symmetric so |yFront| = |yBack|.
-
-  // ---------------------------------------------------------------------------
-  // Helper: push a quad (two triangles) given 4 corner positions.
-  // Corners CCW when viewed from outside (normal toward viewer).
-  // ---------------------------------------------------------------------------
-  let vIdx = 0
-  function vert(x, y, z) {
+  /** Push a vertex, return its index. */
+  const vert = (x, y, z) => {
     positions.push(x, y, z)
-    return vIdx++
+    return next++
   }
-  function quad(a, b, c, d) {
-    // a,b,c,d in CCW order (front-facing)
+
+  /** Two triangles (a,b,c) and (a,c,d) — CCW as seen from outside. */
+  const quad = (a, b, c, d) => {
     indices.push(a, b, c, a, c, d)
   }
 
-  // ---------------------------------------------------------------------------
-  // Define the footprint corners and the inset (body) corners.
-  //
-  // The body is inset by BODY_INSET on the 3 lip sides, but flush (no inset)
-  // on the power-supply edge. So the body footprint is a rectangle inset on
-  // 3 sides but touching the panel edge on the powerSupplyEdge side.
-  //
-  // Footprint corners (CCW from south-west):
-  //   SW (-hw,-hh)  SE (hw,-hh)  NE (hw,hh)  NW (-hw,hh)
-  // ---------------------------------------------------------------------------
-  const inset = BODY_INSET
-
-  // Inset per edge: 0 if this is the power-supply edge, else `inset`.
-  const insetFor = (edge) => (edge === powerSupplyEdge ? 0 : inset)
-
-  // Body (raised housing) corners — inset inward from each edge by insetFor(edge).
-  // We compute body footprint by shrinking the outer rect per-edge.
-  const bodyMinX = -hw + insetFor(3) // west inset
-  const bodyMaxX = hw - insetFor(1)  // east inset
-  const bodyMinZ = -hh + insetFor(0) // south inset
-  const bodyMaxZ = hh - insetFor(2)  // north inset
-
-  // Bevel transition corners: at lipWidth (the flat lip ends, bevel begins).
-  // On lip sides, the bevel starts at insetFor(edge) and goes to insetFor+slant.
-  // The "bevel start" footprint = outer rect inset by lipWidth (on lip sides only).
-  const lipMinX = -hw + (powerSupplyEdge === 3 ? 0 : lipWidth)
-  const lipMaxX = hw - (powerSupplyEdge === 1 ? 0 : lipWidth)
-  const lipMinZ = -hh + (powerSupplyEdge === 0 ? 0 : lipWidth)
-  const lipMaxZ = hh - (powerSupplyEdge === 2 ? 0 : lipWidth)
-
-  // Y level where the bevel starts (= rim depth, -1.0)
-  const yRim = sidedness === 'double' ? yFront - outerThickness : RIM
-  // For double-sided, the back side also has a rim at yBack + outerThickness.
-  const yRimBack = sidedness === 'double' ? yBack + outerThickness : null
-
-  // ---------------------------------------------------------------------------
-  // Build the geometry as a set of "rings" (perimeter loops at each Y level)
-  // connected into quads. This is robust for both single & double sided.
-  //
-  // Rings (front → back):
-  //   R0: front face plane     (yFront)   — full footprint, the lit surface
-  //   R1: rim plane            (yRim)     — full footprint (outer rim edge)
-  //   R2: lip end / bevel top (yRim)      — footprint inset by lipWidth
-  //   R3: body top             (yBack)    — footprint inset by BODY_INSET (body)
-  //
-  // R1 and R2 share the same Y but different footprint → the flat lip annulus
-  // sits between them. The bevel connects R2 (at yRim) to R3 (at yBack).
-  // ---------------------------------------------------------------------------
-
-  // Footprint corner generator: returns 4 corners [SW,SE,NE,NW] for a given
-  // [minX,maxX,minZ,maxZ] box.
-  const boxCorners = (minX, maxX, minZ, maxZ) => [
-    [minX, minZ], // SW
-    [maxX, minZ], // SE
-    [maxX, maxZ], // NE
-    [minX, maxZ], // NW
-  ]
-
-  const full = boxCorners(-hw, hw, -hh, hh)
-  const lip = boxCorners(lipMinX, lipMaxX, lipMinZ, lipMaxZ)
-  const body = boxCorners(bodyMinX, bodyMaxX, bodyMinZ, bodyMaxZ)
-
-  // --- Front face (lit surface) ---
-  // Full footprint at yFront, facing +Y. Corners CCW when viewed from +Y.
-  // In XZ-plane viewed from +Y: CCW = SW, SE, NE, NW? Viewed from above (+Y down),
-  // CCW is SW→SE→NE→NW. For a +Y-facing quad we want CCW in XZ as seen from +Y.
-  {
-    const c = full.map(([x, z]) => vert(x, yFront, z))
-    quad(c[0], c[1], c[2], c[3]) // +Y facing
+  /**
+   * A horizontal cap. `+1` faces +Y (corner order SW, NW, NE, SE); `-1` faces
+   * −Y (corner order SW, SE, NE, NW).
+   */
+  const cap = (corners, y, facing) => {
+    const order = facing > 0 ? [0, 3, 2, 1] : [0, 1, 2, 3]
+    const v = order.map((i) => vert(corners[i][0], y, corners[i][1]))
+    quad(v[0], v[1], v[2], v[3])
   }
 
-  // --- Outer rim band: connect full footprint at yFront down to yRim ---
-  // The vertical outer wall (outerThickness tall) on all 4 sides.
-  // For each edge, connect the full-footprint corners to the same at yRim.
-  {
-    const top = full.map(([x, z]) => [x, yFront, z])
-    const bot = full.map(([x, z]) => [x, yRim, z])
-    for (let i = 0; i < 4; i++) {
-      const a = vert(...top[i])
-      const b = vert(...top[(i + 1) % 4])
-      const c2 = vert(...bot[(i + 1) % 4])
-      const d = vert(...bot[i])
-      // outward facing
-      quad(a, b, c2, d)
-    }
-  }
-
-  // --- Flat lip annulus: from full footprint edge inward to lip footprint ---
-  // This is the flat ring at yRim between `full` and `lip` corners.
-  {
-    const outer = full.map(([x, z]) => [x, yRim, z])
-    const inner = lip.map(([x, z]) => [x, yRim, z])
+  /**
+   * The four side quads joining ring A (at `yA`) to ring B (at `yB`). Traversed
+   * in the R1→R2→R3→R4→R5 order documented in the header, this single winding
+   * rule gives the correct OUTWARD normal for every connection — no
+   * per-connection special-casing.
+   */
+  const connect = (A, yA, B, yB) => {
     for (let i = 0; i < 4; i++) {
       const ni = (i + 1) % 4
-      const a = vert(...outer[i])
-      const b = vert(...outer[ni])
-      const c2 = vert(...inner[ni])
-      const d = vert(...inner[i])
-      quad(a, b, c2, d) // faces +Y (up, the lip surface)... but lip is the
-      // recessed flat area — it faces +Y (toward viewer). Correct.
+      quad(
+        vert(A[i][0], yA, A[i][1]),
+        vert(A[ni][0], yA, A[ni][1]),
+        vert(B[ni][0], yB, B[ni][1]),
+        vert(B[i][0], yB, B[i][1]),
+      )
     }
   }
 
-  // --- Bevel ramp: from lip footprint (yRim) to body footprint (yBack) ---
-  // The slanted transition. Connects `lip` corners at yRim to `body` corners
-  // at yBack. On the power-supply edge, lip == body == full (no bevel there,
-  // since inset is 0) — the quad degenerates (handled naturally: zero-width).
-  {
-    const top = lip.map(([x, z]) => [x, yRim, z])
-    const bot = body.map(([x, z]) => [x, yBack, z])
-    for (let i = 0; i < 4; i++) {
-      const ni = (i + 1) % 4
-      const a = vert(...top[i])
-      const b = vert(...top[ni])
-      const c2 = vert(...bot[ni])
-      const d = vert(...bot[i])
-      quad(a, b, c2, d)
-    }
-  }
+  // --- group 0: the diffuser, emitted first so it owns index range [0, 6) -----
+  cap(LIP, -t, +1)
+  const diffuserIndexCount = indices.length
 
-  // --- Back body walls: vertical sides of the raised housing ---
-  // From body footprint at yRim (top of bevel meets body) — but the body's
-  // side wall goes from yRim down to yBack? No: body sits at yBack as the top.
-  // Actually the housing body is a block from yBack up to the bevel. Its
-  // vertical walls run from the bevel-attach line. Since the bevel already
-  // connects lip(yRim)→body(yBack), the body's vertical wall is zero-height
-  // at the body's top edge — the body IS just the top face. Let me reconsider.
-  //
-  // Re-derivation of the solid layers (front=+Y top, back=-Y bottom):
-  //   yFront (0)    : front lit face (full footprint)
-  //   yRim (-1.0)   : bottom of the outer rim. Lip annulus lives here.
-  //                   Bevel starts here at the lip footprint.
-  //   yBack (-3.7)  : the housing body's BACK face (full body footprint).
-  //
-  // So the solid is:
-  //   front face (full, yFront) → outer rim walls (full, yFront→yRim) →
-  //   lip annulus (full→lip, at yRim) → bevel ramp (lip→body, yRim→yBack) →
-  //   back face (body footprint, at yBack).
-  // The housing body has vertical walls too — from the body footprint down?
-  // No. The body footprint at yBack is the bottom. The bevel rises from body
-  // footprint (yBack) up to lip footprint (yRim). There's no separate vertical
-  // body wall — the bevel IS the transition. On the power-supply edge (inset 0),
-  // the bevel is vertical (lip==body==full corner), forming the full-depth wall.
-  //
-  // So we just need the back face to close the solid.
-
-  // --- Back face (housing back) ---
-  // Body footprint at yBack, facing -Y.
-  {
-    const c = body.map(([x, z]) => vert(x, yBack, z))
-    // CCW for -Y facing = reverse of +Y
-    quad(c[0], c[3], c[2], c[1])
-  }
-
-  // ---------------------------------------------------------------------------
-  // DOUBLE-SIDED: mirror the front-face assembly to the back.
-  // For double-sided we already shifted yFront/yBack symmetric about midY.
-  // The structure above produces a symmetric solid IF yRim is computed as
-  // yFront - outerThickness. For double: yFront = +t/2, yRim = +t/2 - 1.0,
-  // yBack = -t/2. The back face at yBack faces -Y and the front at yFront
-  // faces +Y — both are "lit" faces in material terms. The geometry is already
-  // a closed solid. Good — double-sided just shifts the center plane.
-  // ---------------------------------------------------------------------------
+  // --- group 1: frame + housing ----------------------------------------------
+  connect(LIP, -t, LIP, 0)     // R1→R2  frame inner reveal
+  connect(LIP, 0, FULL, 0)     // R2→R3  frame flange top ring (the visible frame)
+  connect(FULL, 0, FULL, -t)   // R3→R4  frame outer side wall
+  connect(FULL, -t, BODY, -D)  // R4→R5  tapered housing wall
+  cap(BODY, -D, -1)            // cap B  back plate
 
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setIndex(indices)
+  geometry.addGroup(0, diffuserIndexCount, DIFFUSER_MATERIAL_INDEX)
+  geometry.addGroup(
+    diffuserIndexCount,
+    indices.length - diffuserIndexCount,
+    HOUSING_MATERIAL_INDEX,
+  )
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
 
   return geometry
-}
-
-/**
- * Build a lightweight wireframe edges geometry for a panel (for overlay).
- * Returns a THREE.EdgesGeometry.
- */
-export function buildPanelEdges(panelGeo) {
-  return new THREE.EdgesGeometry(panelGeo, 1) // 1° threshold
-}
-
-/**
- * Get the 4 front-face corners of a panel in local coords (for intersection
- * sampling, joint attachment, etc.). Returns array of [x,y,z].
- * Front face is at y=yFront centered; corners in CCW order.
- */
-export function panelFrontCorners(type) {
-  const dim = PANEL_DIMENSIONS[type]
-  const hw = dim.width / 2
-  const hh = dim.height / 2
-  return [
-    [-hw, 0, -hh],
-    [hw, 0, -hh],
-    [hw, 0, hh],
-    [-hw, 0, hh],
-  ]
 }

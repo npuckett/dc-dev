@@ -21,7 +21,8 @@
  * WebGL canvas into a 2D canvas and sample pixels for a non-blank assertion.
  */
 
-import { Canvas } from '@react-three/fiber'
+import { useEffect } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html, OrbitControls } from '@react-three/drei'
 import useStore, { getDerived } from '../store.js'
 import { WALL_X } from '../core/schema.js'
@@ -95,6 +96,43 @@ function Wall() {
   )
 }
 
+/**
+ * Automation hook: `window.__gridDesignerCamera([x,y,z], [tx,ty,tz])` parks the
+ * camera, in the same spirit as `window.__gridDesignerStore` in App.jsx. It
+ * exists so tests/screenshot.mjs can frame a CLOSE-UP of two or three adjacent
+ * panels (the visual proof that the frame / diffuser / tapered back read
+ * correctly) without simulating orbit drags, which are timing-dependent.
+ *
+ * It has to live inside `<Canvas>` because that is the only place the r3f camera
+ * and the drei OrbitControls instance (registered by `makeDefault`) are
+ * reachable. Setting `controls.target` and calling `update()` keeps damping from
+ * dragging the view back.
+ */
+function CameraHook() {
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls)
+
+  useEffect(() => {
+    window.__gridDesignerCamera = (position, target) => {
+      camera.position.set(position[0], position[1], position[2])
+      if (controls?.target) {
+        controls.target.set(target[0], target[1], target[2])
+        controls.update()
+      } else {
+        camera.lookAt(target[0], target[1], target[2])
+      }
+      camera.updateProjectionMatrix()
+      camera.updateMatrixWorld(true)
+      return { position: camera.position.toArray(), target: [...target] }
+    }
+    return () => {
+      delete window.__gridDesignerCamera
+    }
+  }, [camera, controls])
+
+  return null
+}
+
 export default function Viewport() {
   return (
     <Canvas
@@ -156,6 +194,7 @@ export default function Viewport() {
         minDistance={60}
         maxDistance={2500}
       />
+      <CameraHook />
     </Canvas>
   )
 }

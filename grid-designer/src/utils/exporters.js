@@ -74,7 +74,7 @@ const baseGeometries = new Map()
 
 function baseGeometry(type) {
   if (!baseGeometries.has(type)) {
-    baseGeometries.set(type, buildPanelGeometry({ type, sidedness: 'single', powerSupplyEdge: 0 }))
+    baseGeometries.set(type, buildPanelGeometry({ type }))
   }
   return baseGeometries.get(type)
 }
