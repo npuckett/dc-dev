@@ -19,6 +19,12 @@
  *     diagonal band in plan, which is exactly the thing the fold sliders are being
  *     dragged to produce.
  *   - a blue rule plus a "window / shore" caption along row 0's outer edge.
+ *   - `meta.rectPattern` as a caption under the title, when the config names one.
+ *     Every design is supposed to place ≥ 4 plates by ONE nameable rule (see THE
+ *     PLATE-PATTERN RULE in core/schema.js); the caption is where that rule's name
+ *     lives in the UI, so the map you place plates on also tells you what pattern
+ *     you are placing them into. A config below four plates raises W_FEW_RECTS,
+ *     which surfaces in the control panel's warnings box.
  *   - a dashed red outline + corner marker on the BACK cell (row rows-1) of every
  *     column whose last panel does not touch the floor — the grounded-end rule in
  *     core/schema.js, reported as `layout.violations`. Its tooltip carries the
@@ -129,6 +135,12 @@ export default function GridMap() {
 
   const placementErrors = lastErrors.filter((e) => PLACEMENT_CODES.has(e.code))
 
+  // The name of the rule this design's plates follow, when it has one.
+  const rectPattern =
+    typeof config.meta?.rectPattern === 'string' && config.meta.rectPattern.trim() !== ''
+      ? config.meta.rectPattern.trim()
+      : null
+
   // Columns whose last panel does not touch the floor (schema.js's grounded-end
   // rule). Marked on the BACK row — the deep end of the strip, drawn at the top.
   const floatingClearance = new Map(violations.map((v) => [v.col, v.clearanceCm]))
@@ -153,6 +165,16 @@ export default function GridMap() {
           ))}
         </span>
       </header>
+
+      {rectPattern && (
+        <p
+          className="grid-map-pattern"
+          data-testid="rect-pattern"
+          title={`plate pattern: the rule this design's ${config.rects.length} plates follow (meta.rectPattern)`}
+        >
+          plates: <b>{rectPattern}</b> · {config.rects.length}
+        </p>
+      )}
 
       <svg
         className="grid-map-svg"

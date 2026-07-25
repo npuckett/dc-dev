@@ -590,11 +590,18 @@ const squares = (folds) =>
   checkNoThrow('wave preset: solves without error', () => {
     layout = solveLayout(cfg)
   })
-  check('wave preset: 6·5 − 2 rects = 28 panels', layout.panels.length === 28, `got ${layout.panels.length}`)
+  // 'crest plates': one vertical plate per column, so every plate fuses two cells
+  // into one panel — 30 cells − 6 plates = 24 panels.
   check(
-    'wave preset: one horizontal + one vertical plate panel',
-    layout.panels.filter((p) => p.rectOrientation === 'horizontal').length === 1 &&
-      layout.panels.filter((p) => p.rectOrientation === 'vertical').length === 1,
+    'wave preset: 6·5 − 6 rects = 24 panels',
+    layout.panels.length === 24 && layout.panels.length === 30 - cfg.rects.length,
+    `got ${layout.panels.length}, ${cfg.rects.length} rects`,
+  )
+  check(
+    'wave preset: six vertical plate panels, no horizontal one',
+    layout.panels.filter((p) => p.rectOrientation === 'vertical').length === 6 &&
+      layout.panels.filter((p) => p.rectOrientation === 'horizontal').length === 0,
+    JSON.stringify(layout.panels.filter((p) => p.rectOrientation).map((p) => [p.id, p.rectOrientation])),
   )
   check(
     'wave preset: all 30 cells covered',
@@ -617,6 +624,31 @@ const squares = (folds) =>
   checkNoThrow('wave preset: deterministic (deep-equal)', () => {
     assert.deepStrictEqual(solveLayout(cfg), solveLayout(cfg))
   })
+
+  // 'mirrored pairs' is the preset that exercises the HORIZONTAL plate placement —
+  // four of them, each yawed across two columns and centered on the 121cm slot.
+  const calm = buildPreset('calm')
+  const calmLayout = solveLayout(calm)
+  check(
+    'calm preset: four horizontal plate panels, 26 panels in total',
+    calmLayout.panels.filter((p) => p.rectOrientation === 'horizontal').length === 4 &&
+      calmLayout.panels.filter((p) => p.rectOrientation === 'vertical').length === 0 &&
+      calmLayout.panels.length === 26,
+    `${calmLayout.panels.length} panels, plates=${JSON.stringify(calmLayout.panels.filter((p) => p.rectOrientation).map((p) => p.id))}`,
+  )
+  check(
+    'calm preset: all 30 cells covered',
+    calmLayout.panels.reduce((n, p) => n + p.cells.length, 0) === 30,
+  )
+  check(
+    'calm preset: every horizontal plate is centered on its two-column slot',
+    calmLayout.panels
+      .filter((p) => p.rectOrientation === 'horizontal')
+      .every((p) => p.position[0] === PITCH * p.col + (2 * SIZE + GAP) / 2),
+    JSON.stringify(
+      calmLayout.panels.filter((p) => p.rectOrientation === 'horizontal').map((p) => [p.id, p.position[0]]),
+    ),
+  )
 
   for (const id of ['flat', 'calm', 'wave', 'crash']) {
     checkNoThrow(`${id} preset: solves and stays deterministic`, () => {

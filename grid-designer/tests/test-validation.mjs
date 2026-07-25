@@ -11,6 +11,7 @@
 import {
   DEFAULT_CONFIG,
   DEFAULT_GAP,
+  MIN_RECTS,
   cellPitches,
   columnChain,
   normalizeConfig,
@@ -453,6 +454,121 @@ expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
     'rectLength 122 with gap 2 → no W_RECT_LENGTH',
     !warnCodes(result).includes('W_RECT_LENGTH'),
     describe(result),
+  )
+}
+
+// =============================================================================
+// 10b. W_FEW_RECTS — the plate-pattern rule
+//
+// Every design must use at least MIN_RECTS = 4 of the 60×121 plates, placed by one
+// nameable rule (recorded in meta.rectPattern). Fewer is a WARNING, not an error:
+// the grid map removes plates one click at a time, so a design mid-repattern has to
+// stay committable.
+// =============================================================================
+{
+  check('MIN_RECTS is 4', MIN_RECTS === 4, String(MIN_RECTS))
+}
+/** Four legal vertical plates on a flat grid — the 'mirrored quad' pattern. */
+const fourPlates = () => [
+  { row: 1, col: 1, orientation: 'vertical' },
+  { row: 3, col: 1, orientation: 'vertical' },
+  { row: 1, col: 4, orientation: 'vertical' },
+  { row: 3, col: 4, orientation: 'vertical' },
+]
+{
+  // 0 plates — the bare DEFAULT_CONFIG geometry.
+  const result = expectWarning('W_FEW_RECTS at 0 rects', good(), 'W_FEW_RECTS')
+  check('W_FEW_RECTS is only a warning', result.ok, describe(result))
+  check(
+    'W_FEW_RECTS names the threshold, the count and the pattern requirement',
+    result.warnings.some(
+      (w) =>
+        w.code === 'W_FEW_RECTS' &&
+        w.path === 'rects' &&
+        /≥ 4 rect plates/.test(w.message) &&
+        /got 0/.test(w.message) &&
+        /should read in the pattern/.test(w.message) &&
+        /meta\.rectPattern/.test(w.message),
+    ),
+    JSON.stringify(result.warnings.map((w) => w.message)),
+  )
+}
+{
+  // 3 plates — still short of the rule.
+  const cfg = good()
+  cfg.rects = fourPlates().slice(0, 3)
+  const result = expectWarning('W_FEW_RECTS at 3 rects', cfg, 'W_FEW_RECTS')
+  check(
+    'W_FEW_RECTS reports the actual count (3)',
+    result.warnings.some((w) => w.code === 'W_FEW_RECTS' && /got 3/.test(w.message)),
+    JSON.stringify(result.warnings.map((w) => w.message)),
+  )
+}
+{
+  // 4 plates — silent.
+  const cfg = good()
+  cfg.rects = fourPlates()
+  const result = validateConfig(cfg)
+  check(
+    'no W_FEW_RECTS at exactly 4 rects',
+    result.ok && !warnCodes(result).includes('W_FEW_RECTS'),
+    describe(result),
+  )
+}
+{
+  // More than 4 — also silent.
+  const cfg = good()
+  cfg.rects = [...fourPlates(), { row: 1, col: 2, orientation: 'vertical' }]
+  const result = validateConfig(cfg)
+  check(
+    'no W_FEW_RECTS at 5 rects',
+    result.ok && !warnCodes(result).includes('W_FEW_RECTS'),
+    describe(result),
+  )
+}
+{
+  // Warning ORDER follows the doc order in core/schema.js: W_CROSSCOL_POSITION,
+  // then W_RECT_LENGTH, then W_FEW_RECTS.
+  const cfg = withFolds([[30, -30, 0, 0]])
+  cfg.gap = 2 // forces W_RECT_LENGTH against the 121cm plate
+  cfg.rects = [{ row: 2, col: 0, orientation: 'horizontal' }] // and W_CROSSCOL_POSITION
+  const result = validateConfig(cfg)
+  check(
+    'warnings come back in doc order (W_CROSSCOL_POSITION, W_RECT_LENGTH, W_FEW_RECTS)',
+    JSON.stringify(warnCodes(result)) ===
+      JSON.stringify(['W_CROSSCOL_POSITION', 'W_RECT_LENGTH', 'W_FEW_RECTS']),
+    describe(result),
+  )
+}
+{
+  // Every preset satisfies the rule and names its pattern.
+  const named = [
+    ['presetFlat', presetFlat()],
+    ['presetCalm', presetCalm()],
+    ['presetWave', presetWave()],
+    ['presetCrash', presetCrash()],
+    ['presetRandom(1)', presetRandom(1)],
+    ['presetRandom(42)', presetRandom(42)],
+  ]
+  for (const [label, cfg] of named) {
+    const result = validateConfig(cfg)
+    check(
+      `${label}: ≥ ${MIN_RECTS} plates, no W_FEW_RECTS, meta.rectPattern set`,
+      cfg.rects.length >= MIN_RECTS &&
+        !warnCodes(result).includes('W_FEW_RECTS') &&
+        typeof cfg.meta.rectPattern === 'string' &&
+        cfg.meta.rectPattern.length > 0,
+      `rects=${cfg.rects.length} pattern=${JSON.stringify(cfg.meta.rectPattern)} ${describe(result)}`,
+    )
+  }
+}
+{
+  // DEFAULT_CONFIG is the bare reference geometry, not a design — it is the one
+  // config that raises W_FEW_RECTS on purpose.
+  check(
+    'DEFAULT_CONFIG raises W_FEW_RECTS (it is reference geometry, not a design)',
+    warnCodes(validateConfig(DEFAULT_CONFIG)).includes('W_FEW_RECTS'),
+    describe(validateConfig(DEFAULT_CONFIG)),
   )
 }
 

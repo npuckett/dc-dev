@@ -1,5 +1,5 @@
 /**
- * grid-designer — browser smoke test / screenshot harness (WP7, schema v2).
+ * grid-designer — browser smoke test / screenshot harness (WP9, schema v2).
  *
  * Self-contained: it starts its OWN dev server (`npm run dev`, port 5175 via
  * vite.config.js strictPort), waits for it, drives the UI, and tears the server
@@ -8,11 +8,12 @@
  * =============================================================================
  * THE FLOW IT DRIVES (the column-strip design loop, end to end)
  * =============================================================================
- *   01-flat.png    default state — the flat reference surface, 30 panels, no
- *                  flagged joints
+ *   01-flat.png    default state — the flat reference surface with its 'mirrored
+ *                  quad' of four plates (26 panels), no flagged joints
  *   02-wave.png    the Wave preset: six phase-shifted fold sequences (asserted
- *                  against core/presets.js itself) plus its two rigid plates, and
- *                  every column landing on the floor ("all grounded ✓")
+ *                  against core/presets.js itself) plus its 'crest plates' pattern —
+ *                  one rigid plate on every column's crest — and every column
+ *                  landing on the floor ("all grounded ✓")
  *   03-floating.png column 3's LAST hinge pitched up to 60°, breaking the
  *                  grounded-end rule: its end panel is now in mid-air, so the
  *                  summary badge reads "1 floating", the column block carries a red
@@ -24,10 +25,11 @@
  *   05-fold.png    one hinge dragged: column 3's 0→1 joint to 80°, which lifts the
  *                  whole strip ~164cm — far beyond what its last hinge can reach,
  *                  so "Ground end" answers E_UNGROUNDABLE and changes nothing
- *   06-rects.png   the two preset plates removed, "Shift →" phase-shifted the
- *                  whole grid one column, then a HORIZONTAL and a VERTICAL plate
- *                  placed on cells the harness COMPUTES to be legal under the
- *                  current folds
+ *   06-rects.png   all six preset plates removed (which drops the design under the
+ *                  four-plate pattern rule and raises W_FEW_RECTS), "Shift →"
+ *                  phase-shifted the whole grid one column, then a HORIZONTAL and a
+ *                  VERTICAL plate placed on cells the harness COMPUTES to be legal
+ *                  under the current folds
  *   07-reject.png  two illegal placements in a row — an H plate across two
  *                  columns at different pitches (E_CROSSCOL_ANGLE_MISMATCH) and a
  *                  V plate over a folded joint (E_FOLD_ON_REMOVED_JOINT). Nothing
@@ -48,6 +50,11 @@
  *     Canvas runs with preserveDrawingBuffer so the read-back is valid) and the
  *     rendered pixels actually CHANGE at each design step
  *   - the Wave preset's per-column foldsDeg equal buildPreset('wave')'s
+ *   - THE PLATE-PATTERN RULE end to end: flat and Wave both carry ≥ 4 plates and
+ *     name their rule in `meta.rectPattern`, which the grid map shows as a caption
+ *     under its title; removing the plates one by one drops the design below four
+ *     and raises W_FEW_RECTS in the control panel's warnings box (non-blocking — the
+ *     removals still commit)
  *   - a hinge slider (or setColumnFold) moves one column's fold and the block's
  *     cumulative-pitch readout follows
  *   - "Shift →" rotates every column's fold sequence by one index, wrapping
@@ -238,6 +245,7 @@ const storeState = (page) =>
     return {
       name: s.config.name,
       preset: s.config.meta?.preset,
+      rectPattern: s.config.meta?.rectPattern,
       version: s.config.version,
       cols: s.config.grid.cols,
       rows: s.config.grid.rows,
@@ -366,10 +374,27 @@ try {
   const flatState = await storeState(page)
   check(flatState.preset === 'flat', 'default preset is flat', `preset=${flatState.preset}`)
   check(flatState.version === 2, 'config is schema v2', `version=${flatState.version}`)
+  // 30 cells − the 4 plates of the 'mirrored quad' pattern = 26 panels.
   check(
-    flatState.panels === 30 && flatState.summary.flagged === 0,
-    'flat default: 30 panels, no flagged joints',
+    flatState.panels === 26 && flatState.summary.flagged === 0,
+    'flat default: 26 panels (30 cells − the mirrored quad), no flagged joints',
     `panels=${flatState.panels} flagged=${flatState.summary.flagged}/${flatState.summary.total}`,
+  )
+  check(
+    JSON.stringify(flatState.rects) === JSON.stringify(['v(1,1)', 'v(3,1)', 'v(1,4)', 'v(3,4)']),
+    "flat default brought its four plates (the 'mirrored quad' in columns 1 and 4)",
+    JSON.stringify(flatState.rects),
+  )
+  check(
+    !flatState.validationWarnings.includes('W_FEW_RECTS'),
+    'flat default satisfies the plate-pattern rule (no W_FEW_RECTS)',
+    JSON.stringify(flatState.validationWarnings),
+  )
+  check(
+    flatState.rectPattern === 'mirrored quad' &&
+      (await page.textContent('[data-testid="rect-pattern"]')).includes('mirrored quad'),
+    'the grid map captions the plate pattern under its title',
+    `meta.rectPattern=${JSON.stringify(flatState.rectPattern)}`,
   )
   check(
     flatState.folds.length === 6 && flatState.folds.every((f) => f.length === 4 && f.every((v) => v === 0)),
@@ -434,15 +459,29 @@ try {
     JSON.stringify(waveState.folds),
   )
   check(
-    JSON.stringify(waveState.rects) === JSON.stringify(['v(1,2)', 'h(1,0)']),
-    'wave brought its two rigid plates',
+    JSON.stringify(waveState.rects) ===
+      JSON.stringify(['v(1,0)', 'v(1,1)', 'v(1,2)', 'v(2,3)', 'v(2,4)', 'v(2,5)']),
+    "wave brought its 'crest plates' — one rigid plate on every column's crest",
     JSON.stringify(waveState.rects),
+  )
+  const wavePatternCaption = (await page.textContent('[data-testid="rect-pattern"]')) ?? ''
+  check(
+    waveState.rectPattern === 'crest plates' &&
+      wavePatternCaption.includes('crest plates') &&
+      wavePatternCaption.includes('6'),
+    'the plate-pattern caption followed the preset (name + plate count)',
+    `${JSON.stringify(waveState.rectPattern)} / ${wavePatternCaption.trim()}`,
+  )
+  check(
+    !waveState.validationWarnings.includes('W_FEW_RECTS'),
+    'wave satisfies the plate-pattern rule (6 plates ≥ 4, no W_FEW_RECTS)',
+    JSON.stringify(waveState.validationWarnings),
   )
   // At the default 1cm gap a 121cm plate is exactly two 60cm cells plus their
   // joint (60 + 1 + 60), so the plates raise no rect-length warning any more.
   check(
     !waveState.validationWarnings.includes('W_RECT_LENGTH'),
-    'wave: its two plates raise NO W_RECT_LENGTH (121 = 2·60 + gap 1, an exact fit)',
+    'wave: its six plates raise NO W_RECT_LENGTH (121 = 2·60 + gap 1, an exact fit)',
     JSON.stringify(waveState.validationWarnings),
   )
   check(
@@ -633,15 +672,42 @@ try {
   // --- (d) remove the preset plates, then "Shift →" ------------------------
   // The plates pin folds (a V plate's joint must stay 0, an H plate's two columns
   // must stay at equal pitch), so a whole-grid phase shift is a rect-free move.
+  // Taking the crest plates off one at a time also walks the design DOWN through the
+  // four-plate pattern rule, which must warn without ever blocking a removal.
   check(await page.isVisible('[data-testid="grid-map"]'), 'grid map is visible')
-  await page.click('[data-testid="cell-1-2"]') // the vertical plate
-  await page.click('[data-testid="cell-1-0"]') // the horizontal plate
+  const platedCells = foldState.rectObjs.map((r) => `cell-${r.row}-${r.col}`)
+  check(platedCells.length === 6, 'six crest plates to remove', JSON.stringify(platedCells))
+  let fewRectsSeenAt = null
+  for (let i = 0; i < platedCells.length; i++) {
+    await page.click(`[data-testid="${platedCells[i]}"]`)
+    await page.waitForTimeout(200)
+    const step = await storeState(page)
+    if (fewRectsSeenAt === null && step.validationWarnings.includes('W_FEW_RECTS')) {
+      fewRectsSeenAt = step.rectObjs.length
+    }
+  }
   await page.waitForTimeout(SETTLE_MS)
   const clearedState = await storeState(page)
   check(
     clearedState.rects.length === 0 && clearedState.panels === 30,
-    'grid-map clicks removed both plates',
+    'grid-map clicks removed all six plates',
     `rects=${JSON.stringify(clearedState.rects)} panels=${clearedState.panels}`,
+  )
+  check(
+    fewRectsSeenAt === 3,
+    'W_FEW_RECTS appeared the moment the design dropped to three plates',
+    `first seen at ${fewRectsSeenAt} rects`,
+  )
+  check(
+    clearedState.validationWarnings.includes('W_FEW_RECTS') && clearedState.lastErrors.length === 0,
+    'a plate-less design warns W_FEW_RECTS but still commits (it is not an error)',
+    `warnings=${JSON.stringify(clearedState.validationWarnings)} errors=${JSON.stringify(clearedState.lastErrors)}`,
+  )
+  const fewRectsText = (await page.textContent('.msg-warnings')) ?? ''
+  check(
+    fewRectsText.includes('W_FEW_RECTS') && /read in the pattern/.test(fewRectsText),
+    "the warnings box explains the plate-pattern rule under the map",
+    `${fewRectsText.length} chars`,
   )
 
   await page.click('[data-testid="tool-shift-right"]')
@@ -957,7 +1023,7 @@ try {
 // -----------------------------------------------------------------------------
 // summary
 // -----------------------------------------------------------------------------
-console.log('\n=== SCREENSHOT HARNESS (WP7 — grounded ends) ===')
+console.log('\n=== SCREENSHOT HARNESS (WP9 — the plate-pattern rule) ===')
 for (const r of results) {
   console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`)
 }

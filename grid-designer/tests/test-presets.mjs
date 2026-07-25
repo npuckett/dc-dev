@@ -8,12 +8,18 @@
  * its solved layout may not raise W_BELOW_FLOOR, and — the grounded-end rule from
  * core/schema.js — may not raise E_END_FLOATING either: EVERY column's last panel
  * has to come back down and touch the ground.
+ *
+ * It must also satisfy THE PLATE-PATTERN RULE (core/schema.js): at least
+ * MIN_RECTS = 4 of the 60×121 plates, placed by ONE nameable rule whose name is
+ * recorded in `meta.rectPattern` — so no preset may raise W_FEW_RECTS, and the
+ * 'random' preset draws a NAMED template rather than scattering candidates.
  */
 
 import assert from 'node:assert/strict'
-import { cellPitches, validateConfig } from '../src/core/schema.js'
+import { MIN_RECTS, cellPitches, validateConfig } from '../src/core/schema.js'
 import {
   PRESETS,
+  RANDOM_TEMPLATES,
   buildPreset,
   mulberry32,
   presetFlat,
@@ -48,6 +54,7 @@ function checkNoThrow(name, fn) {
 
 const describe = (result) =>
   `errors=[${result.errors.map((e) => `${e.code}@${e.path}: ${e.message}`).join(' | ')}]`
+const warnCodes = (cfg) => validateConfig(cfg).warnings.map((w) => w.code)
 const maxFold = (cfg) => Math.max(...cfg.columns.flatMap((col) => col.foldsDeg.map(Math.abs)))
 const profiles = (cfg) => cfg.columns.map((_, c) => cellPitches(cfg, c))
 
@@ -152,6 +159,103 @@ for (const [label, cfg] of named) {
     `${label}: every column's final pitch is level or descending`,
     last.every((psi) => psi <= 1e-9),
     JSON.stringify(last),
+  )
+}
+
+// =============================================================================
+// 2c. THE PLATE-PATTERN RULE — ≥ MIN_RECTS plates, by a rule that has a name
+// =============================================================================
+for (const [label, cfg] of named) {
+  check(
+    `${label}: places at least ${MIN_RECTS} plates`,
+    cfg.rects.length >= MIN_RECTS,
+    `${cfg.rects.length} rects: ${JSON.stringify(cfg.rects)}`,
+  )
+  check(
+    `${label}: no W_FEW_RECTS`,
+    !warnCodes(cfg).includes('W_FEW_RECTS'),
+    JSON.stringify(warnCodes(cfg)),
+  )
+  check(
+    `${label}: meta.rectPattern names the rule`,
+    typeof cfg.meta.rectPattern === 'string' && cfg.meta.rectPattern.trim().length > 0,
+    JSON.stringify(cfg.meta),
+  )
+  check(
+    `${label}: meta.notes repeats the pattern name`,
+    typeof cfg.meta.notes === 'string' && cfg.meta.notes.includes(cfg.meta.rectPattern),
+    JSON.stringify(cfg.meta.notes),
+  )
+  // Every plate the preset placed must actually be legal in the surface it designed:
+  // a vertical plate needs its joint unfolded, a horizontal one needs both columns
+  // at the same pitch. (validateConfig covers this too; asserted here per plate so a
+  // failure names the plate.)
+  const illegal = cfg.rects.filter((rect) =>
+    rect.orientation === 'vertical'
+      ? cfg.columns[rect.col].foldsDeg[rect.row] !== 0
+      : cellPitches(cfg, rect.col)[rect.row] !== cellPitches(cfg, rect.col + 1)[rect.row],
+  )
+  check(
+    `${label}: every placed plate is geometrically legal`,
+    illegal.length === 0,
+    JSON.stringify(illegal),
+  )
+}
+{
+  // The whole random seed sweep, not just the sampled seeds above.
+  let allOk = true
+  let firstBad = ''
+  const patterns = new Set()
+  for (let seed = 0; seed < 60; seed++) {
+    const cfg = presetRandom(seed)
+    patterns.add(cfg.meta.rectPattern)
+    const problems = []
+    if (cfg.rects.length < MIN_RECTS) problems.push(`only ${cfg.rects.length} rects`)
+    if (warnCodes(cfg).includes('W_FEW_RECTS')) problems.push('W_FEW_RECTS')
+    if (!cfg.meta.rectPattern) problems.push('no meta.rectPattern')
+    if (problems.length > 0 && allOk) {
+      allOk = false
+      firstBad = `seed ${seed}: ${problems.join(', ')}`
+    }
+  }
+  check(`presetRandom places ≥ ${MIN_RECTS} plates for seeds 0..59`, allOk, firstBad)
+  check(
+    'presetRandom draws at least 2 different named templates over seeds 0..59',
+    patterns.size >= 2,
+    JSON.stringify([...patterns]),
+  )
+  check(
+    'every drawn pattern name is one of RANDOM_TEMPLATES',
+    [...patterns].every((p) => RANDOM_TEMPLATES.some((t) => t.id === p)),
+    `${JSON.stringify([...patterns])} vs ${JSON.stringify(RANDOM_TEMPLATES.map((t) => t.id))}`,
+  )
+}
+{
+  check(
+    'RANDOM_TEMPLATES: 4 templates, each with ≥ MIN_RECTS plates and a name',
+    RANDOM_TEMPLATES.length === 4 &&
+      RANDOM_TEMPLATES.every(
+        (t) => typeof t.id === 'string' && t.id.length > 0 && t.rects.length >= MIN_RECTS,
+      ),
+    JSON.stringify(RANDOM_TEMPLATES.map((t) => [t.id, t.rects.length])),
+  )
+  check(
+    'RANDOM_TEMPLATES ids are unique',
+    new Set(RANDOM_TEMPLATES.map((t) => t.id)).size === RANDOM_TEMPLATES.length,
+  )
+  check(
+    "RANDOM_TEMPLATES[0] is the can't-fail fallback 'mirrored-pairs'",
+    RANDOM_TEMPLATES[0].id === 'mirrored-pairs',
+    RANDOM_TEMPLATES[0].id,
+  )
+}
+{
+  // The four hand-authored presets each use a DIFFERENT pattern rule.
+  const names = ['flat', 'calm', 'wave', 'crash'].map((id) => buildPreset(id).meta.rectPattern)
+  check(
+    'flat/calm/wave/crash each name a different plate pattern',
+    new Set(names).size === 4,
+    JSON.stringify(names),
   )
 }
 
@@ -265,7 +369,64 @@ for (const [label, cfg] of named) {
   const flat = presetFlat()
   check(
     'presetFlat has no angles at all',
-    flat.columns.every((col) => col.foldsDeg.every((f) => f === 0)) && flat.rects.length === 0,
+    flat.columns.every((col) => col.foldsDeg.every((f) => f === 0)),
+    JSON.stringify(flat.columns),
+  )
+  // 'mirrored quad': two stacked vertical plates in each of the mirrored columns 1
+  // and 4 — the pattern reads as one shape used twice, about the grid centre.
+  check(
+    "presetFlat's plates are the mirrored quad (1,1) (3,1) (1,4) (3,4)",
+    JSON.stringify(flat.rects) ===
+      JSON.stringify([
+        { row: 1, col: 1, orientation: 'vertical' },
+        { row: 3, col: 1, orientation: 'vertical' },
+        { row: 1, col: 4, orientation: 'vertical' },
+        { row: 3, col: 4, orientation: 'vertical' },
+      ]),
+    JSON.stringify(flat.rects),
+  )
+  check(
+    'presetFlat: the quad is mirror-symmetric about the grid centre (c ↔ 5−c)',
+    flat.rects.every((r) =>
+      flat.rects.some(
+        (m) => m.row === r.row && m.col === flat.grid.cols - 1 - r.col && m.orientation === r.orientation,
+      ),
+    ),
+    JSON.stringify(flat.rects),
+  )
+}
+{
+  // 'mirrored pairs': four HORIZONTAL plates bridging the outer column pairs (0,1)
+  // and (4,5) at rows 1 and 3. They only drop in because those four columns share
+  // one profile, so the two chains a plate spans coincide exactly.
+  const calm = presetCalm()
+  check(
+    'presetCalm uses four horizontal plates (mirrored pairs)',
+    calm.rects.length === 4 && calm.rects.every((r) => r.orientation === 'horizontal'),
+    JSON.stringify(calm.rects),
+  )
+  check(
+    'presetCalm: the pairs are mirrored — (·,0) bridging 0|1 and (·,4) bridging 4|5',
+    JSON.stringify(calm.rects.map((r) => `${r.row},${r.col}`)) ===
+      JSON.stringify(['1,0', '3,0', '1,4', '3,4']),
+    JSON.stringify(calm.rects),
+  )
+  check(
+    'presetCalm is left–right symmetric (columns c and 5−c share a profile)',
+    calm.columns.every(
+      (col, c) => JSON.stringify(col.foldsDeg) === JSON.stringify(calm.columns[5 - c].foldsDeg),
+    ),
+    JSON.stringify(calm.columns.map((col) => col.foldsDeg)),
+  )
+  check(
+    'presetCalm: no W_CROSSCOL_POSITION — its bridged chains coincide',
+    !warnCodes(calm).includes('W_CROSSCOL_POSITION'),
+    JSON.stringify(warnCodes(calm)),
+  )
+  check(
+    'presetCalm: every plate clears the landing row',
+    calm.rects.every((r) => r.row < calm.grid.rows - 1),
+    JSON.stringify(calm.rects),
   )
 }
 {
@@ -278,26 +439,62 @@ for (const [label, cfg] of named) {
     profiles(crash).some((p) => p.some((psi) => psi >= 85)),
     JSON.stringify(profiles(crash)),
   )
+  // 'landing plates': every column's LAST two rows fused into one 121cm plate. That
+  // plate is why the crest above can be this steep — it reaches twice as far down as
+  // a square would, so a chain standing 85° up at row 2 can still find the floor.
+  check(
+    'presetCrash places a landing plate on every column',
+    crash.rects.length === 6 &&
+      crash.rects.every(
+        (r) => r.orientation === 'vertical' && r.row === crash.grid.rows - 2,
+      ) &&
+      new Set(crash.rects.map((r) => r.col)).size === 6,
+    JSON.stringify(crash.rects),
+  )
+  check(
+    "presetCrash: each landing plate's two rows share one pitch (the plate is rigid)",
+    crash.columns.every((col) => col.foldsDeg[crash.grid.rows - 2] === 0),
+    JSON.stringify(crash.columns.map((col) => col.foldsDeg)),
+  )
+  check(
+    'presetCrash: every landing plate is tilted down onto the floor, none level',
+    profiles(crash).every((p) => p[p.length - 1] < -5),
+    JSON.stringify(profiles(crash).map((p) => p[p.length - 1])),
+  )
 }
 {
   const wave = presetWave()
-  check('presetWave includes both plate types', wave.rects.length === 2 &&
-    wave.rects.some((r) => r.orientation === 'vertical') &&
-    wave.rects.some((r) => r.orientation === 'horizontal'), JSON.stringify(wave.rects))
-
-  // The vertical plate must sit on an unfolded joint (else E_FOLD_ON_REMOVED_JOINT).
-  const v = wave.rects.find((r) => r.orientation === 'vertical')
+  // 'crest plates': ONE vertical plate across every column's crest plateau. The
+  // plateau exists because the plate demands it — a rigid 121cm plate removes joint
+  // r, so rows r and r+1 must sit at one pitch.
   check(
-    'presetWave: the vertical plate sits on an unfolded joint',
-    wave.columns[v.col].foldsDeg[v.row] === 0,
-    JSON.stringify(wave.columns[v.col].foldsDeg),
+    'presetWave places one vertical plate per column (crest plates)',
+    wave.rects.length === 6 &&
+      wave.rects.every((r) => r.orientation === 'vertical') &&
+      new Set(wave.rects.map((r) => r.col)).size === 6,
+    JSON.stringify(wave.rects),
   )
-  // The horizontal plate must span two columns at the same pitch.
-  const h = wave.rects.find((r) => r.orientation === 'horizontal')
   check(
-    'presetWave: the horizontal plate spans two columns at matching pitch',
-    cellPitches(wave, h.col)[h.row] === cellPitches(wave, h.col + 1)[h.row],
-    JSON.stringify([cellPitches(wave, h.col), cellPitches(wave, h.col + 1)]),
+    "presetWave: the plates sit on each column's crest plateau, stepping back at mid-window",
+    JSON.stringify(wave.rects.map((r) => `${r.row},${r.col}`)) ===
+      JSON.stringify(['1,0', '1,1', '1,2', '2,3', '2,4', '2,5']),
+    JSON.stringify(wave.rects),
+  )
+  // Every plate must sit on an unfolded joint (else E_FOLD_ON_REMOVED_JOINT) — and
+  // that joint must be the CREST, i.e. the plateau carries the profile's max pitch.
+  check(
+    'presetWave: every plate sits on an unfolded joint',
+    wave.rects.every((r) => wave.columns[r.col].foldsDeg[r.row] === 0),
+    JSON.stringify(wave.columns.map((col) => col.foldsDeg)),
+  )
+  check(
+    "presetWave: each plate's two rows are the column's crest (both at its max pitch)",
+    wave.rects.every((r) => {
+      const p = cellPitches(wave, r.col)
+      const crest = Math.max(...p)
+      return p[r.row] === crest && p[r.row + 1] === crest
+    }),
+    JSON.stringify(profiles(wave)),
   )
 
   // "A wave moving across the grid": neighbouring columns are phase-shifted, so
@@ -316,9 +513,17 @@ for (const [label, cfg] of named) {
   )
 }
 {
-  // Random plates are only kept when they are geometrically legal.
+  // A random config's plates come from the drawn TEMPLATE, and the fold profiles are
+  // authored around them — so the placed set must be exactly that template's rects,
+  // and every one of them geometrically legal.
   for (const seed of [0, 1, 5, 42]) {
     const cfg = presetRandom(seed)
+    const template = RANDOM_TEMPLATES.find((t) => t.id === cfg.meta.rectPattern)
+    check(
+      `random(${seed}): its plates are exactly the drawn template's ('${cfg.meta.rectPattern}')`,
+      !!template && JSON.stringify(cfg.rects) === JSON.stringify(template.rects),
+      JSON.stringify(cfg.rects),
+    )
     const ok = cfg.rects.every((rect) =>
       rect.orientation === 'vertical'
         ? cfg.columns[rect.col].foldsDeg[rect.row] === 0
@@ -326,6 +531,23 @@ for (const [label, cfg] of named) {
     )
     check(`random(${seed}): kept plates are geometrically legal`, ok, JSON.stringify(cfg.rects))
   }
+  // …across the whole sweep, not just four seeds.
+  let allLegal = true
+  let firstBad = ''
+  for (let seed = 0; seed < 60; seed++) {
+    const cfg = presetRandom(seed)
+    const bad = cfg.rects.filter((rect) =>
+      rect.orientation === 'vertical'
+        ? cfg.columns[rect.col].foldsDeg[rect.row] !== 0
+        : cellPitches(cfg, rect.col)[rect.row] !== cellPitches(cfg, rect.col + 1)[rect.row],
+    )
+    if (bad.length > 0) {
+      allLegal = false
+      firstBad = `seed ${seed} [${cfg.meta.rectPattern}]: ${JSON.stringify(bad)}`
+      break
+    }
+  }
+  check('presetRandom: every plate is legal for seeds 0..59', allLegal, firstBad)
 }
 
 // =============================================================================

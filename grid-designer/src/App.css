@@ -227,6 +227,16 @@ body {
 
 .grid-map-modes { display: flex; gap: 3px; }
 
+/* the plate-pattern caption (meta.rectPattern) */
+.grid-map-pattern {
+  margin: -2px 0 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: #5c5c78;
+}
+
+.grid-map-pattern b { color: #8fb9ff; font-weight: 600; }
+
 .mode-btn {
   font: inherit;
   font-size: 10.5px;

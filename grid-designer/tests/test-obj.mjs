@@ -89,9 +89,10 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
   check('wave: config validates', validateConfig(config).ok)
 
   const layout = solveLayout(config)
+  // 'crest plates': one vertical plate per column, each fusing two cells.
   check(
-    'wave: 28 panels (30 cells − 1 vertical plate − 1 horizontal plate)',
-    layout.panels.length === 28,
+    'wave: 24 panels (30 cells − 6 crest plates)',
+    layout.panels.length === 24,
     `got ${layout.panels.length}`,
   )
 
@@ -134,12 +135,26 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
     JSON.stringify(names.slice(0, 4)),
   )
   check(
-    'wave OBJ: plates are named rect_h_* / rect_v_*, squares panel_*',
-    names.includes('rect_h_r1_c0') &&
-      names.includes('rect_v_r1_c2') &&
-      names.filter((n) => n.startsWith('panel_')).length === 26,
+    "wave OBJ: the six crest plates are named rect_v_*, the rest panel_*",
+    config.rects.every((r) => names.includes(`rect_v_r${r.row}_c${r.col}`)) &&
+      names.filter((n) => n.startsWith('rect_v_')).length === 6 &&
+      names.filter((n) => n.startsWith('rect_h_')).length === 0 &&
+      names.filter((n) => n.startsWith('panel_')).length === 18,
     JSON.stringify(names.filter((n) => !n.startsWith('panel_'))),
   )
+  // The HORIZONTAL naming form comes from 'calm' ('mirrored pairs'), the preset whose
+  // four plates run across column pairs instead of along the columns.
+  {
+    const calm = normalizeConfig(buildPreset('calm'))
+    const calmNames = parseObjObjects(objPayload(solveLayout(calm))).map((o) => o.name)
+    check(
+      "calm OBJ: its four horizontal plates are named rect_h_r{row}_c{col}",
+      calm.rects.every((r) => calmNames.includes(`rect_h_r${r.row}_c${r.col}`)) &&
+        calmNames.filter((n) => n.startsWith('rect_h_')).length === 4 &&
+        calmNames.filter((n) => n.startsWith('panel_')).length === 22,
+      JSON.stringify(calmNames.filter((n) => !n.startsWith('panel_'))),
+    )
+  }
 
   const expectCount = { '2x2': typeVertexCount('2x2'), '2x4': typeVertexCount('2x4') }
   let counts = true

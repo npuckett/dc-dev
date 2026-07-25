@@ -102,12 +102,48 @@
  *       { "foldsDeg": [0, 0, 0, 0] },
  *       { "foldsDeg": [0, 0, 0, 0] }
  *     ],
- *     "rects": [                               // optional 60×121 two-cell panels
+ *     "rects": [                               // 60×121 two-cell panels — AT LEAST 4, see below
  *       { "row": 1, "col": 2, "orientation": "horizontal" },  // (1,2)+(1,3): one plate across two columns
  *       { "row": 2, "col": 5, "orientation": "vertical" }     // (2,5)+(3,5): removes joint k=2 of column 5
  *     ],
- *     "meta": { "preset": "wave", "seed": 42, "notes": "" }   // provenance, free-form
+ *     "meta": {                                // provenance, free-form
+ *       "preset": "wave", "seed": 42,
+ *       "rectPattern": "crest plates",         // NAME the rule the rects follow
+ *       "notes": ""
+ *     }
  *   }
+ *
+ * =============================================================================
+ * THE PLATE-PATTERN RULE (a MUST for every generated design)
+ * =============================================================================
+ * EVERY DESIGN MUST USE AT LEAST `MIN_RECTS` = 4 RECT PLATES, PLACED BY AN
+ * EXPLICIT PATTERN RULE. The 60×121 plate is half the panel kit; a design that
+ * uses one or two of them by accident reads as a grid of squares with a couple of
+ * mistakes in it. Four or more, placed by a rule you can say out loud — "mirrored
+ * pairs", "a plate at every column's crest", "a diagonal cascade", "the last two
+ * rows of alternating columns" — read as a system, which is the point.
+ *
+ * Generators (LLM or procedural) MUST therefore:
+ *   1. place ≥ 4 plates,
+ *   2. place them by ONE nameable rule, not by scattering them, and
+ *   3. write that rule's name into `meta.rectPattern` (free-form string) and
+ *      mention it in `meta.notes`.
+ * Fewer than 4 raises the non-blocking warning `W_FEW_RECTS`.
+ *
+ * DESIGN THE FOLDS AND THE PLATES TOGETHER. A plate is rigid, so it PINS the
+ * surface it covers: a vertical plate at (r, c) removes joint r of column c (that
+ * fold must be 0, i.e. rows r and r+1 sit at one pitch — a PLATEAU in the pitch
+ * profile), and a horizontal plate at (r, c) forces columns c and c+1 to the same
+ * pitch at row r. Authoring the folds first and hunting for legal plate positions
+ * afterwards mostly finds none; author the plateaus the pattern needs INTO the
+ * pitch profiles from the start (see core/presets.js for six worked examples).
+ *
+ * Two consequences for the grounded-end rule above:
+ *   - a plate spanning the LAST two rows (a vertical rect at (rows-2, c)) removes
+ *     the column's last hinge, so the landing is solved at the hinge in FRONT of
+ *     it and the panel being landed is the 121cm plate itself — which, being twice
+ *     as long, can give back nearly twice as much height;
+ *   - grounding must therefore be solved AFTER the plates are placed, never before.
  *
  * =============================================================================
  * ANGLE SEMANTICS (verbatim rules — follow these exactly)
@@ -159,6 +195,13 @@
  *                               add up (e.g. gap 2 → ideal 122 against a 121cm
  *                               plate = 1cm of slack per rect), which is
  *                               accepted and surfaced, never silently corrected
+ *   W_FEW_RECTS                 fewer than MIN_RECTS = 4 rect plates. See THE
+ *                               PLATE-PATTERN RULE above: the modularity of the
+ *                               panel system has to READ in the design, which
+ *                               takes four plates placed by a rule you can name
+ *                               (and record in meta.rectPattern). A warning rather
+ *                               than an error because the UI has to let you remove
+ *                               plates one at a time
  *
  * The grounded-end rule is deliberately NOT here: it is a solved-layout property,
  * reported as `solveLayout(...).violations` (E_END_FLOATING), not a config error.
@@ -174,6 +217,11 @@ export const MAX_FOLD_DEG = 120
 export const MAX_GAP_CM = 10
 /** Two cells of a horizontal rect must agree in pitch to within this many degrees. */
 export const PITCH_MATCH_EPSILON_DEG = 0.1
+/**
+ * Fewest rect plates a finished design should use — see THE PLATE-PATTERN RULE
+ * above. Below this, `validateConfig` raises the non-blocking `W_FEW_RECTS`.
+ */
+export const MIN_RECTS = 4
 
 // -----------------------------------------------------------------------------
 // Defaults
@@ -203,7 +251,14 @@ export const DEFAULT_GROUND_TOLERANCE = 0.5
 /** Every chain starts with its lit face at this height (housings on the floor). */
 export const SHORE_Y = PANEL_PROFILE.overallThickness
 
-/** Flat 6×5 surface: every joint unfolded, no rects. */
+/**
+ * Flat 6×5 surface: every joint unfolded, no rects.
+ *
+ * Deliberately plate-free — it is the bare reference geometry other code measures
+ * against, not a design — so it is the one config that raises `W_FEW_RECTS` by
+ * construction. `presetFlat()` is the designed flat surface, and it does carry its
+ * four plates.
+ */
 export const DEFAULT_CONFIG = Object.freeze({
   version: 2,
   units: 'cm',
@@ -797,6 +852,22 @@ export function validateConfig(config) {
         'cell.rectLength',
       )
     }
+  }
+
+  // --- 6. The plate-pattern rule — at least MIN_RECTS plates, by a named rule --
+  // Last, so the warning order matches the doc order above. A warning, not an
+  // error: the grid map removes plates one click at a time, and a design in the
+  // middle of being re-patterned has to stay committable.
+  if (cfg.rects.length < MIN_RECTS) {
+    warn(
+      'W_FEW_RECTS',
+      `designs should use ≥ ${MIN_RECTS} rect plates (got ${cfg.rects.length}) — the modularity of ` +
+        `the panel system should read in the pattern. Place at least ${MIN_RECTS} 60×121 plates by one ` +
+        `nameable rule (mirrored pairs, a plate at every column's crest, a diagonal cascade, the last ` +
+        `two rows of alternating columns, …), design the pitch profiles to hold the plateaus that rule ` +
+        `needs, and record the rule in meta.rectPattern`,
+      'rects',
+    )
   }
 
   return finish(errors, warnings)

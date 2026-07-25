@@ -358,16 +358,23 @@ const ids = (list) => list.map((j) => j.id).join(', ')
   const layout = solveLayout(cfg)
   const rep = jointReport(layout, cfg)
 
-  // Hand count: 25 in-row   − 1 (interior to the horizontal plate at (1,0)) = 24
-  //             24 in-column − 1 (interior to the vertical plate at (1,2))  = 23
-  check('wave: 24 in-row joints (one removed by the horizontal plate)', inRow(rep).length === 24, `got ${inRow(rep).length}`)
-  check('wave: 23 in-column joints (one interior to the vertical plate)', inCol(rep).length === 23, `got ${inCol(rep).length}`)
-  check('wave: total 47 joints', rep.summary.total === 47, `got ${rep.summary.total}`)
+  // Hand count for the 'crest plates' pattern (one VERTICAL plate per column, on the
+  // crest plateau — rows 1–2 in columns 0–2, rows 2–3 in columns 3–5):
+  //   25 in-row   − 0 (no horizontal plate spans an in-row boundary)      = 25
+  //   24 in-column − 6 (one joint interior to each column's crest plate)  = 18
+  check('wave: 25 in-row joints (no horizontal plate to remove one)', inRow(rep).length === 25, `got ${inRow(rep).length}`)
+  check('wave: 18 in-column joints (six interior to the six crest plates)', inCol(rep).length === 18, `got ${inCol(rep).length}`)
+  check('wave: total 43 joints', rep.summary.total === 43, `got ${rep.summary.total}`)
   check('wave: ok + flagged = total', rep.summary.ok + rep.summary.flagged === rep.summary.total)
   check(
-    'wave: the plates\' interior boundaries are absent',
-    !rep.joints.some((j) => j.id === 'in-row:r1:j0') &&
-      !rep.joints.some((j) => j.id === 'in-column:c2:k1'),
+    "wave: every crest plate's interior boundary is absent from the report",
+    cfg.rects.every((r) => !rep.joints.some((j) => j.id === `in-column:c${r.col}:k${r.row}`)),
+    ids(rep.joints.filter((j) => cfg.rects.some((r) => j.id === `in-column:c${r.col}:k${r.row}`))),
+  )
+  check(
+    'wave: no in-row boundary is removed (its plates all run along the columns)',
+    inRow(rep).length === 25,
+    `got ${inRow(rep).length}`,
   )
   check(
     'wave: EVERY in-column joint (fold hinge) is within tolerance',
