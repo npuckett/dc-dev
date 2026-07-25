@@ -27,7 +27,10 @@
  *   1. EVERY column has a PITCHED FRONT (`startPitchDeg` ≠ 0). That is the
  *      family's signature: the water is already moving as it comes through the
  *      window, instead of lying flat on the shore first.
- *   2. Higher row resolution (6, 7, 6) — the drama needs the depth.
+ *   2. Higher row resolution (7, 7, 6) — the drama needs the depth. `swell` and
+ *      `surge` are both 7 rows; they differ in shape (one ramp toward the wall
+ *      versus one uniform 168cm crest) and in plate pattern (one spine plate per
+ *      column versus two).
  *   3. Plates cross ROWS (vertical 121cm spines) rather than bridging columns, so
  *      each strip reads as a long rigid run inside a moving surface.
  *   4. 'wallcrash' additionally engages THE WALL: its column 0 is
@@ -87,8 +90,9 @@
  *                             121cm plate that skids down into the floor. 6 plates.
  *   random one of four named templates drawn from the seed (see RANDOM_TEMPLATES).
  *
- *   swell  'spine plates'     one vertical plate mid-strip in EVERY column — a long
- *                             rigid spine inside a big rolling swell. 6 plates.
+ *   swell  'spine plates'     one vertical plate mid-strip (rows 2–3 of 7) in EVERY
+ *                             column — a long rigid spine inside water piling up
+ *                             against the wall. 6 plates.
  *   surge  'double plates'    a crest plate AND a landing plate in every column:
  *                             twelve 121cm plates, the steepest floor-grounded
  *                             design the kit can stand up.
@@ -187,7 +191,7 @@ export const PRESETS = [
     label: 'Swell',
     family: 'storm',
     description:
-      'STORM · 6 rows. Fronts pitched up 10–25° rising across the window, one long rigid spine plate per column, everything grounded.',
+      'STORM · 7 rows. Steep 45–28° fronts and a crest ramping to 150cm at the wall beside column 0, one long rigid spine plate per column, everything grounded.',
     seeded: false,
   },
   {
@@ -613,25 +617,46 @@ export function presetCrash() {
 //   - the plates run ALONG the columns (vertical 121cm spines crossing rows), never
 //     across them;
 //   - the crest height is authored as a TARGET and each column's plate pitch is
-//     solved back from it (`crestPitch`), so a steeper front automatically gets a
-//     flatter plate and every column tops out together. That is what keeps the
-//     surface reading as ONE swell while its fronts ramp.
+//     solved back from it (`crestPitch`), so the AMPLITUDE PROFILE is the design
+//     input and the plate angles are consequences. 'surge' gives all six columns the
+//     same target (one uniform 168cm crest); 'swell' gives them a ramp that peaks at
+//     the wall. Either way a column whose front has already spent more of the climb
+//     budget automatically gets a flatter plate.
 // -----------------------------------------------------------------------------
 /**
  * How high each 'swell' column tops out, cm — the swell's AMPLITUDE PROFILE, and
- * the thing that makes it roll rather than read as a cylinder: one broad crest
- * standing in the middle of the window, dying away at both jambs. 105 is close to
- * the ceiling this structure can land from: the descent row and the landing square
- * give back 60cm each, and the hinge in front of the descent has to stay inside
- * ±120° of the spine's pitch.
+ * the whole shape of the design: water PILING UP AGAINST THE WALL. The wall is the
+ * plane x = `WALL_X` = 0 beside COLUMN 0 (schema.js), so the ramp runs DOWN the
+ * column index — column 0 is the tall end, 150cm, and column 5 at the far jamb is
+ * an 80cm ripple. Strictly monotonic, and by a big enough step (14cm per column)
+ * that the ramp reads unmistakably from the floor.
+ *
+ * 150 is what forced the row count up to 7 — see `presetSwell`.
  */
-const SWELL_CREST_CM = [70, 90, 105, 105, 90, 70]
+const SWELL_CREST_CM = [150, 136, 122, 108, 94, 80]
 /**
  * The height a 'swell' column hands to its 60cm landing panel. A 60cm panel can
  * give back at most ~60cm, so 46 leaves the landing solver real room — the reason
  * no swell column ever comes back E_UNGROUNDABLE.
  */
 const SWELL_HANDOVER_CM = 46
+/**
+ * 'swell' front-panel pitch, degrees, as a function of the column index: 45° hard
+ * up at the wall down to 28° at the far jamb. Every value is steep — the user's
+ * note on the first version of this preset was that its 10–25° fronts read as
+ * LYING FLAT — and it ramps the same way the crest does, so the whole surface
+ * leans toward the wall.
+ */
+const swellFrontDeg = (c) => Math.round(45 - 3.4 * c)
+/**
+ * Degrees 'swell' adds at ROW 1. Positive, so the row behind the front is STEEPER
+ * than the front itself and the two rows nearest the window unmistakably climb
+ * (the other half of the user's note). It is deliberately not solved from the crest
+ * target: rows 0–1 are the part of the surface a person standing at the window
+ * actually reads, so their pitch is authored and the spine plate absorbs whatever
+ * is left of the climb.
+ */
+const SWELL_CLIMB_DEG = 5
 /** How high every 'surge' column tops out, cm — the drama, and well past 150. */
 const SURGE_CREST_CM = 168
 /**
@@ -642,19 +667,40 @@ const SURGE_CREST_CM = 168
 const SURGE_HANDOVER_CM = 118
 
 /**
- * SWELL — 6 rows. One big rolling swell whose fronts RAMP across the window.
+ * SWELL — 7 rows. Water PILING UP AGAINST THE WALL: steep pitched fronts and a
+ * crest that both ramp toward the wall beside column 0 and peak there.
  *
- * Every column: front pitched 10 + 3c (10° … 25°, rising toward the wall), a short
- * climb, then a 121cm SPINE PLATE across rows 2–3 whose pitch is solved so the
- * chain tops out at that column's `SWELL_CREST_CM`. Then one descent row hands
- * `SWELL_HANDOVER_CM` to the landing square, and `land()` solves the last hinge.
+ * Every column: front pitched `swellFrontDeg(c)` (45° at the wall → 28° at the far
+ * jamb), then ROW 1 five degrees STEEPER again, then a 121cm SPINE PLATE across
+ * rows 2–3 whose pitch is solved so the chain tops out at that column's
+ * `SWELL_CREST_CM`. Two descent rows split the drop from there to
+ * `SWELL_HANDOVER_CM` evenly, and `land()` solves the last hinge onto the floor.
  *
- * Two independent gradients are what make it read as water rather than as a ramp:
- * the crest heights arc 70 → 105 → 70 across the window (the swell itself), while
- * the front pitches climb steadily 10° → 25° (the direction it is travelling). And
- * because each column's spine pitch is solved BACK from its crest target, a steeper
- * front automatically gets a flatter plate — the amplitude profile is the design
- * input, not an emergent accident of six hand-picked angles.
+ * All six columns stand on the FLOOR — that is swell's signature and what separates
+ * it from `wallcrash`, which engages the wall structurally (`endSupport: 'wall'`).
+ * Swell only LEANS toward the wall; nothing here is bracketed to it.
+ *
+ * WHY 7 ROWS. Only the panels BEHIND the crest can bring a strip back down, and the
+ * spine plate has to stay mid-strip. At 6 rows with the spine at rows 2–3 the chain
+ * is 60 · 60 · 121 · 60 · 60, i.e. 120cm of panel after the crest, which caps a
+ * landable crest near 115cm (the previous version of this preset topped out at
+ * 106). A 150cm crest at the wall needs the third descent panel: 7 rows give
+ * 60 · 60 · 121 · 60 · 60 · 60, 180cm behind the crest, and every column lands with
+ * millimetres to spare. Verified against the real solver, not estimated — at 6 rows
+ * columns 0–2 come back E_END_FLOATING 86 / 72 / 58cm in the air.
+ *
+ * Two gradients, both pointing the same way, are what make it read as a mass of
+ * water leaning on the wall rather than as a travelling wave: the crest ramps
+ * 150 → 80cm and the front pitch ramps 45° → 28°, monotonically, toward column 0.
+ * Because each column's spine pitch is solved BACK from its crest target, the tall
+ * columns get the steep plate and the short ones a nearly flat one — the amplitude
+ * profile is the design input, not an accident of six hand-picked angles.
+ *
+ * A ramp this strong necessarily makes neighbouring strips DIVERGE, so the in-row
+ * joint report flags more joints than a symmetric design would. That is real
+ * information about how much flex the printed connectors have to absorb, and the
+ * smooth monotonic ramp is what keeps the cost down: the worst gap deviation is
+ * actually LOWER than the old 70 → 105 → 70 arc's, at nearly twice the amplitude.
  *
  * PLATE PATTERN — 'spine plates': ONE vertical plate mid-strip in every column,
  * rows 2–3, at (2,0) … (2,5). Six plates in a single band across the middle of the
@@ -665,22 +711,19 @@ const SURGE_HANDOVER_CM = 118
 export function presetSwell() {
   const SPINE_ROW = 2
   const profile = (c) => {
-    const front = 10 + 3 * c
+    const front = swellFrontDeg(c)
+    const climb = front + SWELL_CLIMB_DEG
     const y0 = frontRestY(front, 60)
-    // Row 1 is solved rather than offset from the front, in two passes: first ask
-    // what pitch the spine would need if row 1 simply held the front's pitch, then
-    // put row 1 HALFWAY between the two and re-solve the spine against it. That is
-    // what keeps the profile smooth all the way across — a fixed `front + 10` makes
-    // the steep-fronted columns (whose crest target is LOW) kink hard at row 2,
-    // because their front has already spent the whole climb budget.
-    const holdFront = crestPitch(climbTo(y0, [[60, front], [60, front]]), SWELL_CREST_CM[c], 121)
-    const climb = Math.round((front + holdFront) / 2)
     const beforeSpine = climbTo(y0, [[60, front], [60, climb]])
     const spine = crestPitch(beforeSpine, SWELL_CREST_CM[c], 121)
     const crest = climbTo(beforeSpine, [[121, spine]])
-    const descent = descentPitch(crest, SWELL_HANDOVER_CM, 60)
-    // rows: 0 front · 1 climb · 2–3 the spine plateau · 4 descent · 5 landing
-    return [front, climb, spine, spine, descent, descent]
+    // Split the drop from the crest to the handover height over BOTH descent rows
+    // instead of spending one of them: half each keeps the hinge behind the spine
+    // inside ±120° even in column 0, where the crest is 150cm up.
+    const descent1 = descentPitch(crest, (crest + SWELL_HANDOVER_CM) / 2, 60)
+    const descent2 = descentPitch(climbTo(crest, [[60, descent1]]), SWELL_HANDOVER_CM, 60)
+    // rows: 0 front · 1 climb · 2–3 the spine plateau · 4–5 descent · 6 landing
+    return [front, climb, spine, spine, descent1, descent2, 0]
   }
 
   return land(
@@ -696,10 +739,12 @@ export function presetSwell() {
         preset: 'swell',
         rectPattern: 'spine plates',
         notes:
-          'STORM family: every front pitched (10° → 25° across the window), one big ' +
-          'rolling swell whose crest arcs 70 → 105 → 70cm, all six columns landing on the ' +
-          'floor. Plate pattern "spine plates": one vertical 121cm plate mid-strip (rows ' +
-          '2–3) in every column, so each strip carries a long rigid spine.',
+          'STORM family: water piling up against the −X wall beside column 0. Every front ' +
+          'is steeply pitched and the pitch ramps toward the wall (45° → 28°), row 1 climbs ' +
+          '5° steeper again, and the crest ramps monotonically to its maximum AT the wall ' +
+          'column (150 → 80cm). All six columns still land on the floor — nothing is ' +
+          'wall-supported. Plate pattern "spine plates": one vertical 121cm plate mid-strip ' +
+          '(rows 2–3 of 7) in every column, so each strip carries a long rigid spine.',
       },
     }),
   )

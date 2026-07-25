@@ -657,16 +657,40 @@ for (const [label, cfg] of stormNamed) {
   )
 }
 
-// --- swell: 6 rows, spine plates, fronts ramping 10 → 25, everything grounded ---
+// --- swell: 7 rows, spine plates, everything ramping to a peak AT THE WALL -------
+//
+// The design intent, encoded so it cannot silently regress:
+//   1. NO ROW NEAR THE WINDOW LIES FLAT. Every front is at least
+//      SWELL_MIN_FRONT_DEG steep, and row 1 is steeper still, so the two rows a
+//      person at the window actually sees are visibly climbing.
+//   2. EVERYTHING RAMPS TOWARD THE WALL. The wall is beside column 0
+//      (schema.js WALL_COLUMN), so both the front pitch and the crest height fall
+//      monotonically with the column index and column 0 is the strict maximum of
+//      each.
+//   3. ALL SIX COLUMNS STILL LAND ON THE FLOOR — that is what separates swell from
+//      'wallcrash'; nothing here may take endSupport 'wall'.
 {
   const swell = presetSwell()
   const layout = solveLayout(swell)
-  check('swell: 6 rows', swell.grid.rows === 6, String(swell.grid.rows))
+  /** Steepest a swell front may be allowed to get — anything flatter reads as lying flat. */
+  const SWELL_MIN_FRONT_DEG = 28
+  const fronts = swell.columns.map((col) => col.startPitchDeg)
+  check('swell: 7 rows — the descent capacity a 150cm crest needs', swell.grid.rows === 7, String(swell.grid.rows))
   check(
-    'swell: fronts pitch UP and RISE with column index (10° … 25°)',
-    JSON.stringify(swell.columns.map((col) => col.startPitchDeg)) ===
-      JSON.stringify([10, 13, 16, 19, 22, 25]),
-    JSON.stringify(swell.columns.map((col) => col.startPitchDeg)),
+    `swell: EVERY front is steeply pitched — at least ${SWELL_MIN_FRONT_DEG}°, never flat-looking`,
+    fronts.every((psi) => psi >= SWELL_MIN_FRONT_DEG),
+    JSON.stringify(fronts),
+  )
+  check(
+    'swell: the front pitch RAMPS monotonically toward the wall — steepest at column 0',
+    fronts.every((psi, c) => c === 0 || psi < fronts[c - 1]) &&
+      fronts[WALL_COLUMN] === Math.max(...fronts),
+    JSON.stringify(fronts),
+  )
+  check(
+    'swell: ROW 1 keeps climbing — steeper than the front in every column, so the first two rows rise',
+    profiles(swell).every((p) => p[1] > p[0] && p[1] >= SWELL_MIN_FRONT_DEG),
+    JSON.stringify(profiles(swell).map((p) => [p[0], p[1]])),
   )
   check(
     "swell: 'spine plates' — one vertical plate mid-strip (rows 2–3) in every column",
@@ -688,25 +712,30 @@ for (const [label, cfg] of stormNamed) {
       layout.violations.length === 0,
     JSON.stringify(layout.columnChains.map((ch) => [ch.endSupport, ch.grounded])),
   )
-  // BIG ROLLING AMPLITUDE: the crest heights are the design input, and they arc
-  // across the window — that is what stops the surface reading as a cylinder.
+  // THE RAMP: the crest heights are the design input, and they climb monotonically
+  // toward the wall — water piling up against it. Measured from the SOLVED chains,
+  // never from a hard-coded table, so a change in the walker shows up here.
   const peaks = layout.columnChains.map((ch) => Math.max(...ch.points.map((p) => p[0])))
   check(
-    'swell: the crest ROLLS — it rises to the middle columns and falls away again',
-    peaks[1] > peaks[0] &&
-      peaks[2] > peaks[1] &&
-      peaks[4] < peaks[3] &&
-      peaks[5] < peaks[4],
+    'swell: the crest RAMPS monotonically up toward column 0, which is the strict maximum',
+    peaks.every((y, c) => c === 0 || y < peaks[c - 1]) &&
+      peaks[WALL_COLUMN] === Math.max(...peaks) &&
+      peaks.filter((y) => y === peaks[WALL_COLUMN]).length === 1,
     JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
   )
   check(
-    'swell: the roll has real amplitude — the crest varies by more than 30cm across it',
-    Math.max(...peaks) - Math.min(...peaks) > 30,
-    `${Math.min(...peaks).toFixed(1)} … ${Math.max(...peaks).toFixed(1)}`,
+    'swell: the ramp is DRAMATIC — the wall column is at least 60cm taller than column 5',
+    peaks[WALL_COLUMN] - peaks[5] >= 60,
+    `col0 ${peaks[WALL_COLUMN].toFixed(1)} … col5 ${peaks[5].toFixed(1)}`,
   )
   check(
-    'swell: it hits the authored 70 / 90 / 105cm targets within a couple of cm',
-    [70, 90, 105, 105, 90, 70].every((want, c) => Math.abs(peaks[c] - want) < 2.5),
+    'swell: it peaks near 150cm at the wall and stays a ripple (< 90cm) at the far jamb',
+    peaks[WALL_COLUMN] > 145 && peaks[5] < 90,
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'swell: every step of the ramp is a real one — no two neighbours within 8cm',
+    peaks.every((y, c) => c === 0 || peaks[c - 1] - y > 8),
     JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
   )
   check(

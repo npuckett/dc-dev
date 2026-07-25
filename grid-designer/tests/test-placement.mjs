@@ -1457,7 +1457,7 @@ const squares = (folds) =>
 // 12. The storm presets solve, land their floor columns, and use the wall
 // =============================================================================
 {
-  for (const [id, rows] of [['swell', 6], ['surge', 7], ['wallcrash', 6]]) {
+  for (const [id, rows] of [['swell', 7], ['surge', 7], ['wallcrash', 6]]) {
     const cfg = buildPreset(id)
     const layout = solveLayout(cfg)
     check(`${id}: rows ${rows}`, cfg.grid.rows === rows, String(cfg.grid.rows))

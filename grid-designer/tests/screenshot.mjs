@@ -36,9 +36,11 @@
  *                  moved; the map explains why inline.
  *   08-json.png    after pasting a MINIMAL v2 config (columns only — everything
  *                  else defaulted by normalizeConfig) and hitting Apply
- *   09-swell.png   the STORM family's 'Swell': 6 rows, a PITCHED FRONT in every
- *                  column (10° → 25°, the family's signature) and a 121cm spine
- *                  plate mid-strip in each — still every column on the floor
+ *   09-swell.png   the STORM family's 'Swell': 7 rows, a STEEP PITCHED FRONT in
+ *                  every column (45° → 28°, the family's signature) and a 121cm
+ *                  spine plate mid-strip in each. Everything ramps toward the −X
+ *                  WALL beside column 0 — the RIGHT of the 3D view — where the crest
+ *                  peaks near 150cm; still every column on the floor
  *   10-wallcrash.png the one design that engages the −X WALL: column 0 — the
  *                  column against it — is `endSupport: 'wall'`, ends ~170cm up, and
  *                  raises NO violation while columns 1–5 land normally
@@ -300,6 +302,8 @@ const storeState = (page) =>
       floatingCols: layout.violations.map((v) => v.col),
       clearances: layout.columnChains.map((chain) => chain.endClearanceCm),
       grounded: layout.columnChains.map((chain) => chain.grounded),
+      // Per-column crest height, cm — the tallest vertex of each solved chain.
+      peaks: layout.columnChains.map((chain) => Math.max(...chain.points.map((p) => p[0]))),
       summary: report.summary,
       panels: layout.panels.length,
     }
@@ -1068,33 +1072,34 @@ try {
   )
 
   // --- (i) THE STORM FAMILY: pitched fronts, a deeper grid, the wall --------
-  // 'swell' is 6 rows with a pitched front in EVERY column and a spine plate in
-  // each — the family's two signatures at once.
+  // 'swell' is 7 rows with a STEEP pitched front in EVERY column and a spine plate
+  // mid-strip in each — the family's two signatures at once — and everything ramps
+  // toward the wall beside column 0, where it peaks.
   await page.click('[data-testid="preset-swell"]')
   await page.waitForTimeout(SETTLE_MS)
   const swellShot = await assertCanvasRenders(page, 'swell')
   const swellState = await storeState(page)
   check(swellState.preset === 'swell', 'Swell preset applied', `preset=${swellState.preset}`)
   check(
-    swellState.rows === 6 &&
-      (await page.textContent('[data-testid="rows-value"]')).includes('6 rows'),
-    'the rows stepper followed the preset to 6 rows',
+    swellState.rows === 7 &&
+      (await page.textContent('[data-testid="rows-value"]')).includes('7 rows'),
+    'the rows stepper followed the preset to 7 rows',
     `rows=${swellState.rows} stepper="${(await page.textContent('[data-testid="rows-value"]')).trim()}"`,
   )
   check(
-    swellState.folds.every((f) => f.length === 5),
-    'every column carries grid.rows-1 = 5 hinges',
+    swellState.folds.every((f) => f.length === 6),
+    'every column carries grid.rows-1 = 6 hinges',
     JSON.stringify(swellState.folds.map((f) => f.length)),
   )
   check(
-    swellState.startPitches.every((p) => p !== 0) &&
-      JSON.stringify(swellState.startPitches) === JSON.stringify([10, 13, 16, 19, 22, 25]),
-    "swell's signature: NO flat front anywhere — the pitches ramp 10° → 25°",
+    swellState.startPitches.every((p) => p >= 28) &&
+      JSON.stringify(swellState.startPitches) === JSON.stringify([45, 42, 38, 35, 31, 28]),
+    "swell's signature: NO flat front anywhere — the pitches ramp 45° → 28° DOWN from the wall",
     JSON.stringify(swellState.startPitches),
   )
   check(
-    swellState.panels === 30 && swellState.rectObjs.length === 6,
-    'swell: 36 cells − 6 spine plates = 30 panels',
+    swellState.panels === 36 && swellState.rectObjs.length === 6,
+    'swell: 42 cells − 6 spine plates = 36 panels',
     `panels=${swellState.panels} rects=${swellState.rectObjs.length}`,
   )
   const swellCaption = (await page.textContent('[data-testid="rect-pattern"]')) ?? ''
@@ -1115,13 +1120,22 @@ try {
     'swell shows "all grounded ✓"',
   )
   check(
-    (await page.textContent('[data-testid="column-5"]')).includes('25°'),
-    "column 5's readout shows its 25° front pitch",
+    (await page.textContent('[data-testid="column-5"]')).includes('28°'),
+    "column 5's readout shows its 28° front pitch — the gentle end of the ramp",
     `startPitches=${JSON.stringify(swellState.startPitches)}`,
   )
   check(
-    (await page.inputValue('[data-testid="front-0"]')) === '10',
-    "the FRONT slider of column 0 reads its 10° pitch",
+    (await page.inputValue('[data-testid="front-0"]')) === '45',
+    "the FRONT slider of column 0 reads its 45° pitch — the steep end, against the wall",
+  )
+  // The ramp itself, read off the solved chains the viewport is drawing: the surface
+  // rises monotonically toward column 0 (the wall, on the RIGHT of the 3D view).
+  check(
+    swellState.peaks.every((y, c) => c === 0 || y < swellState.peaks[c - 1]) &&
+      swellState.peaks[0] > 145 &&
+      swellState.peaks[5] < 90,
+    'swell: the surface RAMPS up to its peak at column 0, beside the wall (~150cm vs ~82cm)',
+    JSON.stringify(swellState.peaks.map((y) => Number(y.toFixed(1)))),
   )
   check(canvasChanged(jsonShot, swellShot), 'the swell render differs from the pasted config')
   await page.screenshot({ path: `${OUT}/09-swell.png` })
