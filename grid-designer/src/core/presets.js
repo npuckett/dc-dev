@@ -6,8 +6,10 @@
  *   - may import `three` math classes only; never components / store / DOM
  *
  * Every function here returns a complete config that
- *   - passes `validateConfig` with `ok: true` (warnings such as W_RECT_LENGTH are
- *     expected and intentional — they surface real physical slack),
+ *   - passes `validateConfig` with `ok: true` (informational warnings such as
+ *     W_CROSSCOL_POSITION may still appear; W_RECT_LENGTH cannot, because every
+ *     preset inherits the default geometry where 2·size + gap = 60 + 1 + 60 = 121
+ *     is exactly cell.rectLength, so a plate is an exact drop-in),
  *   - is free of W_BELOW_FLOOR: no panel dips under the floor, and
  *   - is free of E_END_FLOATING: EVERY column's last panel touches the ground.
  *

@@ -5,8 +5,9 @@
  * into the room, so the surface reads the way a passer-by sees it: the flat
  * shore row nearest, the folded rows rising away behind it.
  *
- * World: cm, Y up. Columns along +X (0..370 for the default 6×62 lattice),
- * rows recede along +Z (0..308). Grid centre ≈ (185, 0, 155).
+ * World: cm, Y up. Columns along +X (0..365 for the default 6-column lattice at
+ * the 61cm cell pitch = 60cm cell + 1cm joint gap), rows recede along +Z
+ * (0..304). Grid centre ≈ (182.5, 0, 152).
  *
  * `preserveDrawingBuffer` is on so tests/screenshot.mjs can `drawImage()` the
  * WebGL canvas into a 2D canvas and sample pixels for a non-blank assertion.
@@ -17,8 +18,8 @@ import { Grid, Html, OrbitControls } from '@react-three/drei'
 import SurfaceMeshes from './SurfaceMeshes.jsx'
 import JointFlags from './JointFlags.jsx'
 
-/** Nominal grid extent for the default 6×5 / 62cm-pitch config. */
-const GRID_CENTER = [185, 0, 155]
+/** Nominal grid extent for the default 6×5 / 61cm-pitch config. */
+const GRID_CENTER = [182.5, 0, 152]
 const SHORE_X0 = -20
 const SHORE_X1 = 390
 
@@ -28,7 +29,7 @@ export default function Viewport() {
       className="viewport-canvas"
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true, antialias: true }}
-      camera={{ position: [185, 220, -320], fov: 45, near: 1, far: 6000 }}
+      camera={{ position: [GRID_CENTER[0], 220, -320], fov: 45, near: 1, far: 6000 }}
     >
       <color attach="background" args={['#0d0d14']} />
 
@@ -38,14 +39,14 @@ export default function Viewport() {
       <directionalLight position={[260, 420, -260]} intensity={1.15} />
       <directionalLight position={[-200, 240, 500]} intensity={0.35} />
 
-      {/* --- ground plane / cm-scaled grid (one line per 62cm cell pitch) */}
+      {/* --- ground plane / cm-scaled grid (one line per 61cm cell pitch) */}
       <Grid
         position={[GRID_CENTER[0], 0, GRID_CENTER[2]]}
-        args={[992, 992]}
-        cellSize={62}
+        args={[976, 976]}
+        cellSize={61}
         cellThickness={0.6}
         cellColor="#262636"
-        sectionSize={310}
+        sectionSize={305}
         sectionThickness={1.1}
         sectionColor="#3b3b55"
         fadeDistance={2200}
@@ -74,7 +75,7 @@ export default function Viewport() {
 
       <OrbitControls
         makeDefault
-        target={[185, 30, 150]}
+        target={[GRID_CENTER[0], 30, 150]}
         enableDamping
         dampingFactor={0.12}
         minDistance={60}

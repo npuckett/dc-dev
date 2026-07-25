@@ -10,8 +10,11 @@
  *   - in-row joints (the simple side-by-side connections) are exact only while
  *     two adjacent columns share a fold profile, and deviate as the profiles
  *     diverge — that is where all of the slack is deliberately parked,
- *   - a rigid plate's far side carries the 121-vs-122 hardware slack.
- * Joint counts are hand-derived and asserted exactly.
+ *   - a rigid plate adds NO slack of its own at the default geometry, because
+ *     cell.rectLength 121 = 2·cell.size + gap = 60 + 1 + 60 exactly: a plate is a
+ *     drop-in for the two squares and the joint it replaces.
+ * Joint counts are hand-derived and asserted exactly, and every gap expectation is
+ * derived from `config.gap` so a change to the default moves them all at once.
  */
 
 import { DEFAULT_CONFIG, normalizeConfig, validateConfig } from '../src/core/schema.js'
@@ -32,6 +35,9 @@ function check(name, condition, detail = '') {
 }
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps
+/** The gap every "exact joint" expectation below is measured against (1cm). */
+const GAP = DEFAULT_CONFIG.gap
+const SIZE = DEFAULT_CONFIG.cell.size
 const cfgOf = (over) => normalizeConfig({ ...DEFAULT_CONFIG, ...over })
 const columnsOf = (perColumn) => perColumn.map((foldsDeg) => ({ foldsDeg: foldsDeg.slice() }))
 const flatColumns = () => columnsOf(Array.from({ length: 6 }, () => [0, 0, 0, 0]))
@@ -55,15 +61,16 @@ const ids = (list) => list.map((j) => j.id).join(', ')
   check('flat: every joint OK', rep.summary.flagged === 0 && rep.summary.ok === 49, JSON.stringify(rep.summary))
   check('flat: ok + flagged = total', rep.summary.ok + rep.summary.flagged === rep.summary.total)
 
+  check('flat: the report expects the configured 1.0cm gap', GAP === 1 && rep.summary.gap === 1, String(rep.summary.gap))
   check(
-    'flat: in-row gapMid / gapMin / gapMax all exactly 2.0',
-    inRow(rep).every((j) => near(j.gapMid, 2) && near(j.gapMin, 2) && near(j.gapMax, 2)),
-    ids(inRow(rep).filter((j) => !near(j.gapMid, 2))),
+    'flat: in-row gapMid / gapMin / gapMax all exactly the gap (1.0)',
+    inRow(rep).every((j) => near(j.gapMid, GAP) && near(j.gapMin, GAP) && near(j.gapMax, GAP)),
+    ids(inRow(rep).filter((j) => !near(j.gapMid, GAP))),
   )
   check(
-    'flat: in-column gapMid / gapMin / gapMax all exactly 2.0',
-    inCol(rep).every((j) => near(j.gapMid, 2) && near(j.gapMin, 2) && near(j.gapMax, 2)),
-    ids(inCol(rep).filter((j) => !near(j.gapMid, 2))),
+    'flat: in-column gapMid / gapMin / gapMax all exactly the gap (1.0)',
+    inCol(rep).every((j) => near(j.gapMid, GAP) && near(j.gapMin, GAP) && near(j.gapMax, GAP)),
+    ids(inCol(rep).filter((j) => !near(j.gapMid, GAP))),
   )
   check('flat: zero skew everywhere', rep.joints.every((j) => near(j.skewDeg, 0)))
   check('flat: dihedral ≈ 0 everywhere', rep.joints.every((j) => near(j.dihedralDeg, 0)))
@@ -106,9 +113,9 @@ const ids = (list) => list.map((j) => j.id).join(', ')
     ids(rep.joints.filter((j) => !j.ok)),
   )
   check(
-    'cylinder: all gaps exactly 2.0',
-    rep.joints.every((j) => near(j.gapMid, 2) && near(j.gapMin, 2) && near(j.gapMax, 2)),
-    ids(rep.joints.filter((j) => !near(j.gapMid, 2))),
+    'cylinder: all gaps exactly the configured gap',
+    rep.joints.every((j) => near(j.gapMid, GAP) && near(j.gapMin, GAP) && near(j.gapMax, GAP)),
+    ids(rep.joints.filter((j) => !near(j.gapMid, GAP))),
   )
   check('cylinder: zero skew everywhere', rep.joints.every((j) => near(j.skewDeg, 0, 1e-4)))
 
@@ -157,9 +164,9 @@ const ids = (list) => list.map((j) => j.id).join(', ')
     ids(inCol(rep).filter((j) => !j.ok)),
   )
   check(
-    'one folded column: in-column gaps exactly 2.0 (column 2 included)',
-    inCol(rep).every((j) => near(j.gapMid, 2) && near(j.gapMin, 2) && near(j.gapMax, 2)),
-    ids(inCol(rep).filter((j) => !near(j.gapMid, 2))),
+    'one folded column: in-column gaps exactly the configured gap (column 2 included)',
+    inCol(rep).every((j) => near(j.gapMid, GAP) && near(j.gapMin, GAP) && near(j.gapMax, GAP)),
+    ids(inCol(rep).filter((j) => !near(j.gapMid, GAP))),
   )
   check(
     'one folded column: in-column skew 0 (facing edges stay parallel)',
@@ -188,7 +195,7 @@ const ids = (list) => list.map((j) => j.id).join(', ')
   )
   check(
     'one folded column: the shore row stays exact (all columns at pitch 0)',
-    inRow(rep).filter((j) => j.row === 0).every((j) => j.ok && near(j.gapMid, 2)),
+    inRow(rep).filter((j) => j.row === 0).every((j) => j.ok && near(j.gapMid, GAP)),
     ids(inRow(rep).filter((j) => j.row === 0 && !j.ok)),
   )
   check(
@@ -225,7 +232,8 @@ const ids = (list) => list.map((j) => j.id).join(', ')
 }
 
 // =============================================================================
-// 4. Vertical plate — interior boundary gone, 1cm slack on the far side
+// 4. Vertical plate — interior boundary gone, and NO slack anywhere: the 121cm
+//    plate is exactly the two squares plus the joint it replaces (2·60 + 1)
 // =============================================================================
 {
   const columns = flatColumns()
@@ -244,26 +252,57 @@ const ids = (list) => list.map((j) => j.id).join(', ')
     'v-plate: the plate is one panel on both of its in-column joints',
     rep.joints.filter((j) => j.panelA === 'p1_2' || j.panelB === 'p1_2').length > 0,
   )
-  // Its own hinges stay exact; the 1cm of plate slack lands on the in-row joints
-  // beside it and on the joint behind it.
+  // Its own hinges stay exact, and so do the in-row joints beside BOTH of its
+  // cells: the plate's two 60cm cell windows land precisely on the lattice
+  // positions the two squares it replaced occupied.
   const behind = rep.joints.find((j) => j.id === 'in-column:c2:k2')
   check(
-    'v-plate: the hinge behind the plate still measures exactly 2.0 at 40°',
-    behind && near(behind.gapMid, 2) && near(behind.dihedralDeg, 40, 1e-5) && behind.ok,
+    'v-plate: the hinge behind the plate still measures exactly the gap at 40°',
+    behind && near(behind.gapMid, GAP) && near(behind.dihedralDeg, 40, 1e-5) && behind.ok,
     JSON.stringify(behind),
   )
-  const beside = rep.joints.find((j) => j.id === 'in-row:r2:j1')
   check(
-    "v-plate: the plate's second cell sits 1cm short in z beside its neighbour → gap hypot(2, 1)",
-    beside && near(beside.gapMid, Math.hypot(2, 1), 1e-6) && beside.ok,
-    JSON.stringify(beside),
+    'v-plate: the plate length is exactly 2·size + gap, so it adds no slack',
+    cfg.cell.rectLength === 2 * SIZE + GAP,
+    `${cfg.cell.rectLength} vs ${2 * SIZE + GAP}`,
   )
+  for (const [row, id] of [[1, 'in-row:r1:j1'], [2, 'in-row:r2:j1']]) {
+    const beside = rep.joints.find((j) => j.id === id)
+    check(
+      `v-plate: the in-row joint beside its row-${row} cell measures exactly the gap, zero skew`,
+      beside &&
+        near(beside.gapMid, GAP) &&
+        near(beside.gapMin, GAP) &&
+        near(beside.gapMax, GAP) &&
+        near(beside.skewDeg, 0, 1e-5) &&
+        beside.ok,
+      JSON.stringify(beside),
+    )
+  }
+  // The rows BEHIND the plate are still flagged in-row — but now only because
+  // column 2 pitches 40° away from its flat neighbours, not because a plate pulled
+  // them forward. The near ends of those edges are still gap-apart.
   const behindRow = rep.joints.find((j) => j.id === 'in-row:r3:j1')
   check(
-    'v-plate: the rows behind it are pulled 1cm forward, flagged in-row',
-    behindRow && !behindRow.ok && behindRow.flags.includes('GAP_OUT_OF_TOL'),
+    'v-plate: the row behind it is flagged for the 40° pitch divergence (SKEW + GAP)',
+    behindRow &&
+      !behindRow.ok &&
+      behindRow.flags.includes('SKEW') &&
+      behindRow.flags.includes('GAP_OUT_OF_TOL') &&
+      near(behindRow.dihedralDeg, 40, 1e-5),
     JSON.stringify(behindRow),
   )
+  // …and with column 2 flat, a vertical plate leaves the WHOLE report exact.
+  {
+    const flatPlate = cfgOf({ columns: flatColumns(), rects: [{ row: 1, col: 2, orientation: 'vertical' }] })
+    const flatRep = run(flatPlate)
+    check(
+      'v-plate on a flat column: every remaining joint is exact — a true drop-in',
+      flatRep.summary.flagged === 0 &&
+        flatRep.joints.every((j) => near(j.gapMid, GAP) && near(j.skewDeg, 0, 1e-5)),
+      ids(flatRep.joints.filter((j) => !j.ok || !near(j.gapMid, GAP))),
+    )
+  }
 }
 
 // =============================================================================
@@ -291,19 +330,21 @@ const ids = (list) => list.map((j) => j.id).join(', ')
     "h-plate: the plate's interior boundary (1,0)-(1,1) is absent",
     !rep.joints.some((j) => j.id === 'in-row:r1:j0'),
   )
+  // The 121cm plate fills its 2·60 + gap = 121cm slot exactly, so there is no
+  // per-side slack left to measure: its in-column joints are as exact as a square's.
   check(
-    'h-plate: its two in-column joints carry only the 0.5cm-per-side plate slack',
+    'h-plate: its two in-column joints measure exactly the gap at 30° (zero plate slack)',
     ['in-column:c0:k0', 'in-column:c1:k0'].every((id) => {
       const j = rep.joints.find((x) => x.id === id)
-      return j && j.ok && near(j.gapMid, Math.hypot(2, 0.5), 1e-6) && near(j.dihedralDeg, 30, 1e-5)
+      return j && j.ok && near(j.gapMid, GAP) && near(j.dihedralDeg, 30, 1e-5)
     }),
     JSON.stringify(rep.joints.filter((j) => j.id.startsWith('in-column:c0:k0') || j.id.startsWith('in-column:c1:k0'))),
   )
   check(
-    "h-plate: the plate's right edge is 2.5cm from column 2 (0.5cm of slack)",
+    "h-plate: the plate's right edge sits exactly the gap from column 2 — no slack",
     (() => {
       const j = rep.joints.find((x) => x.id === 'in-row:r1:j1')
-      return j && near(j.gapMid, 2.5, 1e-6) && j.ok
+      return j && near(j.gapMid, GAP) && near(j.skewDeg, 0, 1e-5) && j.ok
     })(),
     JSON.stringify(rep.joints.find((x) => x.id === 'in-row:r1:j1')),
   )

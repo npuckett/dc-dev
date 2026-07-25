@@ -248,6 +248,7 @@ const storeState = (page) =>
       rects: s.config.rects.map((r) => `${r.orientation[0]}(${r.row},${r.col})`),
       lastErrors: s.lastErrors.map((e) => e.code),
       lastErrorMessages: s.lastErrors.map((e) => e.message),
+      validationWarnings: s.lastWarnings.map((w) => w.code),
       layoutWarnings: layout.warnings.map((w) => w.code),
       violations: layout.violations.map((v) => v.code),
       floatingCols: layout.violations.map((v) => v.col),
@@ -437,6 +438,13 @@ try {
     'wave brought its two rigid plates',
     JSON.stringify(waveState.rects),
   )
+  // At the default 1cm gap a 121cm plate is exactly two 60cm cells plus their
+  // joint (60 + 1 + 60), so the plates raise no rect-length warning any more.
+  check(
+    !waveState.validationWarnings.includes('W_RECT_LENGTH'),
+    'wave: its two plates raise NO W_RECT_LENGTH (121 = 2·60 + gap 1, an exact fit)',
+    JSON.stringify(waveState.validationWarnings),
+  )
   check(
     waveState.summary.flagged > 0,
     'wave flags in-row joints where the phase-shifted columns diverge',
@@ -598,7 +606,7 @@ try {
   console.log('  → tests/screenshots/05-fold.png')
 
   // --- (c2) an END THE SOLVER CANNOT REACH ---------------------------------
-  // 80° at the front joint puts column 3's chain ~164cm up at the last row. The
+  // 80° at the front joint puts column 3's chain ~161cm up at the last row. The
   // last panel is 60cm long, so no angle within ±120° brings it to the floor: the
   // profile itself has to arc back down, and the store says so instead of guessing.
   check(
@@ -802,11 +810,11 @@ try {
   check(
     jsonState.cols === 6 &&
       jsonState.rows === 5 &&
-      jsonState.gap === 2 &&
+      jsonState.gap === 1 &&
       jsonState.rects.length === 0 &&
       jsonState.panels === 30 &&
       jsonState.lastErrors.length === 0,
-    'normalizeConfig filled every omitted default (6×5, gap 2, no rects, 30 panels)',
+    'normalizeConfig filled every omitted default (6×5, gap 1, no rects, 30 panels)',
     `cols=${jsonState.cols} rows=${jsonState.rows} gap=${jsonState.gap} panels=${jsonState.panels}`,
   )
   const jsonShot = await assertCanvasRenders(page, 'json')
@@ -912,7 +920,7 @@ try {
       downloadedConfig?.grid?.cols === 6 &&
       downloadedConfig?.columns?.length === 6 &&
       downloadedConfig?.columns?.[0]?.foldsDeg?.length === 4 &&
-      downloadedConfig?.gap === 2,
+      downloadedConfig?.gap === 1,
     'downloaded JSON is the current, fully-defaulted v2 config',
     `${jsonText.length} bytes`,
   )

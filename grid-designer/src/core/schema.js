@@ -22,7 +22,8 @@
  * Consequences worth internalizing before generating a config:
  *   - Columns NEVER move in X. Column c occupies x ∈ [c·(size+gap),
  *     c·(size+gap)+size] in every configuration, so column centers sit on the
- *     lattice x = size/2 + c·(size+gap) (30, 92, 154, … at the defaults).
+ *     lattice x = size/2 + c·(size+gap) (30, 91, 152, … at the defaults, where
+ *     the cell pitch is size + gap = 60 + 1 = 61cm).
  *   - Side-by-side joints along a row are therefore SIMPLE CONNECTIONS: a
  *     constant `gap` in X by construction. Their 3D edge separation only grows
  *     when two adjacent columns' fold profiles differ in pitch or in the height
@@ -62,7 +63,7 @@
  * `endClearanceCm`. A design with a non-empty `violations` array is not finished.
  *
  * HOW TO DESIGN A FOLD SEQUENCE THAT LANDS:
- *   The chain climbs by 60·sin ψ_r per row (plus a couple of cm of gap), so the
+ *   The chain climbs by 60·sin ψ_r per row (plus the 1cm gap), so the
  *   height it has to give back by the end is essentially 60·Σ_r sin ψ_r. Author
  *   pitch profiles whose sines CANCEL — arc up and then back down — e.g.
  *   [0, 35, −35, 0, 0], [0, 35, 0, −35, 0], [0, 10, 10, −10, −10]. Profiles that
@@ -83,7 +84,12 @@
  *     "name": "wave study 3",                  // optional, free text
  *     "grid": { "cols": 6, "rows": 5 },        // 6 columns × 5 rows
  *     "cell": { "size": 60, "rectLength": 121 },  // square cell 60cm; 2-cell rect 121cm
- *     "gap": 2.0,                              // physical joint gap spanned by connectors
+ *     "gap": 1.0,                              // physical joint gap spanned by connectors.
+ *                                              // KEEP 2·size + gap = rectLength: 60+1+60 = 121
+ *                                              // is exactly the plate's long side, so one rect
+ *                                              // drops in for two squares + their joint with
+ *                                              // nothing left over. Other values are legal and
+ *                                              // simply raise W_RECT_LENGTH with the mismatch.
  *     "gapTolerance": 1.5,                     // report flags joints deviating > this from gap
  *     "groundTolerance": 0.5,                  // a column's last panel counts as
  *                                              // touching the floor when its solid
@@ -145,9 +151,14 @@
  *                               apart in (y, z) — they diverged earlier and only
  *                               re-converged in ANGLE, so one plate cannot span
  *                               them cleanly; the joint report shows the cost
- *   W_RECT_LENGTH               cell.rectLength ≠ 2·cell.size + gap (the real
- *                               hardware is 121 vs 122 — ~1cm of slack is
- *                               accepted and surfaced, never silently corrected)
+ *   W_RECT_LENGTH               cell.rectLength ≠ 2·cell.size + gap. AT THE
+ *                               DEFAULTS THIS NEVER FIRES: 2·60 + 1 = 121 =
+ *                               rectLength, so a rect plate spans exactly the
+ *                               two squares plus the joint it replaces. It only
+ *                               fires on a hand-set combination that does not
+ *                               add up (e.g. gap 2 → ideal 122 against a 121cm
+ *                               plate = 1cm of slack per rect), which is
+ *                               accepted and surfaced, never silently corrected
  *
  * The grounded-end rule is deliberately NOT here: it is a solved-layout property,
  * reported as `solveLayout(...).violations` (E_END_FLOATING), not a config error.
@@ -169,7 +180,20 @@ export const PITCH_MATCH_EPSILON_DEG = 0.1
 // -----------------------------------------------------------------------------
 export const DEFAULT_GRID = { cols: 6, rows: 5 }
 export const DEFAULT_CELL = { size: 60, rectLength: 121 }
-export const DEFAULT_GAP = 2.0
+/**
+ * Physical joint gap in cm — the span a printed connector bridges between two
+ * panels. 1.0 is not arbitrary: it is the value that makes a 60×121 rect plate a
+ * PERFECT DROP-IN for two 60cm squares plus the joint between them, because
+ *
+ *     2·size + gap = 2·60 + 1 = 121 = cell.rectLength
+ *
+ * exactly. Swapping two squares for one plate therefore moves nothing else in
+ * the surface: the chain advances the same distance, the cells behind it land on
+ * the same lattice positions, and W_RECT_LENGTH does not fire. (At the old 2.0cm
+ * default the ideal was 122 against 121cm of real hardware, and that 1cm of slack
+ * propagated down every column that used a plate.)
+ */
+export const DEFAULT_GAP = 1.0
 export const DEFAULT_GAP_TOLERANCE = 1.5
 /**
  * How close a column's last panel has to get to y = 0 to count as TOUCHING the
@@ -391,8 +415,10 @@ export function columnSegments(config, c) {
  * `origins[r]` is where cell (r, c)'s own 60cm sub-rectangle STARTS along the
  * chain. For a vertical plate's second cell that is `rectLength - size` past the
  * plate's near edge (the plate's cells are credited from its outer ends — see
- * placement.js `panelCellFaceRectLocal`), which is where the ~1cm of hardware
- * slack shows up.
+ * placement.js `panelCellFaceRectLocal`), which at the defaults is exactly
+ * `size + gap` = 61: the plate's second cell starts precisely where a separate
+ * square would have, so a plate changes nothing behind it. Any mismatch between
+ * `rectLength` and `2·size + gap` (W_RECT_LENGTH) shows up here as slack.
  *
  * @param {object} config config (raw or normalized — normalized internally)
  * @param {number} c column index
@@ -759,6 +785,9 @@ export function validateConfig(config) {
   }
 
   // --- 5. Rect length slack — surfaced, never corrected --------------------
+  // Silent at the defaults (2·60 + 1 = 121 = rectLength): a plate is an exact
+  // stand-in for two squares plus their joint. Only a mismatched combination
+  // (say gap 2 against a 121cm plate) has slack to report.
   if (cfg.rects.length > 0 && isFiniteNumber(cfg.cell.size) && isFiniteNumber(cfg.gap) && isFiniteNumber(cfg.cell.rectLength)) {
     const ideal = 2 * cfg.cell.size + cfg.gap
     if (cfg.cell.rectLength !== ideal) {

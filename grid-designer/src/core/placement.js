@@ -9,7 +9,7 @@
  * =============================================================================
  * MODEL — "per-column fold strips" (schema v2)
  * =============================================================================
- * The surface is NOT solved as rigid origami. Every joint is spanned by a ~2cm
+ * The surface is NOT solved as rigid origami. Every joint is spanned by a ~1cm
  * printed connector, so panels never share vertices. Each COLUMN is solved as an
  * exact 2D chain in its own Y–Z plane (the fold strip), and `report.js` measures
  * whatever slack lands on the side-by-side (in-row) connections between columns.
@@ -53,15 +53,20 @@
  * VERTICAL rect at (r,c) covers (r,c)+(r+1,c): one 121cm plate lying ALONG the
  * chain, so its local +Z (its length) already points down the chain and it needs
  * NO yaw. It removes joint k = r (validation forces that fold to 0), so the
- * plate is genuinely rigid and the chain simply advances 121 instead of 60.
+ * plate is genuinely rigid and the chain simply advances 121 instead of
+ * 60 + gap + 60 — which at the default gap of 1 is the SAME 121cm, so the plate
+ * is an exact drop-in and everything behind it is untouched.
  *
  * HORIZONTAL rect at (r,c) covers (r,c)+(r,c+1): one plate ACROSS two columns.
  * The '2x4' geometry is 60 wide (local X) × 121 long (local Z), so it is yawed
  * +90° about local Y to run its length along +X (composition rotX(−ψ)·yaw90).
  * It is owned by column c's chain — its (y, z) come from there — and is CENTERED
  * on the two-column slot in X: the slot spans [c·(size+gap), c·(size+gap) +
- * 2·size+gap] = 122cm at the defaults, and the 121cm plate sits centered in it,
- * 0.5cm shy of each outer edge (the W_RECT_LENGTH slack, placed honestly).
+ * 2·size+gap] = 121cm at the defaults, which the 121cm plate fills EXACTLY —
+ * its edges land on the two columns' outer lattice edges with zero slack. The
+ * centering is kept for honesty: a config whose rectLength disagrees with
+ * 2·size+gap (W_RECT_LENGTH) splits the difference between the two sides rather
+ * than dumping it all on one.
  * Column c+1 treats row r as a PHANTOM square: its chain advances 60 plus the
  * normal gap/fold so the rest of that column is unaffected, but it emits no
  * panel. Whatever mismatch that leaves is left for `report.js` to measure.
@@ -197,12 +202,15 @@ export function negAxis(a) {
  *     cell 0 → local Z ∈ [−L/2, −L/2 + size]
  *     cell 1 → local Z ∈ [ L/2 − size,  L/2 ]
  *
- * With the real hardware (rectLength 121 vs 2·60 + 2 = 122) those two windows
- * overlap by 1cm in the middle — which is fine, because the middle boundary is
- * internal to the plate and never a joint. Anchoring at the outer ends (rather
- * than splitting 60.5/60.5) makes the plate's outer edges line up exactly with
- * the neighbouring cells' lattice positions, so the ~1cm of accepted slack
- * shows up once, in the report, instead of being smeared over every joint.
+ * At the defaults (rectLength 121 = 2·60 + 1) those two windows sit exactly
+ * `gap` = 1cm apart in the middle — precisely where the joint the plate replaces
+ * would have been. A config whose rectLength disagrees with 2·size + gap makes
+ * them overlap (a longer ideal) or spread further apart; either way the middle
+ * boundary is internal to the plate and never a joint, so it does no harm.
+ * Anchoring at the outer ends (rather than splitting 60.5/60.5) makes the
+ * plate's outer edges line up exactly with the neighbouring cells' lattice
+ * positions, so any mismatch shows up once, in the report, instead of being
+ * smeared over every joint.
  *
  * @param {object} panel a layout panel
  * @param {number} cellIndex index into panel.cells
@@ -413,7 +421,11 @@ function buildColumnPanels(cfg, c, chain) {
 
     const xCenter =
       seg.kind === 'hrect'
-        ? c * pitch + (2 * size + gap) / 2 // centered across the two-column slot
+        // Centered across the two-column slot, which is 2·size + gap wide. At the
+        // defaults that is 121 = rectLength, so the plate fills the slot exactly
+        // (offset 0) and its edges coincide with the two columns' outer edges;
+        // centering only matters for a mismatched rectLength (W_RECT_LENGTH).
+        ? c * pitch + (2 * size + gap) / 2
         : c * pitch + size / 2
 
     const position = new THREE.Vector3(

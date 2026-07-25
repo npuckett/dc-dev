@@ -15,7 +15,7 @@
  * =============================================================================
  * The surface is deliberately NOT solved as rigid origami: rigid plates sharing
  * vertices cannot fold in both families at once, but the real hardware has a
- * ~2cm gap at every joint bridged by a printed connector. `placement.js` solves
+ * ~1cm gap at every joint bridged by a printed connector. `placement.js` solves
  * each COLUMN as an exact fold chain, which parks all of the slack on the
  * side-by-side connections BETWEEN columns. This module measures that slack and
  * flags joints a connector could not physically span.
@@ -25,7 +25,7 @@
  * =============================================================================
  * A LOGICAL joint is the shared boundary between two adjacent OCCUPIED cells:
  *   - 'in-row'    : (r, c) and (r, c+1) — a SIMPLE CONNECTION between two
- *                   columns; 2cm apart in X by construction, deviating in 3D
+ *                   columns; exactly `gap` apart in X by construction, deviating in 3D
  *                   only as the two chains' fold profiles diverge
  *   - 'in-column' : (r, c) and (r+1, c) — a HINGE inside one column's fold strip;
  *                   exact by construction (the bisector gap advance), except
@@ -85,10 +85,14 @@
  *     profiles up to that row (including two flat columns), and deviate as the
  *     profiles diverge — that is where all of the surface's slack is parked, and
  *     it is the price of a wave travelling across the grid.
- *   - The cells next to a HORIZONTAL plate deviate on the far side: the plate is
- *     positioned by column c's chain while cell (r, c+1)'s in-column neighbours
- *     belong to column c+1's chain, and the 121 vs 2·60 + 2 = 122 hardware slack
- *     shows up there as a ≈1cm deviation. Accepted, surfaced, never corrected.
+ *   - The cells next to a HORIZONTAL plate can deviate on the far side: the plate
+ *     is positioned by column c's chain while cell (r, c+1)'s in-column neighbours
+ *     belong to column c+1's chain, so any divergence between the two chains lands
+ *     there. At the DEFAULT geometry (rectLength 121 = 2·60 + gap 1) the plate
+ *     itself contributes nothing — it fills its two-column slot exactly — so two
+ *     matched columns give exact joints all round a plate. A config whose
+ *     rectLength disagrees with 2·size + gap (W_RECT_LENGTH) adds its slack here.
+ *     Accepted, surfaced, never corrected.
  */
 
 import * as THREE from 'three'

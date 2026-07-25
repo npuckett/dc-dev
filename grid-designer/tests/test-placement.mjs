@@ -14,7 +14,13 @@
  */
 
 import assert from 'node:assert/strict'
-import { DEFAULT_CONFIG, cellPitches, normalizeConfig, validateConfig } from '../src/core/schema.js'
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_GAP,
+  cellPitches,
+  normalizeConfig,
+  validateConfig,
+} from '../src/core/schema.js'
 import { buildPreset } from '../src/core/presets.js'
 import {
   columnEndGrounding,
@@ -56,6 +62,16 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps
 const nearVec = (v, e, eps = 1e-9) => v.length === e.length && v.every((x, i) => near(x, e[i], eps))
 const D = Math.PI / 180
 const SHORE_Y = 3.7
+/**
+ * Geometry the expectations below are built from — DERIVED from the config so a
+ * future change to the default gap moves them all at once. At today's defaults:
+ * gap 1, cell 60, so the cell pitch is 61 and 2·60 + gap = 121 = rectLength
+ * exactly (a rect plate is a drop-in for two squares plus their joint).
+ */
+const GAP = DEFAULT_CONFIG.gap
+const SIZE = DEFAULT_CONFIG.cell.size
+const PITCH = SIZE + GAP
+const RECT_LENGTH = DEFAULT_CONFIG.cell.rectLength
 
 const cfgOf = (over) => normalizeConfig({ ...DEFAULT_CONFIG, ...over })
 const columnsOf = (perColumn) => perColumn.map((foldsDeg) => ({ foldsDeg: foldsDeg.slice() }))
@@ -68,7 +84,7 @@ const flatColumns = () => columnsOf([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [
  * at the joint reached after that segment (null for the last one). Returns each
  * segment's pitch, its start point and its center point.
  */
-function walkColumn(segs, gap = 2) {
+function walkColumn(segs, gap = GAP) {
   let y = SHORE_Y
   let z = 0
   let psi = 0
@@ -105,6 +121,11 @@ const squares = (folds) =>
 
   check('flat: 30 panels', layout.panels.length === 30, `got ${layout.panels.length}`)
   check('flat: no warnings', layout.warnings.length === 0, JSON.stringify(layout.warnings))
+  check(
+    'flat: the default gap is 1cm, so the cell pitch is 61 and 2·60 + gap = 121 = rectLength',
+    GAP === 1 && PITCH === 61 && 2 * SIZE + GAP === RECT_LENGTH,
+    `gap=${GAP} pitch=${PITCH} 2·size+gap=${2 * SIZE + GAP} rectLength=${RECT_LENGTH}`,
+  )
 
   let lattice = true
   let quats = true
@@ -112,7 +133,7 @@ const squares = (folds) =>
   let meta = true
   let bad = ''
   for (const p of layout.panels) {
-    const want = [30 + 62 * p.col, 3.7, 30 + 62 * p.row]
+    const want = [30 + 61 * p.col, 3.7, 30 + 61 * p.row]
     if (!nearVec(p.position, want)) {
       lattice = false
       bad = `${p.id} at ${JSON.stringify(p.position)} want ${JSON.stringify(want)}`
@@ -131,7 +152,7 @@ const squares = (folds) =>
       meta = false
     }
   }
-  check('flat: centers on the 62-pitch lattice (30 + 62c, 3.7, 30 + 62r)', lattice, bad)
+  check('flat: centers on the 61-pitch lattice (30 + 61c, 3.7, 30 + 61r)', lattice, bad)
   check('flat: all quaternions are identity', quats)
   check('flat: y is exactly 3.7 (no float noise)', ys)
   check('flat: panel metadata (type/cells/pitch/id)', meta)
@@ -156,11 +177,11 @@ const squares = (folds) =>
     JSON.stringify(layout.columnChains[0]),
   )
   check(
-    'flat: columnChain points walk straight back (y 3.7, z 0/60/62/122/…)',
+    'flat: columnChain points walk straight back (y 3.7, z 0/60/61/121/…/304)',
     nearVec(layout.columnChains[0].points[0], [3.7, 0]) &&
       nearVec(layout.columnChains[0].points[1], [3.7, 60]) &&
-      nearVec(layout.columnChains[0].points[2], [3.7, 62]) &&
-      nearVec(layout.columnChains[0].points[9], [3.7, 308]),
+      nearVec(layout.columnChains[0].points[2], [3.7, 61]) &&
+      nearVec(layout.columnChains[0].points[9], [3.7, 304]),
     JSON.stringify(layout.columnChains[0].points),
   )
 
@@ -223,7 +244,7 @@ const squares = (folds) =>
   let posOk = true
   let posBad = ''
   col2.forEach((p, r) => {
-    const want = [154, chain[r].center[0], chain[r].center[1]]
+    const want = [152, chain[r].center[0], chain[r].center[1]]
     if (!nearVec(p.position, want, 1e-8)) {
       posOk = false
       posBad = `${p.id} ${JSON.stringify(p.position)} want ${JSON.stringify(want)}`
@@ -231,8 +252,8 @@ const squares = (folds) =>
   })
   check('one folded column: panel centers match the closed-form Y–Z chain', posOk, posBad)
   check(
-    'one folded column: x stays exactly on the column lattice (154)',
-    col2.every((p) => p.position[0] === 154),
+    'one folded column: x stays exactly on the column lattice (2·61 + 30 = 152)',
+    col2.every((p) => p.position[0] === 152),
     JSON.stringify(col2.map((p) => p.position[0])),
   )
   check(
@@ -261,8 +282,8 @@ const squares = (folds) =>
 
   // A positive fold really does go UP: row 1 is 30·sin30 = ~30cm above the shore.
   check(
-    'one folded column: +30° fold lifts row 1 (y ≈ 3.7 + 0.52 + 30·sin30)',
-    near(col2[1].position[1], SHORE_Y + 2 * Math.sin(15 * D) + 30 * Math.sin(30 * D), 1e-8),
+    'one folded column: +30° fold lifts row 1 (y = 3.7 + gap·sin15 + 30·sin30)',
+    near(col2[1].position[1], SHORE_Y + GAP * Math.sin(15 * D) + 30 * Math.sin(30 * D), 1e-8),
     String(col2[1].position[1]),
   )
 
@@ -313,7 +334,7 @@ const squares = (folds) =>
   let posOk = true
   let posBad = ''
   for (const p of layout.panels) {
-    const want = [30 + 62 * p.col, chain[p.row].center[0], chain[p.row].center[1]]
+    const want = [30 + 61 * p.col, chain[p.row].center[0], chain[p.row].center[1]]
     if (!nearVec(p.position, want, 1e-8)) {
       posOk = false
       posBad = `${p.id} ${JSON.stringify(p.position)} want ${JSON.stringify(want)}`
@@ -352,8 +373,8 @@ const squares = (folds) =>
   const v = validateConfig(withRect)
   check('v-plate: config validates (the removed joint is unfolded)', v.ok, JSON.stringify(v.errors))
   check(
-    'v-plate: W_RECT_LENGTH surfaced (121 ≠ 122)',
-    v.warnings.some((w) => w.code === 'W_RECT_LENGTH'),
+    'v-plate: NO W_RECT_LENGTH at the defaults (121 = 2·60 + gap 1, an exact fit)',
+    !v.warnings.some((w) => w.code === 'W_RECT_LENGTH'),
     JSON.stringify(v.warnings),
   )
 
@@ -373,19 +394,25 @@ const squares = (folds) =>
   check('v-plate: no separate panel at (2,2)', !layout.panels.some((p) => p.id === 'p2_2'))
   check('v-plate: no yaw (quaternion is identity here)', nearVec(rect.quaternion, [0, 0, 0, 1]))
 
-  // Independent closed form: the plate is ONE 121cm segment consuming rows 1+2,
-  // so the chain advances 121 (not 60 + 2 + 60 = 122) and the joint after it is
-  // joint 2 (the 40° fold).
+  // Independent closed form: the plate is ONE 121cm segment consuming rows 1+2, so
+  // the chain advances 121 — which at the default gap is exactly what two squares
+  // and the joint between them would have advanced (60 + 1 + 60 = 121). The joint
+  // after the plate is joint 2 (the 40° fold).
+  check(
+    'v-plate: the plate spans exactly two squares plus their joint',
+    RECT_LENGTH === 2 * SIZE + GAP,
+    `${RECT_LENGTH} vs ${2 * SIZE + GAP}`,
+  )
   const chain = walkColumn([
     { length: 60, foldAfter: 0 },
-    { length: 121, foldAfter: 40 },
+    { length: RECT_LENGTH, foldAfter: 40 },
     { length: 60, foldAfter: 0 },
     { length: 60, foldAfter: null },
   ])
   check(
-    'v-plate: plate center sits 60.5 along the chain (z = 62 + 60.5)',
-    nearVec(rect.position, [154, chain[1].center[0], chain[1].center[1]], 1e-8) &&
-      near(rect.position[2], 122.5, 1e-8),
+    'v-plate: plate center sits 60.5 along the chain (z = 61 + 60.5 = 121.5)',
+    nearVec(rect.position, [152, chain[1].center[0], chain[1].center[1]], 1e-8) &&
+      near(rect.position[2], 121.5, 1e-8),
     JSON.stringify(rect.position),
   )
   {
@@ -393,19 +420,28 @@ const squares = (folds) =>
     const zs = corners.map((c) => c[2])
     const xs = corners.map((c) => c[0])
     check(
-      'v-plate: 121 length runs along the chain (z = 62..183), 60 across the column',
-      near(Math.min(...zs), 62, 1e-8) &&
-        near(Math.max(...zs), 183, 1e-8) &&
+      'v-plate: 121 length runs along the chain (z = 61..182), 60 across the column',
+      near(Math.min(...zs), 61, 1e-8) &&
+        near(Math.max(...zs), 182, 1e-8) &&
         near(Math.max(...xs) - Math.min(...xs), 60, 1e-8),
       JSON.stringify([Math.min(...zs), Math.max(...zs), Math.max(...xs) - Math.min(...xs)]),
     )
   }
   const behind = layout.panels.filter((p) => p.col === 2 && p.row > 2)
   check(
-    'v-plate: rows behind it follow the shortened chain (1cm of plate slack)',
-    behind.every((p, i) => nearVec(p.position, [154, chain[2 + i].center[0], chain[2 + i].center[1]], 1e-8)),
+    'v-plate: rows behind it follow the closed-form chain',
+    behind.every((p, i) => nearVec(p.position, [152, chain[2 + i].center[0], chain[2 + i].center[1]], 1e-8)),
     JSON.stringify(behind.map((p) => p.position)),
   )
+  // THE DROP-IN PROPERTY: 121 = 60 + gap + 60 exactly, so swapping two squares for
+  // the plate leaves everything behind it bit-identical — the 1cm of slack the old
+  // 2cm gap propagated down the rest of the column is gone.
+  checkNoThrow('v-plate: rows behind it are BIT-IDENTICAL to the plate-free column', () => {
+    assert.deepStrictEqual(
+      layout.panels.filter((p) => p.col === 2 && p.row > 2),
+      plain.panels.filter((p) => p.col === 2 && p.row > 2),
+    )
+  })
   check(
     'v-plate: rows behind it also pick up the 40° fold',
     behind.every((p) => near(p.rowPitchDeg, 40)),
@@ -466,27 +502,37 @@ const squares = (folds) =>
     JSON.stringify(rect.quaternion),
   )
   check(
-    'h-plate: x center is the two-column slot center (c·62 + 61 = 123)',
-    rect.position[0] === 123,
+    'h-plate: x center is the two-column slot center (c·61 + 60.5 = 121.5)',
+    rect.position[0] === 121.5,
     String(rect.position[0]),
   )
   check(
-    'h-plate: (y, z) come from the owning column (flat here: 3.7, 154)',
-    nearVec([rect.position[1], rect.position[2]], [3.7, 154], 1e-9),
+    'h-plate: (y, z) come from the owning column (flat here: 3.7, 2·61 + 30 = 152)',
+    nearVec([rect.position[1], rect.position[2]], [3.7, 152], 1e-9),
     JSON.stringify(rect.position),
   )
 
   const corners = panelWorldCorners(rect, withRect)
   const xs = corners.map((c) => c[0])
   const zs = corners.map((c) => c[2])
+  // ZERO SLACK: the 121cm plate fills its 2·60 + gap = 121cm slot exactly, so its
+  // x extent runs from the LEFT column's outer edge to the RIGHT column's outer
+  // edge — derived from the config so it cannot drift out of sync with the gap.
+  const RECT_COL = 1
+  const slotX0 = RECT_COL * PITCH // left column's outer (low-x) edge
+  const slotX1 = (RECT_COL + 1) * PITCH + SIZE // right column's outer (high-x) edge
   check(
-    'h-plate: world footprint spans 121 across the columns (+X), 0.5 shy of each slot edge',
-    near(Math.min(...xs), 62.5, 1e-8) && near(Math.max(...xs), 183.5, 1e-8),
-    JSON.stringify([Math.min(...xs), Math.max(...xs)]),
+    'h-plate: x extent spans exactly the left column outer edge → right column outer edge (61..182)',
+    near(Math.min(...xs), slotX0, 1e-8) &&
+      near(Math.max(...xs), slotX1, 1e-8) &&
+      near(slotX1 - slotX0, RECT_LENGTH, 1e-8) &&
+      near(Math.min(...xs), 61, 1e-8) &&
+      near(Math.max(...xs), 182, 1e-8),
+    `plate x [${Math.min(...xs)}, ${Math.max(...xs)}] vs slot [${slotX0}, ${slotX1}] (${RECT_LENGTH}cm plate)`,
   )
   check(
     'h-plate: world footprint spans 60 along the chain (+Z)',
-    near(Math.max(...zs) - Math.min(...zs), 60, 1e-8) && near(Math.min(...zs), 124, 1e-8),
+    near(Math.max(...zs) - Math.min(...zs), 60, 1e-8) && near(Math.min(...zs), 122, 1e-8),
     JSON.stringify([Math.min(...zs), Math.max(...zs)]),
   )
 
@@ -555,9 +601,13 @@ const squares = (folds) =>
     layout.panels.reduce((n, p) => n + p.cells.length, 0) === 30,
   )
   check(
-    'wave preset: every column stays on its own x lattice slot',
+    'wave preset: every column stays on its own x lattice slot (pitch derived from the config)',
     layout.panels.every(
-      (p) => p.position[0] === (p.rectOrientation === 'horizontal' ? 62 * p.col + 61 : 62 * p.col + 30),
+      (p) =>
+        p.position[0] ===
+        (p.rectOrientation === 'horizontal'
+          ? PITCH * p.col + (2 * SIZE + GAP) / 2
+          : PITCH * p.col + SIZE / 2),
     ),
     JSON.stringify(layout.panels.map((p) => [p.id, p.position[0]])),
   )
@@ -637,10 +687,10 @@ const squares = (folds) =>
   check('floating: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
   const layout = solveLayout(cfg)
 
-  // Closed form: the chain start of row 4 is 3.7 + 2·sin22.5 + 3·(60+2)·sin45,
+  // Closed form: the chain start of row 4 is 3.7 + gap·sin22.5 + 3·(60+gap)·sin45,
   // the panel is flat at ψ = 45°, so its lowest solid corner is that start point
   // minus the housing's own drop of 3.7·cos45.
-  const y4 = SHORE_Y + 2 * Math.sin(22.5 * D) + 3 * 62 * Math.sin(45 * D)
+  const y4 = SHORE_Y + GAP * Math.sin(22.5 * D) + 3 * PITCH * Math.sin(45 * D)
   const wantClearance = y4 - 3.7 * Math.cos(45 * D)
 
   check(
@@ -651,7 +701,7 @@ const squares = (folds) =>
     JSON.stringify(layout.violations.map((v) => [v.code, v.col])),
   )
   check(
-    'floating: clearance matches the closed form (≈ 133.4cm)',
+    'floating: clearance matches the closed form (≈ 130.9cm)',
     near(layout.violations[0].clearanceCm, wantClearance, 1e-6),
     `${layout.violations[0].clearanceCm} vs ${wantClearance}`,
   )
@@ -696,11 +746,11 @@ const squares = (folds) =>
     String(end.rowPitchDeg),
   )
   // The four 60cm rises and falls cancel exactly, and so do the four gap advances
-  // along the bisectors ±5°/±10°/0° — except the very first, leaving 3.7 + 2·sin5°.
+  // along the bisectors ±5°/±10°/0° — except the very first, leaving 3.7 + gap·sin5°.
   check(
-    'edge contact: the LIT FACE stays clear of the floor (3.7 + 2·sin5° ≈ 3.87cm)',
-    near(litMin, SHORE_Y + 2 * Math.sin(5 * D), 1e-6),
-    `${litMin} vs ${SHORE_Y + 2 * Math.sin(5 * D)}`,
+    'edge contact: the LIT FACE stays clear of the floor (3.7 + gap·sin5° ≈ 3.79cm)',
+    near(litMin, SHORE_Y + GAP * Math.sin(5 * D), 1e-6),
+    `${litMin} vs ${SHORE_Y + GAP * Math.sin(5 * D)}`,
   )
   check(
     'edge contact: the housing edge reaches the floor — grounded, no violation',
@@ -720,10 +770,10 @@ const squares = (folds) =>
 // 7e. groundTolerance is honoured
 {
   const columns = flatColumns()
-  columns[0] = { foldsDeg: [10, 0, -20, 0] } // clearance ≈ 0.231cm
+  columns[0] = { foldsDeg: [10, 0, -20, 0] } // clearance ≈ 0.143cm at gap 1
   const loose = solveLayout(cfgOf({ columns, groundTolerance: 0.5 }))
   const tight = solveLayout(cfgOf({ columns, groundTolerance: 0.1 }))
-  check('groundTolerance: 0.231cm passes at 0.5', loose.violations.length === 0)
+  check('groundTolerance: a ~0.14cm clearance passes at 0.5', loose.violations.length === 0)
   check(
     'groundTolerance: the same design fails at 0.1',
     tight.violations.length === 1 && tight.violations[0].col === 0,
@@ -758,11 +808,11 @@ const squares = (folds) =>
 // 8b. A reachable floating column: solve it, apply it, re-solve, assert grounded
 {
   const columns = flatColumns()
-  columns[0] = { foldsDeg: [30, -30, 0, 0] } // the strip parks 31cm up and stays flat
+  columns[0] = { foldsDeg: [30, -30, 0, 0] } // the strip parks ~30.5cm up and stays flat
   const cfg = cfgOf({ columns })
   const before = solveLayout(cfg)
   check(
-    'solver: the test case really does float (≈ 31cm)',
+    'solver: the test case really does float (≈ 30.5cm)',
     before.violations.length === 1 && before.violations[0].clearanceCm > 30,
     JSON.stringify(before.violations.map((v) => v.clearanceCm)),
   )
@@ -776,8 +826,12 @@ const squares = (folds) =>
     String(solved?.foldDeg),
   )
   check(
-    'solver: it snapped to a readable angle (whole degrees here)',
-    Number.isInteger(solved.foldDeg),
+    // ground.js snaps to the coarsest of 1° / 0.5° / 0.25° / 0.1° / 0.01° that still
+    // lands in the acceptance band — a half degree for this chain at gap 1.
+    'solver: it snapped to a readable angle (one of the 1/0.5/0.25/0.1/0.01° grids)',
+    [1, 0.5, 0.25, 0.1, 0.01].some(
+      (step) => Math.abs(solved.foldDeg / step - Math.round(solved.foldDeg / step)) < 1e-9,
+    ),
     String(solved.foldDeg),
   )
 
@@ -821,7 +875,7 @@ const squares = (folds) =>
 // 8c. An UNREACHABLE end — the chain is a whole panel-length too high
 {
   const columns = flatColumns()
-  columns[0] = { foldsDeg: [45, 0, 0, 0] } // last vertex ≈ 136cm up; the panel is 60 long
+  columns[0] = { foldsDeg: [45, 0, 0, 0] } // last vertex ≈ 133cm up; the panel is 60 long
   const cfg = cfgOf({ columns })
   check('unreachable: solveGroundingFold returns null', solveGroundingFold(cfg, 0) === null)
 

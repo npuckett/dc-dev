@@ -10,6 +10,7 @@
 
 import {
   DEFAULT_CONFIG,
+  DEFAULT_GAP,
   cellPitches,
   columnChain,
   normalizeConfig,
@@ -336,15 +337,15 @@ expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
 // 9. W_CROSSCOL_POSITION — same angle, different place
 // =============================================================================
 {
-  // Column 0 goes up and comes back down: pitch 0 again at row 2, but 30cm higher
-  // and 8cm shallower than column 1.
+  // Column 0 goes up and comes back down: pitch 0 again at row 2, but ~30cm higher
+  // and ~8cm shallower than column 1.
   const cfg = withFolds([[30, -30, 0, 0]])
   cfg.rects = [{ row: 2, col: 0, orientation: 'horizontal' }]
   const result = expectWarning('W_CROSSCOL_POSITION', cfg, 'W_CROSSCOL_POSITION')
   check('W_CROSSCOL_POSITION is only a warning', result.ok, describe(result))
   check(
     'W_CROSSCOL_POSITION message reports both origins',
-    result.warnings.some((w) => w.code === 'W_CROSSCOL_POSITION' && /y 34\.74/.test(w.message)),
+    result.warnings.some((w) => w.code === 'W_CROSSCOL_POSITION' && /y 34\.22/.test(w.message)),
     JSON.stringify(result.warnings.map((w) => w.message)),
   )
 }
@@ -361,24 +362,90 @@ expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
 }
 
 // =============================================================================
-// 10. W_RECT_LENGTH — 121 ≠ 2·60 + 2
+// 10. W_RECT_LENGTH — fires only when rectLength ≠ 2·size + gap
+//
+// At the DEFAULTS it must stay silent: 2·60 + 1 = 121 = cell.rectLength exactly,
+// which is the whole point of the 1cm gap — a rect plate is a drop-in for two
+// squares plus the joint between them.
 // =============================================================================
 {
-  const cfg = good()
-  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }]
-  const result = expectWarning('W_RECT_LENGTH', cfg, 'W_RECT_LENGTH')
-  check('W_RECT_LENGTH is only a warning', result.ok, describe(result))
+  check(
+    'the default gap is 1.0cm',
+    DEFAULT_GAP === 1.0 && DEFAULT_CONFIG.gap === 1.0,
+    `DEFAULT_GAP=${DEFAULT_GAP} DEFAULT_CONFIG.gap=${DEFAULT_CONFIG.gap}`,
+  )
+  check(
+    'the defaults satisfy 2·cell.size + gap = cell.rectLength (60 + 1 + 60 = 121)',
+    2 * DEFAULT_CONFIG.cell.size + DEFAULT_CONFIG.gap === DEFAULT_CONFIG.cell.rectLength,
+    `${2 * DEFAULT_CONFIG.cell.size + DEFAULT_CONFIG.gap} vs ${DEFAULT_CONFIG.cell.rectLength}`,
+  )
 }
 {
-  const result = validateConfig(good())
+  // Defaults + a horizontal rect: an exact fit, so NO warning at all.
+  const cfg = good()
+  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }]
+  const result = validateConfig(cfg)
   check(
-    'no W_RECT_LENGTH without rects',
+    'defaults + a rect → no W_RECT_LENGTH (exact fit)',
+    result.ok && !warnCodes(result).includes('W_RECT_LENGTH'),
+    describe(result),
+  )
+}
+{
+  // …and with a vertical rect, which is the orientation the slack used to
+  // propagate along.
+  const cfg = good()
+  cfg.rects = [{ row: 1, col: 2, orientation: 'vertical' }]
+  const result = validateConfig(cfg)
+  check(
+    'defaults + a vertical rect → no W_RECT_LENGTH either',
+    result.ok && !warnCodes(result).includes('W_RECT_LENGTH'),
+    describe(result),
+  )
+}
+{
+  // FORCED MISMATCH: the old default gap against today's 121cm hardware. The rule
+  // still fires, names both numbers and reports the 1cm of slack.
+  const cfg = good()
+  cfg.gap = 2
+  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }]
+  const result = expectWarning('W_RECT_LENGTH (gap 2 vs rectLength 121)', cfg, 'W_RECT_LENGTH')
+  check('W_RECT_LENGTH is only a warning', result.ok, describe(result))
+  check(
+    'W_RECT_LENGTH names rectLength, the ideal 122 and the 1.00cm of slack',
+    result.warnings.some(
+      (w) =>
+        w.code === 'W_RECT_LENGTH' &&
+        w.path === 'cell.rectLength' &&
+        /121cm/.test(w.message) &&
+        /122cm/.test(w.message) &&
+        /1\.00cm of slack/.test(w.message),
+    ),
+    JSON.stringify(result.warnings.map((w) => w.message)),
+  )
+}
+{
+  // The other direction: a plate LONGER than the slot also mismatches.
+  const cfg = good()
+  cfg.cell.rectLength = 130
+  cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }]
+  expectWarning('W_RECT_LENGTH (rectLength 130 vs ideal 121)', cfg, 'W_RECT_LENGTH')
+}
+{
+  // A mismatched combination with NO rects stays silent — nothing to be slack in.
+  const cfg = good()
+  cfg.gap = 2
+  const result = validateConfig(cfg)
+  check(
+    'no W_RECT_LENGTH without rects, even on a mismatched combination',
     !warnCodes(result).includes('W_RECT_LENGTH'),
     describe(result),
   )
 }
 {
+  // gap 2 becomes exact again once the plate matches it.
   const cfg = good()
+  cfg.gap = 2
   cfg.cell.rectLength = 122
   cfg.rects = [{ row: 1, col: 2, orientation: 'horizontal' }]
   const result = validateConfig(cfg)
@@ -431,8 +498,8 @@ expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
   // The chain geometry itself: a flat column walks straight back in z.
   const chain = columnChain(DEFAULT_CONFIG, 3)
   check(
-    'columnChain: flat column origins are (3.7, 62r)',
-    chain.origins.every(([y, z], r) => Math.abs(y - 3.7) < 1e-12 && Math.abs(z - 62 * r) < 1e-12),
+    'columnChain: flat column origins are (3.7, 61r) — the 60cm cell + 1cm gap pitch',
+    chain.origins.every(([y, z], r) => Math.abs(y - 3.7) < 1e-12 && Math.abs(z - 61 * r) < 1e-12),
     JSON.stringify(chain.origins),
   )
   check(
@@ -484,7 +551,11 @@ expectOk('groundTolerance 5 is allowed', { ...good(), groundTolerance: 5 })
   const before = structuredClone(minimal)
   const cfg = normalizeConfig(minimal)
 
-  check('normalize: gap default', cfg.gap === 2.0, String(cfg.gap))
+  check('normalize: gap default is 1.0', cfg.gap === 1.0 && cfg.gap === DEFAULT_GAP, String(cfg.gap))
+  check(
+    'normalize: an explicit gap is passed through',
+    normalizeConfig({ ...minimal, gap: 2.5 }).gap === 2.5,
+  )
   check('normalize: gapTolerance default', cfg.gapTolerance === 1.5, String(cfg.gapTolerance))
   check(
     'normalize: groundTolerance default 0.5',
