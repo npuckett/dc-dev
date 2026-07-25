@@ -239,6 +239,11 @@ function ProfileSparkline({ c, points, bounds, grounded, clearanceCm, wallSuppor
  * plates that no longer fit — see the store for the exact semantics, repeated in
  * the control's tooltip.
  *
+ * The one button here that is NOT a design operation is "bounds": it shows / hides
+ * the 3D view's overall measuring box (`showBounds`, plain UI state), so it goes
+ * nowhere near `commit()` and cannot be rejected. It sits in this row because that
+ * is where the other whole-grid controls are.
+ *
  * @param {{selected: number, floating: number, rows: number}} props the column
  *        "Copy → all" reads from, how many columns currently float, and the grid's
  *        row resolution
@@ -249,6 +254,8 @@ export function ColumnToolbar({ selected, floating = 0, rows = MIN_ROWS }) {
   const flattenFolds = useStore((s) => s.flattenFolds)
   const groundAllColumns = useStore((s) => s.groundAllColumns)
   const setRows = useStore((s) => s.setRows)
+  const showBounds = useStore((s) => s.showBounds)
+  const toggleBounds = useStore((s) => s.toggleBounds)
 
   const rowsTitle =
     `row resolution — how many panels deep each column strip is (${MIN_ROWS}–${MAX_ROWS}). ` +
@@ -312,6 +319,20 @@ export function ColumnToolbar({ selected, floating = 0, rows = MIN_ROWS }) {
         onClick={() => shiftColumnsRight()}
       >
         Shift →
+      </button>
+      <button
+        type="button"
+        className={`tool-btn${showBounds ? ' tool-btn-on' : ''}`}
+        data-testid="tool-bounds"
+        aria-pressed={showBounds}
+        title={
+          showBounds
+            ? "hide the overall measuring box and its cm dimensions in the 3D view (a ruler, not part of the design — it never reaches the exported JSON or OBJ)"
+            : 'show the overall measuring box: a wireframe around the whole surface with its width, PEAK HEIGHT and depth in centimetres'
+        }
+        onClick={() => toggleBounds()}
+      >
+        bounds
       </button>
       <button
         type="button"

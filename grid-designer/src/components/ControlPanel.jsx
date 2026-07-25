@@ -7,6 +7,9 @@
  * "N floating" badge when any column's last panel ends in mid-air, a quiet "all
  * grounded ✓" tick otherwise (see the rule in core/schema.js). The E_END_FLOATING
  * messages themselves get their own box below the map, headed with the rule.
+ * Under that sits the design's OVERALL SIZE — `width × height × depth` in whole
+ * centimetres, the same box the 3D view draws (core/placement.js `layoutBounds`) —
+ * so the numbers a design is tuned against are readable without hunting in 3D.
  * Then the 2D grid map (where the 60×121 plates are placed and removed), the
  * message boxes, the cross-column toolbar, one control block per COLUMN (each
  * column is a fold strip: one slider per hinge), and the config-JSON disclosure.
@@ -33,7 +36,8 @@ export default function ControlPanel() {
   const config = useStore((s) => s.config)
   const lastErrors = useStore((s) => s.lastErrors)
   const lastWarnings = useStore((s) => s.lastWarnings)
-  const { layout, report, violations } = getDerived(config)
+  // `overall` is the whole design's box; `bounds` further down is the SPARKLINE scale
+  const { layout, report, violations, bounds: overall } = getDerived(config)
   const { summary } = report
   const colCount = config.grid.cols
   const floating = violations.length
@@ -76,6 +80,14 @@ export default function ControlPanel() {
       <p className="report-detail">
         {layout.panels.length} panels · worst gap dev {summary.worstGapDeviation.toFixed(2)}cm ·
         worst skew {summary.worstSkew.toFixed(1)}°
+      </p>
+      <p
+        className="report-detail report-bounds"
+        data-testid="bounds-summary"
+        title="overall extent of the built surface (width × height × depth), housings included — the same box the 3D view draws. Peak height is the second number."
+      >
+        {Math.round(overall.size[0])} × {Math.round(overall.size[1])} ×{' '}
+        {Math.round(overall.size[2])} cm
       </p>
 
       <GridMap />

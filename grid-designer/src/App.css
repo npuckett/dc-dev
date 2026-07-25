@@ -194,6 +194,14 @@ body {
   line-height: 1.4;
 }
 
+/* the overall extent — same size as its sibling, a shade brighter, tabular so the
+   digits line up while a fold slider is being dragged */
+.report-bounds {
+  color: #9aa4bb;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .msg-list {
   flex: 0 0 auto;
   max-height: 108px;
@@ -465,6 +473,14 @@ body {
 }
 .tool-btn-urgent:hover { background: #45182a; border-color: #98304a; }
 
+/* a VIEW toggle that is currently on (the measuring box) — lit, but not urgent */
+.tool-btn-on {
+  color: #e6ecf8;
+  background: #23273a;
+  border-color: #4a5470;
+}
+.tool-btn-on:hover { background: #2b3048; border-color: #5d6a8c; }
+
 /* --- columns (one fold strip each) ----------------------------------------- */
 .col-block {
   padding: 6px 8px 7px;
@@ -624,7 +640,8 @@ body {
 
 /* --- in-scene labels (drei <Html>) ----------------------------------------- */
 .shore-label,
-.wall-label {
+.wall-label,
+.bounds-label {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 600;
@@ -642,4 +659,25 @@ body {
   font-size: 10px;
   color: #3ad0c0;
   opacity: 0.75;
+}
+
+/* the measuring box's dimension pills: a ruler, so quiet and monospaced-numeric,
+   but on a pill so the digits stay readable over a glowing panel */
+.bounds-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: #cfd8e8;
+  background: rgba(13, 13, 20, 0.62);
+  border: 1px solid rgba(170, 180, 200, 0.35);
+  border-radius: 9px;
+  padding: 1px 6px;
+}
+
+/* the peak is the number a design gets tuned against — the one that shouts */
+.bounds-label-peak {
+  font-size: 11.5px;
+  color: #ffffff;
+  border-color: rgba(170, 180, 200, 0.6);
+  background: rgba(13, 13, 20, 0.78);
 }

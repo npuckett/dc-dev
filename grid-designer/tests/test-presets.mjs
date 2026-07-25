@@ -657,28 +657,49 @@ for (const [label, cfg] of stormNamed) {
   )
 }
 
-// --- swell: 7 rows, spine plates, everything ramping to a peak AT THE WALL -------
+// --- swell: 7 rows, spine plates, a low asymmetric drift banking on THE WALL -----
 //
 // The design intent, encoded so it cannot silently regress:
-//   1. NO ROW NEAR THE WINDOW LIES FLAT. Every front is at least
-//      SWELL_MIN_FRONT_DEG steep, and row 1 is steeper still, so the two rows a
-//      person at the window actually sees are visibly climbing.
-//   2. EVERYTHING RAMPS TOWARD THE WALL. The wall is beside column 0
+//   1. A BROKEN SHORELINE. The two rows at the window are NOT one smooth incline:
+//      joint 0 is a real bend (≥ SWELL_MIN_SHORE_BEND_DEG) and it bends the OTHER
+//      WAY — row 1 falls back from the pitched front to a shoulder — at a
+//      DIFFERENT sharpness in every column, so the shore reads as chop.
+//   2. A LOW CEILING OVER A WIDE RANGE. The crest peaks at column 0 inside
+//      [SWELL_PEAK_MIN, SWELL_PEAK_MAX] and the far jamb (column 5) starts inside
+//      [SWELL_START_MIN, SWELL_START_MAX] — the "much lower on the left, and don't
+//      build to such a high point" band. Regressing to the old 150 → 80cm ramp
+//      fails both.
+//   3. EVERYTHING RAMPS TOWARD THE WALL. The wall is beside column 0
 //      (schema.js WALL_COLUMN), so both the front pitch and the crest height fall
 //      monotonically with the column index and column 0 is the strict maximum of
 //      each.
-//   3. ALL SIX COLUMNS STILL LAND ON THE FLOOR — that is what separates swell from
+//   4. DRIFT ASYMMETRY. Each column rises gradually over its 241cm windward run
+//      (rows 0–3) and falls more steeply over its 180cm lee (rows 4–6) — the
+//      slipface. Measured as mean |Δy| per cm of chain, not as angles.
+//   5. ALL SIX COLUMNS STILL LAND ON THE FLOOR — that is what separates swell from
 //      'wallcrash'; nothing here may take endSupport 'wall'.
 {
   const swell = presetSwell()
   const layout = solveLayout(swell)
-  /** Steepest a swell front may be allowed to get — anything flatter reads as lying flat. */
-  const SWELL_MIN_FRONT_DEG = 28
+  /** The shore bend has to be a CREASE, not a 5° continuation of the ramp. */
+  const SWELL_MIN_SHORE_BEND_DEG = 12
+  /** The crest band at the wall, cm — low enough to walk past, tall enough to read. */
+  const SWELL_PEAK_MIN = 110
+  const SWELL_PEAK_MAX = 120
+  /** …and how low the far jamb, the LEFT of the 3D view, is allowed to start. */
+  const SWELL_START_MIN = 35
+  const SWELL_START_MAX = 45
+  /** How much steeper the lee must be than the windward slope. */
+  const SWELL_MIN_ASYMMETRY = 1.2
   const fronts = swell.columns.map((col) => col.startPitchDeg)
-  check('swell: 7 rows — the descent capacity a 150cm crest needs', swell.grid.rows === 7, String(swell.grid.rows))
   check(
-    `swell: EVERY front is steeply pitched — at least ${SWELL_MIN_FRONT_DEG}°, never flat-looking`,
-    fronts.every((psi) => psi >= SWELL_MIN_FRONT_DEG),
+    'swell: 7 rows — three lee panels, so the slipface is a slope and not a clamped vertical cliff',
+    swell.grid.rows === 7,
+    String(swell.grid.rows),
+  )
+  check(
+    'swell: the WALL front rears up (≥ 40°) while the far jamb comes out low (≤ 24°) — the range is the design',
+    fronts[WALL_COLUMN] >= 40 && fronts[5] <= 24 && fronts.every((psi) => psi > 0),
     JSON.stringify(fronts),
   )
   check(
@@ -687,11 +708,42 @@ for (const [label, cfg] of stormNamed) {
       fronts[WALL_COLUMN] === Math.max(...fronts),
     JSON.stringify(fronts),
   )
+  // --- 1. THE BROKEN SHORELINE ---------------------------------------------
+  const shoreBends = swell.columns.map((col) => col.foldsDeg[0])
   check(
-    'swell: ROW 1 keeps climbing — steeper than the front in every column, so the first two rows rise',
-    profiles(swell).every((p) => p[1] > p[0] && p[1] >= SWELL_MIN_FRONT_DEG),
+    `swell: joint 0 is a REAL bend in every column — at least ${SWELL_MIN_SHORE_BEND_DEG}°, not a 5° ramp`,
+    shoreBends.every((f) => Math.abs(f) >= SWELL_MIN_SHORE_BEND_DEG),
+    JSON.stringify(shoreBends),
+  )
+  check(
+    'swell: and it bends the OTHER WAY — row 1 falls back to a shoulder instead of continuing the front’s climb',
+    profiles(swell).every((p) => p[1] < p[0]) && shoreBends.every((f) => f < 0),
     JSON.stringify(profiles(swell).map((p) => [p[0], p[1]])),
   )
+  check(
+    'swell: the shore CHOPS — the six columns break at at least four different sharpnesses',
+    new Set(shoreBends.map(Math.abs)).size >= 4,
+    JSON.stringify(shoreBends),
+  )
+  // The shore detail must not eat the climb: the spine plate still does the lifting.
+  {
+    const size = Number(swell.cell.size)
+    const rectLength = Number(swell.cell.rectLength)
+    const spineShare = layout.columnChains.map((chain) => {
+      const psi = chain.pitchesDeg
+      const shore = Math.abs(size * Math.sin((psi[0] * Math.PI) / 180)) +
+        Math.abs(size * Math.sin((psi[1] * Math.PI) / 180))
+      const spine = Math.abs(rectLength * Math.sin((psi[2] * Math.PI) / 180))
+      return spine / (shore + spine)
+    })
+    check(
+      'swell: the shore detail has NOT eaten the climb — the spine plate still lifts a quarter ' +
+        'of the windward rise in every column, and a third of it in the four tallest',
+      spineShare.every((share) => share >= 0.25) &&
+        spineShare.filter((share) => share >= 0.33).length >= 4,
+      JSON.stringify(spineShare.map((s) => Number(s.toFixed(2)))),
+    )
+  }
   check(
     "swell: 'spine plates' — one vertical plate mid-strip (rows 2–3) in every column",
     swell.meta.rectPattern === 'spine plates' &&
@@ -728,16 +780,58 @@ for (const [label, cfg] of stormNamed) {
     peaks[WALL_COLUMN] - peaks[5] >= 60,
     `col0 ${peaks[WALL_COLUMN].toFixed(1)} … col5 ${peaks[5].toFixed(1)}`,
   )
+  // --- 2. THE LOW CEILING OVER A WIDE RANGE --------------------------------
   check(
-    'swell: it peaks near 150cm at the wall and stays a ripple (< 90cm) at the far jamb',
-    peaks[WALL_COLUMN] > 145 && peaks[5] < 90,
+    `swell: the crest at the wall lands in [${SWELL_PEAK_MIN}, ${SWELL_PEAK_MAX}]cm — LOWER than the ` +
+      'old 150cm version, which this band exists to prevent coming back',
+    peaks[WALL_COLUMN] >= SWELL_PEAK_MIN && peaks[WALL_COLUMN] <= SWELL_PEAK_MAX,
     JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    `swell: and the far jamb — the LEFT of the 3D view — starts MUCH lower, in [${SWELL_START_MIN}, ` +
+      `${SWELL_START_MAX}]cm (it used to be 82)`,
+    peaks[5] >= SWELL_START_MIN && peaks[5] <= SWELL_START_MAX,
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'swell: the RANGE is wide — the wall column is at least 2.5× the far jamb',
+    peaks[WALL_COLUMN] / peaks[5] >= 2.5,
+    `${(peaks[WALL_COLUMN] / peaks[5]).toFixed(2)}×`,
   )
   check(
     'swell: every step of the ramp is a real one — no two neighbours within 8cm',
     peaks.every((y, c) => c === 0 || peaks[c - 1] - y > 8),
     JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
   )
+  // --- 4. DRIFT ASYMMETRY ---------------------------------------------------
+  // Mean height change per cm of chain, windward (rows 0–3, 2·size + rectLength of
+  // panel) against lee (rows 4–6, 3·size). A snow drift's lee is the steeper side;
+  // a water swell's two sides would match. Derived from the solved chains and the
+  // config's own cell dimensions — no hard-coded runs.
+  {
+    const size = Number(swell.cell.size)
+    const windwardRun = 2 * size + Number(swell.cell.rectLength)
+    const leeRun = 3 * size
+    const ratios = layout.columnChains.map((chain, c) => {
+      const startY = chain.points[0][0]
+      const endY = chain.points[chain.points.length - 1][0]
+      const rise = (peaks[c] - startY) / windwardRun
+      const fall = (peaks[c] - endY) / leeRun
+      return fall / rise
+    })
+    check(
+      `swell: every column is ASYMMETRIC front to back — its lee is at least ` +
+        `${SWELL_MIN_ASYMMETRY}× as steep as its windward slope (the drift's slipface)`,
+      ratios.every((r) => r >= SWELL_MIN_ASYMMETRY),
+      JSON.stringify(ratios.map((r) => Number(r.toFixed(2)))),
+    )
+    check(
+      'swell: …and it is the ROW SPLIT that does it (241cm of rise, 180cm of fall), not one ' +
+        'violent joint — no hinge past 60°',
+      windwardRun > leeRun && maxFold(swell) <= 60,
+      `windward ${windwardRun}cm vs lee ${leeRun}cm, worst hinge ${maxFold(swell)}°`,
+    )
+  }
   check(
     'swell: the crest is a real rise — over 25× the flat lit-face height',
     Math.max(...peaks) > 25 * 3.7,
@@ -747,6 +841,18 @@ for (const [label, cfg] of stormNamed) {
     'swell: no layout warnings at all',
     layout.warnings.length === 0,
     JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+  check(
+    'swell: and no VALIDATION warnings either — the design is finished, not merely legal',
+    warnCodes(swell).length === 0,
+    JSON.stringify(warnCodes(swell)),
+  )
+  check(
+    'swell: the hybrid is described in meta.notes (swell + drift, both named)',
+    /swell/i.test(swell.meta.notes) &&
+      /drift/i.test(swell.meta.notes) &&
+      /asymmetric/i.test(swell.meta.notes),
+    swell.meta.notes.slice(0, 80),
   )
 }
 

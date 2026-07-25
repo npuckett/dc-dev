@@ -17,11 +17,16 @@
  *     camera looks in from the window (+X to the left), the wall appears on the
  *     RIGHT of the 3D view, beside the nearest-to-camera-right strip, column 0.
  *
+ * One measuring aid is drawn on top of them: the MEASURING BOX (`BoundsBox`) — a
+ * low-opacity wireframe around the whole surface with its width / peak height /
+ * depth in centimetres, toggled by the toolbar's "bounds" button.
+ *
  * `preserveDrawingBuffer` is on so tests/screenshot.mjs can `drawImage()` the
  * WebGL canvas into a 2D canvas and sample pixels for a non-blank assertion.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import * as THREE from 'three'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, Html, OrbitControls } from '@react-three/drei'
 import useStore, { getDerived } from '../store.js'
@@ -91,6 +96,98 @@ function Wall() {
         zIndexRange={[10, 0]}
       >
         <div className="wall-label">WALL</div>
+      </Html>
+    </group>
+  )
+}
+
+/**
+ * THE MEASURING BOX — the design's overall extent, with its three dimensions in
+ * centimetres.
+ *
+ * The box is `getDerived(config).bounds` (core/placement.js `layoutBounds`): the
+ * axis-aligned extent of every panel's SOLID, housings included, so it is the
+ * volume the built surface actually occupies and not just the lit faces. It is
+ * drawn as a low-opacity wireframe on purpose — it is a ruler held up against the
+ * design, so it has to be legible without competing with it, and the "bounds"
+ * toolbar button hides it outright (`showBounds`, plain UI state).
+ *
+ * LABEL SIDES. All three pills are pushed onto the +X / −Z quadrant — the LEFT and
+ * NEAR sides of the 3D view — because the two labels that already exist live
+ * elsewhere: WINDOW / SHORE sits low at the middle of z = 0 and WALL sits at
+ * x ≈ 0, the RIGHT of the view. So width rides the top front edge, and height and
+ * depth ride the front-left vertical and bottom-left edges.
+ *
+ * The HEIGHT pill reports `max.y` — the PEAK — rather than the extent, and is the
+ * emphasized one: every column starts on the floor, so the peak is the number a
+ * design gets tuned against. (min.y is 0 for any grounded design, which makes the
+ * two equal; they part company only if a future design floats.)
+ */
+const BOUNDS_COLOR = '#aab4c8'
+/** How far outside the box the pills sit, cm — clear of the wireframe, still on it. */
+const BOUNDS_LABEL_OFFSET_CM = 20
+
+function BoundsBox() {
+  const config = useStore((s) => s.config)
+  const showBounds = useStore((s) => s.showBounds)
+  const { bounds } = getDerived(config)
+  const [w, h, d] = bounds.size
+
+  const edges = useMemo(() => {
+    const box = new THREE.BoxGeometry(Math.max(w, 1e-3), Math.max(h, 1e-3), Math.max(d, 1e-3))
+    const geometry = new THREE.EdgesGeometry(box)
+    box.dispose()
+    return geometry
+  }, [w, h, d])
+  useEffect(() => () => edges.dispose(), [edges])
+
+  if (!showBounds || w <= 0 || h <= 0 || d <= 0) return null
+
+  const [, minY] = bounds.min
+  const [maxX, maxY, maxZ] = bounds.max
+  const [cx, cy, cz] = bounds.center
+  const off = BOUNDS_LABEL_OFFSET_CM
+  const cm = (v) => `${Math.round(v)} cm`
+
+  return (
+    <group>
+      <lineSegments geometry={edges} position={[cx, cy, cz]}>
+        <lineBasicMaterial
+          color={BOUNDS_COLOR}
+          toneMapped={false}
+          transparent
+          opacity={0.3}
+          depthWrite={false}
+        />
+      </lineSegments>
+      {/* width (X) — the top BACK edge, out in the empty sky above the deep end. The
+          front top edge reads as the middle of the surface from this camera. */}
+      <Html position={[cx, maxY + off * 1.6, maxZ + off]} center distanceFactor={460} zIndexRange={[10, 0]}>
+        <div className="bounds-label" data-testid="bounds-label-x">
+          W {cm(w)}
+        </div>
+      </Html>
+      {/* peak height (Y) — off the +X (screen-left) face, high up beside the crest */}
+      <Html
+        position={[maxX + off * 2, Math.max(cy, off * 1.5), cz * 0.55]}
+        center
+        distanceFactor={460}
+        zIndexRange={[10, 0]}
+      >
+        <div className="bounds-label bounds-label-peak" data-testid="bounds-label-y">
+          peak {cm(maxY)}
+        </div>
+      </Html>
+      {/* depth (Z) — the bottom edge of the same face, at the floor, mid-depth */}
+      <Html
+        position={[maxX + off * 2, minY + 2, cz]}
+        center
+        distanceFactor={460}
+        zIndexRange={[10, 0]}
+      >
+        <div className="bounds-label" data-testid="bounds-label-z">
+          D {cm(d)}
+        </div>
       </Html>
     </group>
   )
@@ -185,6 +282,9 @@ export default function Viewport() {
       {/* --- the surface itself */}
       <SurfaceMeshes />
       <JointFlags />
+
+      {/* --- the overall measuring box + its cm dimensions (toolbar-dismissible) */}
+      <BoundsBox />
 
       <OrbitControls
         makeDefault

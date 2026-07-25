@@ -89,7 +89,12 @@
  * Panels are emitted column-major (all of column 0 front-to-back, then column 1,
  * …). `rowPitchDeg` is the panel's cumulative pitch. `columnChains[c].points`
  * are the chain vertices of column c in (y, z): the start, then after every
- * segment and every gap advance — handy for drawing the fold profile. v1's
+ * segment and every gap advance — handy for drawing the fold profile.
+ *
+ * `layoutBounds(layout, config)` turns that into the design's OVERALL BOX — the
+ * axis-aligned extent of every panel's SOLID, i.e. the physical extent including
+ * housings, which is what the viewport's measuring box and the control panel's
+ * `W × H × D cm` line report. v1's
  * `rowPlanes` and per-panel `tiltDeg` are GONE (there is no in-row accordion any
  * more, so every panel's tilt is zero by construction).
  *
@@ -338,6 +343,60 @@ export function panelSolidCorners(panel, config) {
  */
 export function panelSolidMinY(panel, config) {
   return panelSolidCorners(panel, config).reduce((m, corner) => Math.min(m, corner[1]), Infinity)
+}
+
+/**
+ * The overall axis-aligned bounding box of the built surface, in cm.
+ *
+ * Measured over every panel's SOLID (`panelSolidCorners` — the 4 lit-face corners
+ * AND the 4 at the back of the housing, 3.7cm along −n̂), NOT over the lit faces
+ * alone, so the box is the physical extent of the thing that gets installed and
+ * matches exactly what the grounded-end rule considers the panel. Consequences
+ * worth knowing:
+ *   - a FLAT surface's box is `PANEL_PROFILE.overallThickness` = 3.7cm tall, with
+ *     `min.y` = 0 (the housings resting on the floor) and `max.y` = 3.7 (the lit
+ *     faces), not a zero-height plane;
+ *   - a pitched panel's housing sticks out BEHIND its lit face, so the box can
+ *     reach a little past the lattice in −z / +z and, at a steep front, above the
+ *     tallest lit-face corner.
+ *
+ * `size[1]` is the design's HEIGHT and `max[1]` its PEAK — the same number the
+ * per-column crest readouts peak at, since every column starts on the floor.
+ *
+ * Pure: derived from the layout only, so the UI can memoize it beside the layout
+ * (see store.js `getDerived`) and never recompute it per frame.
+ *
+ * @param {{panels: Array}} layout output of `solveLayout`
+ * @param {object} config config (raw or normalized)
+ * @returns {{ min:number[], max:number[], size:number[], center:number[] }} plain
+ *          [x, y, z] triples, rounded like every other layout number (`round9`).
+ *          An empty layout gives an all-zero box.
+ */
+export function layoutBounds(layout, config) {
+  const cfg = normalizeConfig(config)
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+
+  for (const panel of layout?.panels ?? []) {
+    for (const corner of panelSolidCorners(panel, cfg)) {
+      for (let i = 0; i < 3; i++) {
+        if (corner[i] < min[i]) min[i] = corner[i]
+        if (corner[i] > max[i]) max[i] = corner[i]
+      }
+    }
+  }
+
+  if (!Number.isFinite(min[0])) {
+    return { min: [0, 0, 0], max: [0, 0, 0], size: [0, 0, 0], center: [0, 0, 0] }
+  }
+
+  const axes = [0, 1, 2]
+  return {
+    min: axes.map((i) => round9(min[i])),
+    max: axes.map((i) => round9(max[i])),
+    size: axes.map((i) => round9(max[i] - min[i])),
+    center: axes.map((i) => round9((min[i] + max[i]) / 2)),
+  }
 }
 
 /** `config.groundTolerance`, falling back to the default for junk input. */

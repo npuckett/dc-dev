@@ -36,11 +36,13 @@
  *                  moved; the map explains why inline.
  *   08-json.png    after pasting a MINIMAL v2 config (columns only — everything
  *                  else defaulted by normalizeConfig) and hitting Apply
- *   09-swell.png   the STORM family's 'Swell': 7 rows, a STEEP PITCHED FRONT in
- *                  every column (45° → 28°, the family's signature) and a 121cm
- *                  spine plate mid-strip in each. Everything ramps toward the −X
- *                  WALL beside column 0 — the RIGHT of the 3D view — where the crest
- *                  peaks near 150cm; still every column on the floor
+ *   09-swell.png   the STORM family's 'Swell': 7 rows, a PITCHED FRONT in every
+ *                  column (42° → 20°, the family's signature) and a 121cm spine
+ *                  plate mid-strip in each. Half swell, half snow drift — the
+ *                  shoreline BREAKS at joint 0 (a 13–22° counter-bend, different in
+ *                  every column) and everything ramps toward the −X WALL beside
+ *                  column 0, the RIGHT of the 3D view, from a ~42cm start at the far
+ *                  jamb to a ~116cm crest; still every column on the floor
  *   10-wallcrash.png the one design that engages the −X WALL: column 0 — the
  *                  column against it — is `endSupport: 'wall'`, ends ~170cm up, and
  *                  raises NO violation while columns 1–5 land normally
@@ -74,6 +76,11 @@
  *     under its title; removing the plates one by one drops the design below four
  *     and raises W_FEW_RECTS in the control panel's warnings box (non-blocking — the
  *     removals still commit)
+ *   - THE MEASURING BOX: on by default, its three cm dimension labels present in the
+ *     3D view (the height one reading the PEAK), the control panel printing the same
+ *     numbers as a `W × H × D cm` line — exactly 365 × 4 × 304 for the flat lattice —
+ *     and the toolbar's "bounds" button hiding and restoring all of it without
+ *     touching the design
  *   - a hinge slider (or setColumnFold) moves one column's fold and the block's
  *     cumulative-pitch readout follows
  *   - "Shift →" rotates every column's fold sequence by one index, wrapping
@@ -304,6 +311,9 @@ const storeState = (page) =>
       grounded: layout.columnChains.map((chain) => chain.grounded),
       // Per-column crest height, cm — the tallest vertex of each solved chain.
       peaks: layout.columnChains.map((chain) => Math.max(...chain.points.map((p) => p[0]))),
+      // The design's overall measuring box (core/placement.js layoutBounds).
+      bounds: window.__gridDesignerDerived().bounds,
+      showBounds: s.showBounds,
       summary: report.summary,
       panels: layout.panels.length,
     }
@@ -437,6 +447,62 @@ try {
       (await page.textContent('[data-testid="rect-pattern"]')).includes('mirrored quad'),
     'the grid map captions the plate pattern under its title',
     `meta.rectPattern=${JSON.stringify(flatState.rectPattern)}`,
+  )
+
+  // --- (a2) THE MEASURING BOX: cm dimensions in 3D and in the panel ---------
+  // The flat lattice is the one design whose box is a closed form: 6·61 − 1 = 365
+  // wide, one panel (3.7cm) tall, 5·61 − 1 = 304 deep. It is ON by default, and the
+  // toolbar's "bounds" button has to make it go away and come back.
+  check(
+    flatState.showBounds === true,
+    'the measuring box is ON by default',
+    `showBounds=${flatState.showBounds}`,
+  )
+  check(
+    JSON.stringify(flatState.bounds.size.map((v) => Math.round(v))) ===
+      JSON.stringify([365, 4, 304]),
+    'flat: the box is exactly the lattice — 365 × 4 (one panel) × 304 cm',
+    JSON.stringify(flatState.bounds),
+  )
+  const boundsLine = (await page.textContent('[data-testid="bounds-summary"]')) ?? ''
+  check(
+    boundsLine.replace(/\s+/g, ' ').trim() === '365 × 4 × 304 cm',
+    'the control panel prints the overall size as a compact W × H × D line',
+    boundsLine.trim(),
+  )
+  const boundsLabels = async () =>
+    Promise.all(
+      ['x', 'y', 'z'].map(async (axis) => {
+        const sel = `[data-testid="bounds-label-${axis}"]`
+        return (await page.locator(sel).count()) > 0 ? (await page.textContent(sel)).trim() : null
+      }),
+    )
+  const flatLabels = await boundsLabels()
+  check(
+    flatLabels[0] === 'W 365 cm' && flatLabels[1] === 'peak 4 cm' && flatLabels[2] === 'D 304 cm',
+    'the 3D view carries all three cm dimension labels, the height one reading the PEAK',
+    JSON.stringify(flatLabels),
+  )
+  await page.click('[data-testid="tool-bounds"]')
+  await page.waitForTimeout(300)
+  const hiddenLabels = await boundsLabels()
+  const boundsOff = await storeState(page)
+  check(
+    hiddenLabels.every((t) => t === null) && boundsOff.showBounds === false,
+    'the "bounds" toggle DISMISSES the box and its labels',
+    JSON.stringify(hiddenLabels),
+  )
+  check(
+    JSON.stringify(boundsOff.folds) === JSON.stringify(flatState.folds) &&
+      JSON.stringify(boundsOff.bounds) === JSON.stringify(flatState.bounds),
+    'hiding the box changes nothing about the design — it is a ruler, not a property',
+  )
+  await page.click('[data-testid="tool-bounds"]')
+  await page.waitForTimeout(300)
+  check(
+    JSON.stringify(await boundsLabels()) === JSON.stringify(flatLabels) &&
+      (await storeState(page)).showBounds === true,
+    'and brings it straight back',
   )
   check(
     flatState.folds.length === 6 && flatState.folds.every((f) => f.length === 4 && f.every((v) => v === 0)),
@@ -1092,10 +1158,15 @@ try {
     JSON.stringify(swellState.folds.map((f) => f.length)),
   )
   check(
-    swellState.startPitches.every((p) => p >= 28) &&
-      JSON.stringify(swellState.startPitches) === JSON.stringify([45, 42, 38, 35, 31, 28]),
-    "swell's signature: NO flat front anywhere — the pitches ramp 45° → 28° DOWN from the wall",
+    swellState.startPitches.every((p) => p > 0) &&
+      JSON.stringify(swellState.startPitches) === JSON.stringify([42, 38, 33, 29, 24, 20]),
+    "swell's signature: NO flat front anywhere — the pitches ramp 42° → 20° DOWN from the wall",
     JSON.stringify(swellState.startPitches),
+  )
+  check(
+    swellState.folds.every((f) => Math.abs(f[0]) >= 12 && f[0] < 0),
+    'swell: the shoreline BREAKS — joint 0 is a real counter-bend (≥ 12° back) in every column',
+    JSON.stringify(swellState.folds.map((f) => f[0])),
   )
   check(
     swellState.panels === 36 && swellState.rectObjs.length === 6,
@@ -1120,26 +1191,67 @@ try {
     'swell shows "all grounded ✓"',
   )
   check(
-    (await page.textContent('[data-testid="column-5"]')).includes('28°'),
-    "column 5's readout shows its 28° front pitch — the gentle end of the ramp",
+    (await page.textContent('[data-testid="column-5"]')).includes('20°'),
+    "column 5's readout shows its 20° front pitch — the low end of the ramp",
     `startPitches=${JSON.stringify(swellState.startPitches)}`,
   )
   check(
-    (await page.inputValue('[data-testid="front-0"]')) === '45',
-    "the FRONT slider of column 0 reads its 45° pitch — the steep end, against the wall",
+    (await page.inputValue('[data-testid="front-0"]')) === '42',
+    "the FRONT slider of column 0 reads its 42° pitch — the steep end, against the wall",
   )
   // The ramp itself, read off the solved chains the viewport is drawing: the surface
-  // rises monotonically toward column 0 (the wall, on the RIGHT of the 3D view).
+  // rises monotonically toward column 0 (the wall, on the RIGHT of the 3D view), from
+  // a LOW start at the far jamb (the LEFT) to a moderate crest — no longer 150cm.
   check(
     swellState.peaks.every((y, c) => c === 0 || y < swellState.peaks[c - 1]) &&
-      swellState.peaks[0] > 145 &&
-      swellState.peaks[5] < 90,
-    'swell: the surface RAMPS up to its peak at column 0, beside the wall (~150cm vs ~82cm)',
+      swellState.peaks[0] >= 110 &&
+      swellState.peaks[0] <= 120 &&
+      swellState.peaks[5] >= 35 &&
+      swellState.peaks[5] <= 45,
+    'swell: the surface RAMPS from a ~42cm start at the far jamb to a ~116cm crest at the wall',
     JSON.stringify(swellState.peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  // The measuring box follows the design: the peak label is the number being tuned.
+  check(
+    Math.abs(swellState.bounds.max[1] - swellState.peaks[0]) < 6 &&
+      swellState.bounds.size[1] < 125,
+    "swell: the box's peak agrees with the tallest column and stays under the new ceiling",
+    JSON.stringify(swellState.bounds.size.map((v) => Math.round(v))),
+  )
+  const swellPeakLabel = (await page.textContent('[data-testid="bounds-label-y"]')).trim()
+  const swellBoundsLine = (await page.textContent('[data-testid="bounds-summary"]'))
+    .replace(/\s+/g, ' ')
+    .trim()
+  const wantSwellLine = `${swellState.bounds.size.map((v) => Math.round(v)).join(' × ')} cm`
+  check(
+    swellPeakLabel === `peak ${Math.round(swellState.bounds.max[1])} cm` &&
+      swellBoundsLine === wantSwellLine,
+    'swell: the 3D peak pill and the panel line both report the retuned dimensions in cm',
+    `${swellPeakLabel} / "${swellBoundsLine}" want "${wantSwellLine}"`,
   )
   check(canvasChanged(jsonShot, swellShot), 'the swell render differs from the pasted config')
   await page.screenshot({ path: `${OUT}/09-swell.png` })
   console.log('  → tests/screenshots/09-swell.png')
+
+  // The BOX itself, not just its labels: on a design this tall the wireframe is a
+  // large part of the frame, so hiding it has to change the rendered pixels. This is
+  // the assertion that the toggle reaches the 3D scene and not only the DOM overlay.
+  await page.click('[data-testid="tool-bounds"]')
+  await page.waitForTimeout(400)
+  const swellNoBox = await assertCanvasRenders(page, 'swell/bounds hidden')
+  check(
+    canvasChanged(swellShot, swellNoBox) &&
+      (await page.locator('[data-testid="bounds-label-y"]').count()) === 0,
+    'swell: hiding "bounds" removes the wireframe BOX from the render, not just the pills',
+  )
+  await page.click('[data-testid="tool-bounds"]')
+  await page.waitForTimeout(400)
+  const swellBoxBack = await assertCanvasRenders(page, 'swell/bounds shown')
+  check(
+    canvasChanged(swellNoBox, swellBoxBack) &&
+      (await page.locator('[data-testid="bounds-label-y"]').count()) === 1,
+    'swell: and showing it again brings both back',
+  )
 
   // 'wallcrash' is the one design that engages the −X wall, beside column 0.
   await page.click('[data-testid="preset-wallcrash"]')

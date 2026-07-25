@@ -26,8 +26,10 @@ import {
   validateConfig,
 } from '../src/core/schema.js'
 import { buildPreset } from '../src/core/presets.js'
+import { PANEL_PROFILE } from '../src/config.js'
 import {
   columnEndGrounding,
+  layoutBounds,
   panelSolidCorners,
   panelSolidMinY,
   panelWorldCorners,
@@ -1488,6 +1490,129 @@ const squares = (folds) =>
       assert.deepStrictEqual(solveLayout(cfg), solveLayout(buildPreset(id)))
     })
   }
+}
+
+// =============================================================================
+// 13. layoutBounds — the design's OVERALL BOX, housings included
+//
+// Two independent angles of attack:
+//   FLAT     a closed form. The box must be exactly the lattice extent in X and Z
+//            and exactly one panel thick in Y, all three derived from the config's
+//            own constants rather than typed in.
+//   ROTATED  a containment + tightness proof on a real folded preset: every one of
+//            the 8 solid corners of every panel is inside the box, and each of the
+//            box's six faces is TOUCHED by at least one corner (so it is the
+//            minimal box, not merely a bounding one).
+// =============================================================================
+{
+  const THICKNESS = PANEL_PROFILE.overallThickness
+
+  // --- the flat default: exactly the lattice, exactly one panel thick ---------
+  {
+    const cfg = cfgOf({ columns: flatColumns() })
+    const layout = solveLayout(cfg)
+    const bounds = layoutBounds(layout, cfg)
+    const cols = cfg.grid.cols
+    const rows = cfg.grid.rows
+    const wantW = cols * PITCH - GAP // 6·61 − 1 = 365
+    const wantD = rows * PITCH - GAP // 5·61 − 1 = 304
+
+    check(
+      'bounds/flat: min is the origin corner — the housings rest ON the floor at y = 0',
+      nearVec(bounds.min, [0, 0, 0]),
+      JSON.stringify(bounds.min),
+    )
+    check(
+      'bounds/flat: max is [cols·(size+gap) − gap, overallThickness, rows·(size+gap) − gap]',
+      nearVec(bounds.max, [wantW, THICKNESS, wantD]),
+      `${JSON.stringify(bounds.max)} want ${JSON.stringify([wantW, THICKNESS, wantD])}`,
+    )
+    check(
+      'bounds/flat: the HEIGHT of a flat design is exactly the panel thickness',
+      near(bounds.size[1], THICKNESS),
+      `${bounds.size[1]} vs ${THICKNESS}`,
+    )
+    check(
+      'bounds/flat: the DEPTH of a flat design is exactly rows·(size+gap) − gap',
+      near(bounds.size[2], wantD),
+      `${bounds.size[2]} vs ${wantD}`,
+    )
+    check(
+      'bounds/flat: size = max − min and center = their midpoint, on all three axes',
+      nearVec(bounds.size, [wantW, THICKNESS, wantD]) &&
+        nearVec(bounds.center, [wantW / 2, THICKNESS / 2, wantD / 2]),
+      `${JSON.stringify(bounds.size)} / ${JSON.stringify(bounds.center)}`,
+    )
+    // The whole point of measuring the SOLID: a lit-face-only box would float 3.7cm
+    // up and be a zero-height plane.
+    const faceMinY = Math.min(
+      ...layout.panels.flatMap((p) => panelWorldCorners(p, cfg).map((corner) => corner[1])),
+    )
+    check(
+      'bounds/flat: the box includes the HOUSINGS — its floor is 3.7cm below the lit faces',
+      near(faceMinY, THICKNESS) && near(bounds.min[1], 0),
+      `lit faces at ${faceMinY}, box floor at ${bounds.min[1]}`,
+    )
+  }
+
+  // --- rotated / folded: containment and tightness ---------------------------
+  for (const id of ['swell', 'surge', 'wallcrash', 'crash']) {
+    const cfg = buildPreset(id)
+    const layout = solveLayout(cfg)
+    const bounds = layoutBounds(layout, cfg)
+    const corners = layout.panels.flatMap((p) => panelSolidCorners(p, cfg))
+
+    check(
+      `bounds/${id}: contains all ${corners.length} solid corners of all ${layout.panels.length} panels`,
+      corners.every((corner) =>
+        corner.every((v, i) => v >= bounds.min[i] - 1e-9 && v <= bounds.max[i] + 1e-9),
+      ),
+      JSON.stringify([bounds.min, bounds.max]),
+    )
+    const touched = [0, 1, 2].map((i) => ({
+      min: corners.some((corner) => near(corner[i], bounds.min[i], 1e-9)),
+      max: corners.some((corner) => near(corner[i], bounds.max[i], 1e-9)),
+    }))
+    check(
+      `bounds/${id}: TIGHT — every one of the six faces is touched by at least one corner`,
+      touched.every((t) => t.min && t.max),
+      JSON.stringify(touched),
+    )
+    check(
+      `bounds/${id}: the box's peak equals the tallest solid corner, and its height its extent`,
+      near(bounds.max[1], Math.max(...corners.map((corner) => corner[1]))) &&
+        near(bounds.size[1], bounds.max[1] - bounds.min[1]),
+      `${bounds.max[1]} / ${bounds.size[1]}`,
+    )
+    // A folded surface is taller than one panel and no wider than the lattice: the
+    // columns never move in X (the model's first invariant).
+    check(
+      `bounds/${id}: still exactly as wide as the lattice — columns never move in X`,
+      near(bounds.min[0], 0) && near(bounds.max[0], cfg.grid.cols * PITCH - GAP),
+      JSON.stringify([bounds.min[0], bounds.max[0]]),
+    )
+    check(
+      `bounds/${id}: and taller than a flat surface — the folds put real height in the box`,
+      bounds.size[1] > THICKNESS * 5,
+      String(bounds.size[1]),
+    )
+    checkNoThrow(`bounds/${id}: deterministic (deep-equal across two solves)`, () => {
+      assert.deepStrictEqual(bounds, layoutBounds(solveLayout(buildPreset(id)), buildPreset(id)))
+    })
+  }
+
+  // --- degenerate input ------------------------------------------------------
+  check(
+    'bounds: an empty layout gives an all-zero box rather than ±Infinity',
+    JSON.stringify(layoutBounds({ panels: [] }, DEFAULT_CONFIG)) ===
+      JSON.stringify({ min: [0, 0, 0], max: [0, 0, 0], size: [0, 0, 0], center: [0, 0, 0] }),
+    JSON.stringify(layoutBounds({ panels: [] }, DEFAULT_CONFIG)),
+  )
+  check(
+    'bounds: a missing layout is tolerated the same way',
+    JSON.stringify(layoutBounds(undefined, DEFAULT_CONFIG)) ===
+      JSON.stringify(layoutBounds({ panels: [] }, DEFAULT_CONFIG)),
+  )
 }
 
 // =============================================================================

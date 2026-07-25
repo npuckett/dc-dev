@@ -4,10 +4,14 @@
  * =============================================================================
  * WHAT LIVES HERE
  * =============================================================================
- * The store owns exactly one piece of truth: `config` (the JSON schema object
- * documented in core/schema.js). Everything geometric — panel placement and the
- * joint-consistency report — is DERIVED from it by the pure headless functions
- * in core/, never stored.
+ * The store owns exactly one piece of DESIGN truth: `config` (the JSON schema
+ * object documented in core/schema.js). Everything geometric — panel placement,
+ * the joint-consistency report, the overall bounding box — is DERIVED from it by
+ * the pure headless functions in core/, never stored.
+ *
+ * Alongside it sit a couple of pieces of plain VIEW state (`seed`, `showBounds`,
+ * the last errors / warnings). They are not part of the design, never go through
+ * the commit rule, and never reach the exporters.
  *
  * =============================================================================
  * THE COMMIT RULE
@@ -36,7 +40,7 @@
  * =============================================================================
  * DERIVED DATA MEMOIZATION
  * =============================================================================
- * `getDerived(config)` caches `{ layout, report }` in a module-level WeakMap
+ * `getDerived(config)` caches `{ layout, report, violations, bounds }` in a WeakMap
  * keyed on the config OBJECT IDENTITY. Because immer returns a fresh (frozen)
  * object on every accepted mutation and the same object otherwise, this means:
  *   - solve + report run at most once per config change, never per frame;
@@ -60,7 +64,7 @@ import {
   validateConfig,
 } from './core/schema.js'
 import { buildPreset } from './core/presets.js'
-import { solveLayout } from './core/placement.js'
+import { layoutBounds, solveLayout } from './core/placement.js'
 import { groundAllFolds, solveGroundingFold } from './core/ground.js'
 import { jointReport } from './core/report.js'
 
@@ -76,16 +80,26 @@ const derivedCache = new WeakMap()
  * rule (E_END_FLOATING, see core/placement.js) is a property of the whole design
  * rather than of any one panel, and four components read it.
  *
+ * `bounds` is the design's OVERALL BOX (`layoutBounds`): the axis-aligned extent
+ * of every panel's solid, housings included. It is memoized here rather than
+ * computed in the viewport because it walks all 8 corners of every panel, and the
+ * measuring box that draws it re-renders on camera moves.
+ *
  * @param {object} config a validated, normalized config
- * @returns {{ layout: object, report: object, violations: Array }} reference-stable
- *          per config
+ * @returns {{ layout: object, report: object, violations: Array, bounds: object }}
+ *          reference-stable per config
  */
 export function getDerived(config) {
   let entry = derivedCache.get(config)
   if (!entry) {
     const layout = solveLayout(config)
     const report = jointReport(layout, config)
-    entry = { layout, report, violations: layout.violations }
+    entry = {
+      layout,
+      report,
+      violations: layout.violations,
+      bounds: layoutBounds(layout, config),
+    }
     derivedCache.set(config, entry)
   }
   return entry
@@ -165,6 +179,16 @@ const useStore = create((set, get) => {
     lastErrors: initialValidation.errors,
     /** Warnings from the most recent accepted config (informational). */
     lastWarnings: initialValidation.warnings,
+    /**
+     * Draw the overall measuring box (and its cm dimension labels) in the 3D view?
+     *
+     * PLAIN UI STATE, deliberately NOT part of `config`: it is a ruler held up
+     * against the design, not a property of it, so it never lands in the exported
+     * JSON / OBJ and never goes through the commit rule. On by default — the peak
+     * height is the number a design gets tuned against — and dismissible from the
+     * toolbar when it gets in the way of judging the surface.
+     */
+    showBounds: true,
 
     // --- actions ----------------------------------------------------------
     /**
@@ -419,6 +443,15 @@ const useStore = create((set, get) => {
       if (seed !== undefined) set({ seed: s })
       return commitConfig(candidate)
     },
+
+    /**
+     * Show / hide the overall measuring box in the 3D view. UI-only: it does not
+     * touch `config`, so it cannot fail validation and changes nothing derived.
+     *
+     * @param {boolean} [on] force a state; omitted toggles
+     */
+    toggleBounds: (on) =>
+      set((s) => ({ showBounds: on === undefined ? !s.showBounds : Boolean(on) })),
 
     /** Store the random-preset seed. Does NOT rebuild the config on its own. */
     setSeed: (n) => {
