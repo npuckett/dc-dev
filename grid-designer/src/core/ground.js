@@ -10,11 +10,17 @@
  * =============================================================================
  * THE RULE BEING ENFORCED
  * =============================================================================
- * "The wave returns to the water": the LAST panel of every column must touch the
- * floor — lying flat, or tilted with one of its housing edges down. It may never
- * float. The measurement lives in placement.js (`columnEndGrounding`, over the
- * panel SOLID's 8 corners) and `solveLayout` reports failures as E_END_FLOATING
- * violations. This module is the mechanical fix for one column.
+ * "The wave returns to the water": the LAST panel of every FLOOR-SUPPORTED column
+ * must touch the floor — lying flat, or tilted with one of its housing edges down.
+ * It may never float. The measurement lives in placement.js
+ * (`columnEndGrounding`, over the panel SOLID's 8 corners) and `solveLayout`
+ * reports failures as E_END_FLOATING violations. This module is the mechanical fix
+ * for one column.
+ *
+ * A column with `endSupport: 'wall'` is exempt from the rule (it is side-bracketed
+ * to the −X wall and may end high), so `groundAllFolds` SKIPS it. `solveGrounding-
+ * Fold` is left as the pure mechanical floor-contact solver and will happily solve
+ * a wall column if asked directly — the policy lives in the callers.
  *
  * =============================================================================
  * WHICH HINGE GETS SOLVED
@@ -54,6 +60,7 @@
 
 import {
   MAX_FOLD_DEG,
+  columnEndSupport,
   columnFoldDeg,
   columnSegments,
   normalizeConfig,
@@ -228,10 +235,16 @@ function snapFold(deg, clearanceAt, inBand) {
  * the UI's "Ground all" leaves them alone — but a generator wants the panel
  * RESTING on the floor rather than buried in it, so core/presets.js opts in.
  *
+ * WALL-SUPPORTED columns are skipped outright: their end is held by the −X wall,
+ * so pulling it down to the floor would destroy the design ('wallcrash' wants its
+ * last strip splashing UP the wall). That is also why presets can call this as
+ * their final step without protecting their wall column by hand.
+ *
  * @param {object} config config (raw or normalized). NOT mutated.
  * @param {{includeSunken?: boolean}} [options]
  * @returns {object|null} a new config, or null when nothing changed (every column
- *          already settled, or no unsettled column could be solved)
+ *          already settled or wall-supported, or no unsettled column could be
+ *          solved)
  */
 export function groundAllFolds(config, options = {}) {
   const includeSunken = options.includeSunken === true
@@ -241,6 +254,7 @@ export function groundAllFolds(config, options = {}) {
 
   let changed = false
   for (let c = 0; c < cols; c++) {
+    if (columnEndSupport(cfg, c) === 'wall') continue
     const { grounded, clearanceCm } = columnEndGrounding(cfg, c)
     const sunken = clearanceCm < -GROUND_UNDERSHOOT_CM
     if (grounded && !(includeSunken && sunken)) continue

@@ -17,7 +17,11 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_CONFIG,
   DEFAULT_GAP,
+  WALL_COLUMN,
   cellPitches,
+  chainStartY,
+  columnChain,
+  frontRestY,
   normalizeConfig,
   validateConfig,
 } from '../src/core/schema.js'
@@ -27,6 +31,7 @@ import {
   panelSolidCorners,
   panelSolidMinY,
   panelWorldCorners,
+  round9,
   solveLayout,
 } from '../src/core/placement.js'
 import {
@@ -72,6 +77,16 @@ const GAP = DEFAULT_CONFIG.gap
 const SIZE = DEFAULT_CONFIG.cell.size
 const PITCH = SIZE + GAP
 const RECT_LENGTH = DEFAULT_CONFIG.cell.rectLength
+/**
+ * How close "the front panel rests exactly on the floor" has to be, cm.
+ *
+ * The rule is EXACT in the closed form — `frontRestY` puts the front panel's solid
+ * min y at 0 by construction — but the measured value comes back through two
+ * deterministic roundings: the panel position and quaternion are snapped to 1e-9,
+ * and the quaternion is re-normalized on read. Over a 121cm panel that leaves a few
+ * times 1e-8 of a centimetre — i.e. a fraction of a nanometre of real geometry.
+ */
+const FRONT_REST_EPS = 1e-7
 
 const cfgOf = (over) => normalizeConfig({ ...DEFAULT_CONFIG, ...over })
 const columnsOf = (perColumn) => perColumn.map((foldsDeg) => ({ foldsDeg: foldsDeg.slice() }))
@@ -83,11 +98,20 @@ const flatColumns = () => columnsOf([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [
  * `segs` is a list of { length, foldAfter } — foldAfter is the signed hinge angle
  * at the joint reached after that segment (null for the last one). Returns each
  * segment's pitch, its start point and its center point.
+ *
+ * `startPitch` is the FRONT panel's pitch (`columns[c].startPitchDeg`) and the
+ * start height is derived from it here INDEPENDENTLY of schema.js's `frontRestY`:
+ * 3.7·cos θ once the front pitches up (its front housing edge rests), lifted by the
+ * panel's own dive L·sin|θ| once it pitches down (its rear edge rests). At θ = 0
+ * that is exactly the historical 3.7.
  */
-function walkColumn(segs, gap = GAP) {
-  let y = SHORE_Y
+function walkColumn(segs, gap = GAP, startPitch = 0) {
+  const front = segs.length > 0 ? segs[0].length : 60
+  let y =
+    Math.max(0, SHORE_Y * Math.cos(startPitch * D)) -
+    Math.min(0, front * Math.sin(startPitch * D))
   let z = 0
-  let psi = 0
+  let psi = startPitch
   const out = []
   for (const seg of segs) {
     const dy = Math.sin(psi * D)
@@ -1046,6 +1070,423 @@ const squares = (folds) =>
       layout.violations.length === 0,
       JSON.stringify(layout.violations.map((v) => [v.col, v.clearanceCm])),
     )
+  }
+}
+
+// =============================================================================
+// 9. PITCHED FRONTS — columns[c].startPitchDeg
+// =============================================================================
+// 9a. BACKWARD COMPATIBILITY: startPitchDeg 0 lays out bit-identically to before.
+//     The flat lattice values below are hard-coded, not derived — they are the
+//     pre-pitched-fronts geometry, and this is the regression guard on it.
+{
+  const layout = solveLayout(DEFAULT_CONFIG)
+  check(
+    'front 0: the flat lattice is EXACTLY (30 + 61c, 3.7, 30 + 61r) — unchanged',
+    layout.panels.every((p) => {
+      const want = [30 + 61 * p.col, 3.7, 30 + 61 * p.row]
+      return p.position.every((v, i) => v === want[i])
+    }),
+    JSON.stringify(layout.panels.slice(0, 3).map((p) => p.position)),
+  )
+  check(
+    'front 0: every chain still starts at exactly (3.7, 0) and ends at (3.7, 304)',
+    layout.columnChains.every(
+      (ch) =>
+        ch.points[0][0] === 3.7 &&
+        ch.points[0][1] === 0 &&
+        ch.points[9][0] === 3.7 &&
+        ch.points[9][1] === 304,
+    ),
+    JSON.stringify(layout.columnChains[0].points),
+  )
+  check(
+    'front 0: chainStartY is exactly SHORE_Y for every column',
+    layout.columnChains.every((_, c) => chainStartY(DEFAULT_CONFIG, c) === SHORE_Y),
+  )
+  // A config that OMITS the new fields must solve identically to one that spells
+  // out the defaults — the whole compatibility claim in one assertion.
+  const legacy = {
+    version: 2,
+    units: 'cm',
+    grid: { cols: 6, rows: 5 },
+    cell: { size: 60, rectLength: 121 },
+    gap: 1,
+    gapTolerance: 1.5,
+    groundTolerance: 0.5,
+    columns: [
+      { foldsDeg: [30, -60, 60, -30] },
+      { foldsDeg: [20, -40, 40, -20] },
+      { foldsDeg: [0, 0, 0, 0] },
+      { foldsDeg: [0, 0, 0, 0] },
+      { foldsDeg: [0, 0, 0, 0] },
+      { foldsDeg: [0, 0, 0, 0] },
+    ],
+    rects: [],
+    meta: {},
+  }
+  const explicit = structuredClone(legacy)
+  explicit.columns = explicit.columns.map((col) => ({
+    ...col,
+    startPitchDeg: 0,
+    endSupport: 'floor',
+  }))
+  checkNoThrow('front 0: a config without the new fields solves identically to one with them', () => {
+    assert.deepStrictEqual(solveLayout(legacy), solveLayout(explicit))
+  })
+  check(
+    'front 0: columnChains report endSupport "floor" by default',
+    solveLayout(legacy).columnChains.every((ch) => ch.endSupport === 'floor'),
+  )
+}
+
+// 9b. A PITCHED-UP front: y0 = 3.7·cos θ, front edge still on the window line,
+//     and the front panel's solid resting on the floor by construction.
+{
+  const columns = flatColumns()
+  columns[2] = { foldsDeg: [0, 0, 0, 0], startPitchDeg: 30 }
+  const cfg = cfgOf({ columns })
+  check('front 30: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+
+  const wantY0 = 3.7 * Math.cos(30 * D) // ≈ 3.2043
+  check(
+    'front 30: y0 = 3.7·cos30 ≈ 3.204 (the front housing edge on the floor)',
+    near(chainStartY(cfg, 2), wantY0, 1e-12) && near(columnChain(cfg, 2).points[0][0], wantY0, 1e-12),
+    `${chainStartY(cfg, 2)} vs ${wantY0}`,
+  )
+  check(
+    'front 30: the chain still starts at z = 0 — the front edge is on the window line',
+    columnChain(cfg, 2).points[0][1] === 0,
+    String(columnChain(cfg, 2).points[0][1]),
+  )
+
+  const layout = solveLayout(cfg)
+  const col2 = layout.panels.filter((p) => p.col === 2)
+  check(
+    'front 30: the FRONT panel rests exactly on the floor (solid min y = 0)',
+    near(panelSolidMinY(col2[0], cfg), 0, FRONT_REST_EPS),
+    String(panelSolidMinY(col2[0], cfg)),
+  )
+  check(
+    'front 30: nothing dips below the floor',
+    !layout.warnings.some((w) => w.code === 'W_BELOW_FLOOR'),
+    JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+  check(
+    'front 30: every row of the column sits at 30° (no folds behind it)',
+    JSON.stringify(cellPitches(cfg, 2)) === JSON.stringify([30, 30, 30, 30, 30]),
+    JSON.stringify(cellPitches(cfg, 2)),
+  )
+  // Independent closed form for the whole strip, start height included.
+  const chain = walkColumn(squares([0, 0, 0, 0]), GAP, 30)
+  let posOk = true
+  let posBad = ''
+  col2.forEach((p, r) => {
+    const want = [152, chain[r].center[0], chain[r].center[1]]
+    if (!nearVec(p.position, want, 1e-8)) {
+      posOk = false
+      posBad = `${p.id} ${JSON.stringify(p.position)} want ${JSON.stringify(want)}`
+    }
+  })
+  check('front 30: panel centers match the independent closed-form chain', posOk, posBad)
+  // The other columns are untouched: a front pitch is per-column, like a fold.
+  checkNoThrow('front 30: the other five columns stay bit-identical to flat', () => {
+    const flat = solveLayout(DEFAULT_CONFIG)
+    for (const c of [0, 1, 3, 4, 5]) {
+      assert.deepStrictEqual(
+        layout.panels.filter((p) => p.col === c),
+        flat.panels.filter((p) => p.col === c),
+      )
+    }
+  })
+  check(
+    'front 30: a climbing strip still floats at the end (the two rules are independent)',
+    layout.violations.length === 1 && layout.violations[0].col === 2,
+    JSON.stringify(layout.violations.map((v) => [v.col, v.clearanceCm])),
+  )
+}
+
+// 9c. A PITCHED-DOWN front: the panel dives, so its REAR edge is the contact edge
+//     and the whole chain lifts by L·sin|θ|. Nothing is clamped — the panels BEHIND
+//     it keep diving and raise W_BELOW_FLOOR, which is the documented behaviour.
+{
+  const columns = flatColumns()
+  columns[0] = { foldsDeg: [0, 0, 0, 0], startPitchDeg: -20 }
+  const cfg = cfgOf({ columns })
+  check('front -20: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+
+  const wantY0 = 3.7 * Math.cos(20 * D) + 60 * Math.sin(20 * D) // ≈ 23.998
+  check(
+    'front -20: y0 = 3.7·cos20 + 60·sin20 ≈ 24.0 (the REAR edge on the floor)',
+    near(chainStartY(cfg, 0), wantY0, 1e-12),
+    `${chainStartY(cfg, 0)} vs ${wantY0}`,
+  )
+  check(
+    'front -20: it agrees with frontRestY, and the chain still starts at z = 0',
+    chainStartY(cfg, 0) === frontRestY(-20, 60) && columnChain(cfg, 0).points[0][1] === 0,
+  )
+
+  const layout = solveLayout(cfg)
+  const col0 = layout.panels.filter((p) => p.col === 0)
+  check(
+    'front -20: the FRONT panel still rests exactly on the floor (solid min y = 0)',
+    near(panelSolidMinY(col0[0], cfg), 0, FRONT_REST_EPS),
+    String(panelSolidMinY(col0[0], cfg)),
+  )
+  const below = layout.warnings.find((w) => w.code === 'W_BELOW_FLOOR')
+  check(
+    'front -20: the panels BEHIND it dig in — W_BELOW_FLOOR, surfaced not prevented',
+    !!below && ['p1_0', 'p2_0', 'p3_0', 'p4_0'].every((id) => below.message.includes(id)),
+    below?.message,
+  )
+  check(
+    'front -20: the front panel itself is NOT among them',
+    !!below && !below.message.includes('p0_0'),
+    below?.message,
+  )
+  // A 121cm front plate dives twice as far, so it lifts the chain twice as much.
+  const plated = cfgOf({ columns, rects: [{ row: 0, col: 0, orientation: 'vertical' }] })
+  check(
+    'front -20 with a 121cm plate at row 0: y0 uses the PLATE length',
+    near(chainStartY(plated, 0), frontRestY(-20, 121), 1e-12) &&
+      chainStartY(plated, 0) > chainStartY(cfg, 0),
+    `${chainStartY(plated, 0)} vs ${chainStartY(cfg, 0)}`,
+  )
+  check(
+    'front -20 with a plate: the plate still rests exactly on the floor',
+    near(panelSolidMinY(solveLayout(plated).panels.find((p) => p.id === 'p0_0'), plated), 0, FRONT_REST_EPS),
+    String(panelSolidMinY(solveLayout(plated).panels.find((p) => p.id === 'p0_0'), plated)),
+  )
+}
+
+// 9d. The front pitch really is grounded for ANY angle in range.
+{
+  let allRest = true
+  let bad = ''
+  for (let theta = -120; theta <= 120; theta += 5) {
+    const columns = flatColumns()
+    columns[3] = { foldsDeg: [0, 0, 0, 0], startPitchDeg: theta }
+    const cfg = cfgOf({ columns })
+    const front = solveLayout(cfg).panels.find((p) => p.id === 'p0_3')
+    const minY = panelSolidMinY(front, cfg)
+    if (!near(minY, 0, FRONT_REST_EPS)) {
+      allRest = false
+      bad = `θ=${theta}° → front panel min y ${minY}`
+      break
+    }
+  }
+  check('front: the front panel rests on the floor at every θ in ±120°', allRest, bad)
+}
+
+// =============================================================================
+// 10. THE WALL — columns[WALL_COLUMN].endSupport = 'wall' exempts the column
+//
+// The wall closes the −X edge of the grid, so the only column that may lean on it is
+// COLUMN 0. The A/B below puts the SAME climb-only profile on column 0 (wall) and on
+// column 1 (floor): identical geometry, opposite verdicts.
+// =============================================================================
+{
+  // A climb-only profile: the strip ends ~131cm in the air and cannot be landed.
+  const climb = [45, 0, 0, 0]
+  const floorCfg = cfgOf({
+    columns: flatColumns().map((col, c) => (c === 1 ? { foldsDeg: climb.slice() } : col)),
+  })
+  const wallCfg = cfgOf({
+    columns: flatColumns().map((col, c) =>
+      c === WALL_COLUMN ? { foldsDeg: climb.slice(), endSupport: 'wall' } : col,
+    ),
+  })
+  check('wall: both configs validate', validateConfig(floorCfg).ok && validateConfig(wallCfg).ok)
+
+  const floorLayout = solveLayout(floorCfg)
+  const wallLayout = solveLayout(wallCfg)
+
+  check(
+    'wall: the SAME profile on a FLOOR column raises E_END_FLOATING',
+    floorLayout.violations.length === 1 &&
+      floorLayout.violations[0].code === 'E_END_FLOATING' &&
+      floorLayout.violations[0].col === 1,
+    JSON.stringify(floorLayout.violations.map((v) => [v.code, v.col])),
+  )
+  check(
+    'wall: on the WALL-SUPPORTED column 0 it raises NOTHING',
+    wallLayout.violations.length === 0,
+    JSON.stringify(wallLayout.violations),
+  )
+  check(
+    'wall: its chain still reports the honest measurement (grounded false, high clearance)',
+    wallLayout.columnChains[0].grounded === false &&
+      wallLayout.columnChains[0].endClearanceCm > 100 &&
+      near(wallLayout.columnChains[0].endClearanceCm, floorLayout.columnChains[1].endClearanceCm, 1e-9),
+    `${wallLayout.columnChains[0].endClearanceCm} vs ${floorLayout.columnChains[1].endClearanceCm}`,
+  )
+  check(
+    'wall: the chain entry carries endSupport, and only column 0 is "wall"',
+    wallLayout.columnChains[0].endSupport === 'wall' &&
+      wallLayout.columnChains.slice(1).every((ch) => ch.endSupport === 'floor'),
+    JSON.stringify(wallLayout.columnChains.map((ch) => ch.endSupport)),
+  )
+  check(
+    'wall: the (y, z) geometry is IDENTICAL — endSupport changes reporting, never placement',
+    JSON.stringify(
+      wallLayout.panels.filter((p) => p.col === WALL_COLUMN).map((p) => p.position.slice(1)),
+    ) === JSON.stringify(floorLayout.panels.filter((p) => p.col === 1).map((p) => p.position.slice(1))),
+  )
+  // groundAllFolds must not "fix" a wall column: pulling its end down undoes the design.
+  check(
+    'wall: groundAllFolds leaves a wall-supported column alone (returns null here)',
+    groundAllFolds(wallCfg) === null,
+    JSON.stringify(groundAllFolds(wallCfg)?.columns?.[WALL_COLUMN]),
+  )
+  check(
+    'wall: groundAllFolds still refuses the unreachable FLOOR column too',
+    groundAllFolds(floorCfg) === null,
+  )
+  {
+    // …and with one landable floor column beside the wall column, it lands exactly that one.
+    const mixed = cfgOf({
+      columns: flatColumns().map((col, c) =>
+        c === WALL_COLUMN
+          ? { foldsDeg: climb.slice(), endSupport: 'wall' }
+          : c === 2
+            ? { foldsDeg: [30, -30, 0, 0] }
+            : col,
+      ),
+    })
+    const next = groundAllFolds(mixed)
+    check(
+      'wall: groundAllFolds lands the floor column and leaves the wall column byte-identical',
+      !!next &&
+        JSON.stringify(next.columns[WALL_COLUMN].foldsDeg) === JSON.stringify(climb) &&
+        solveLayout(next).violations.length === 0,
+      JSON.stringify(next?.columns?.map((col) => col.foldsDeg)),
+    )
+  }
+  // 'wall' is a validation error anywhere else, so the exemption cannot be smuggled
+  // onto another column by hand — the solver never even sees such a config.
+  check(
+    "wall: the same flag on column 5 does not validate, so it cannot be relied on",
+    !validateConfig(
+      cfgOf({
+        columns: flatColumns().map((col, c) =>
+          c === 5 ? { foldsDeg: climb.slice(), endSupport: 'wall' } : col,
+        ),
+      }),
+    ).ok,
+  )
+}
+
+// =============================================================================
+// 11. ROW RESOLUTION — the chain, the panels and the joints all follow grid.rows
+// =============================================================================
+{
+  for (const rows of [5, 6, 7, 8]) {
+    const cfg = cfgOf({
+      grid: { cols: 6, rows },
+      columns: Array.from({ length: 6 }, () => ({ foldsDeg: new Array(rows - 1).fill(0) })),
+    })
+    check(`rows ${rows}: config validates`, validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+
+    const layout = solveLayout(cfg)
+    check(
+      `rows ${rows}: 6·${rows} = ${6 * rows} panels`,
+      layout.panels.length === 6 * rows,
+      `got ${layout.panels.length}`,
+    )
+    check(
+      `rows ${rows}: every chain reports ${rows} pitches and 2·${rows} = ${2 * rows} vertices`,
+      layout.columnChains.every(
+        (ch) => ch.pitchesDeg.length === rows && ch.points.length === 2 * rows,
+      ),
+      JSON.stringify(layout.columnChains[0].points.length),
+    )
+    // A flat strip of `rows` cells at the 61cm pitch reaches (rows-1)·61 + 60 in z.
+    const wantZ = (rows - 1) * PITCH + SIZE
+    check(
+      `rows ${rows}: the lattice reaches z = ${wantZ} (${rows - 1}·61 + 60)`,
+      near(layout.columnChains[0].points.at(-1)[1], wantZ, 1e-9) &&
+        near(Math.max(...layout.panels.map((p) => p.position[2])), wantZ - SIZE / 2, 1e-9),
+      `${layout.columnChains[0].points.at(-1)[1]} vs ${wantZ}`,
+    )
+    check(
+      `rows ${rows}: the deepest panel is row ${rows - 1}, and every column has one`,
+      layout.panels.filter((p) => p.row === rows - 1).length === 6,
+    )
+    check(
+      `rows ${rows}: a flat grid is fully grounded with no warnings`,
+      layout.violations.length === 0 && layout.warnings.length === 0,
+      JSON.stringify([layout.violations.length, layout.warnings.map((w) => w.code)]),
+    )
+    // The surviving-joint count: one per row boundary, so rows-1 per column.
+    check(
+      `rows ${rows}: ${rows - 1} surviving joints per column, the last one ${rows - 2}`,
+      survivingJoints(cfg, 0).length === rows - 1 && lastSurvivingJoint(cfg, 0) === rows - 2,
+      JSON.stringify(survivingJoints(cfg, 0)),
+    )
+  }
+  // A deep grid still folds and lands: 8 rows, an arc that comes back down.
+  {
+    // A SYMMETRIC arc over 8 rows: Σ sin ψ = 0, so it comes back to shore height
+    // and the last panel lands on its housing edge with no solver help at all.
+    const arc = [20, 10, -10, -20, -20, -10, 10]
+    const cfg = cfgOf({
+      grid: { cols: 6, rows: 8 },
+      columns: Array.from({ length: 6 }, () => ({ foldsDeg: arc.slice() })),
+    })
+    check('rows 8: an arcing profile validates', validateConfig(cfg).ok)
+    const layout = solveLayout(cfg)
+    check(
+      'rows 8: 48 panels, all six columns land, nothing under the floor',
+      layout.panels.length === 48 &&
+        layout.violations.length === 0 &&
+        !layout.warnings.some((w) => w.code === 'W_BELOW_FLOOR'),
+      `${layout.panels.length} panels, violations ${JSON.stringify(layout.violations.map((v) => v.col))}`,
+    )
+    check(
+      'rows 8: the pitch profile is the running sum of all seven folds',
+      JSON.stringify(cellPitches(cfg, 0)) === JSON.stringify([0, 20, 30, 20, 0, -20, -30, -20]),
+      JSON.stringify(cellPitches(cfg, 0)),
+    )
+    checkNoThrow('rows 8: deterministic', () => {
+      assert.deepStrictEqual(solveLayout(cfg), solveLayout(cfg))
+    })
+  }
+}
+
+// =============================================================================
+// 12. The storm presets solve, land their floor columns, and use the wall
+// =============================================================================
+{
+  for (const [id, rows] of [['swell', 6], ['surge', 7], ['wallcrash', 6]]) {
+    const cfg = buildPreset(id)
+    const layout = solveLayout(cfg)
+    check(`${id}: rows ${rows}`, cfg.grid.rows === rows, String(cfg.grid.rows))
+    check(
+      `${id}: no E_END_FLOATING (wall-supported columns exempt)`,
+      layout.violations.length === 0,
+      JSON.stringify(layout.violations.map((v) => [v.col, v.clearanceCm])),
+    )
+    check(
+      `${id}: no layout warnings at all`,
+      layout.warnings.length === 0,
+      JSON.stringify(layout.warnings.map((w) => w.code)),
+    )
+    check(
+      `${id}: every FRONT panel rests exactly on the floor despite its pitch`,
+      cfg.columns.every((_, c) => {
+        const front = layout.panels.find((p) => p.col === c && p.row === 0)
+        return front && near(panelSolidMinY(front, cfg), 0, FRONT_REST_EPS)
+      }),
+      JSON.stringify(
+        cfg.columns.map((_, c) => {
+          const front = layout.panels.find((p) => p.col === c && p.row === 0)
+          return front ? round9(panelSolidMinY(front, cfg)) : null
+        }),
+      ),
+    )
+    checkNoThrow(`${id}: deterministic (deep-equal)`, () => {
+      assert.deepStrictEqual(solveLayout(cfg), solveLayout(buildPreset(id)))
+    })
   }
 }
 

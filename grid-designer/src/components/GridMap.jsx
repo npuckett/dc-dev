@@ -1,10 +1,16 @@
 /**
- * grid-designer — 2D plan view of the 6×5 grid, and the place/remove UI for the
- * 60×121 two-cell plates ("rects").
+ * grid-designer — 2D plan view of the cols × rows grid, and the place/remove UI
+ * for the 60×121 two-cell plates ("rects"). `rows` follows `grid.rows` (5..8), so
+ * the map grows and shrinks with the row stepper.
  *
  * ORIENTATION: row 0 is drawn at the BOTTOM, matching the mental model of
  * standing outside the storefront looking in — the shore/window edge is nearest
  * the viewer, rows recede upward (away, +Z). So screen row = rows-1-r.
+ * COLUMN 0 IS AT THE LEFT here (x rises rightward), which is the OPPOSITE of the
+ * 3D view — the camera there looks in from the window, so +X runs leftward on
+ * screen. The WALL closes the −X edge of the grid, beside column 0, so it is the
+ * LEFT edge of this map and the RIGHT edge of the 3D view.
+ * The ROW LABELS therefore sit on the RIGHT, out of the wall's way.
  *
  * WHAT IS DRAWN
  *   - one shape per PLACED PANEL, read off the derived layout rather than the
@@ -19,6 +25,9 @@
  *     diagonal band in plan, which is exactly the thing the fold sliders are being
  *     dragged to produce.
  *   - a blue rule plus a "window / shore" caption along row 0's outer edge.
+ *   - a thick teal rule plus a rotated "wall" caption along the LEFT edge — the
+ *     −X side of the grid, where the real room's wall is. Column 0 is the only one
+ *     that may set `endSupport: 'wall'` and be bracketed to it.
  *   - `meta.rectPattern` as a caption under the title, when the config names one.
  *     Every design is supposed to place ≥ 4 plates by ONE nameable rule (see THE
  *     PLATE-PATTERN RULE in core/schema.js); the caption is where that rule's name
@@ -56,8 +65,10 @@ import useStore, { getDerived } from '../store.js'
 const CELL = 40
 const GAP = 4
 const PITCH = CELL + GAP
-const PAD_L = 13
-const PAD_R = 3
+/** Room on the LEFT for the wall rule and its rotated caption. */
+const PAD_L = 16
+/** Room on the RIGHT for the row labels, which the wall displaced from the left. */
+const PAD_R = 12
 const PAD_T = 12
 const PAD_B = 17
 
@@ -66,6 +77,8 @@ const SQUARE_STROKE = '#3c3c56'
 const RECT_FILL = '#1f3350'
 const RECT_STROKE = '#4a7fc4'
 const SHORE = '#8fcaff'
+/** The −X wall — and the badge colour of a column bracketed to it. */
+const WALL = '#3ad0c0'
 /** A column whose last panel does not reach the floor. */
 const FLOATING = '#ff5f6d'
 
@@ -184,8 +197,14 @@ export default function GridMap() {
       >
         {/* ---- artwork (never a click target) ---- */}
         <g style={{ pointerEvents: 'none' }}>
+          {/* row labels on the RIGHT — the wall owns the left margin now */}
           {Array.from({ length: rows }, (_, r) => (
-            <text key={r} className="grid-map-rowlabel" x={PAD_L - 4} y={y(r) + CELL / 2 + 3}>
+            <text
+              key={r}
+              className="grid-map-rowlabel"
+              x={x(cols - 1) + CELL + 4}
+              y={y(r) + CELL / 2 + 3}
+            >
               {r}
             </text>
           ))}
@@ -275,6 +294,28 @@ export default function GridMap() {
           >
             window / shore
           </text>
+
+          {/* the −X wall: the LEFT edge here (beside column 0), the RIGHT edge in
+              the 3D view. Grouped so the marker has a non-degenerate bounding box —
+              a bare vertical <line> is zero-width and reads as invisible to
+              Playwright. */}
+          <g data-testid="gridmap-wall">
+            <line
+              x1={PAD_L - 3}
+              y1={PAD_T}
+              x2={PAD_L - 3}
+              y2={y(0) + CELL}
+              stroke={WALL}
+              strokeWidth={2.6}
+            />
+            <text
+              className="grid-map-wall"
+              transform={`translate(${PAD_L - 10} ${(PAD_T + y(0) + CELL) / 2}) rotate(-90)`}
+              textAnchor="middle"
+            >
+              wall
+            </text>
+          </g>
         </g>
 
         {/* ---- uniform 1-cell hit grid on top ---- */}
@@ -314,7 +355,8 @@ export default function GridMap() {
         click an empty cell to place a <b>{mode === 'horizontal' ? 'horizontal' : 'vertical'}</b>{' '}
         60×121 plate · click a plate to remove it · cell tint = cumulative pitch{' '}
         <span className="wash-up">up</span> / <span className="wash-down">back down</span> · col 0 is
-        at the left here, and on the <b>right</b> in the 3D view
+        at the left here, and on the <b>right</b> in the 3D view · the{' '}
+        <span className="wash-wall">wall</span> closes the left edge (col 0)
       </p>
 
       {placementErrors.length > 0 && (

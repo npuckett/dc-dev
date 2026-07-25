@@ -16,7 +16,13 @@
  */
 
 import assert from 'node:assert/strict'
-import { MIN_RECTS, cellPitches, validateConfig } from '../src/core/schema.js'
+import {
+  MIN_RECTS,
+  WALL_COLUMN,
+  cellPitches,
+  columnEndSupport,
+  validateConfig,
+} from '../src/core/schema.js'
 import {
   PRESETS,
   RANDOM_TEMPLATES,
@@ -27,8 +33,11 @@ import {
   presetWave,
   presetCrash,
   presetRandom,
+  presetSwell,
+  presetSurge,
+  presetWallcrash,
 } from '../src/core/presets.js'
-import { solveLayout } from '../src/core/placement.js'
+import { panelSolidMinY, solveLayout } from '../src/core/placement.js'
 
 let passed = 0
 const failures = []
@@ -61,7 +70,8 @@ const profiles = (cfg) => cfg.columns.map((_, c) => cellPitches(cfg, c))
 // =============================================================================
 // 1. Every preset validates
 // =============================================================================
-const named = [
+/** THE CALM FAMILY: 5 rows, flat fronts, every column on the floor. */
+const calmNamed = [
   ['flat', presetFlat()],
   ['calm', presetCalm()],
   ['wave', presetWave()],
@@ -72,6 +82,13 @@ const named = [
   ['random(0)', presetRandom(0)],
   ['random(123456789)', presetRandom(123456789)],
 ]
+/** THE STORM FAMILY: deeper grids, a pitched front in EVERY column, the wall. */
+const stormNamed = [
+  ['swell', presetSwell()],
+  ['surge', presetSurge()],
+  ['wallcrash', presetWallcrash()],
+]
+const named = [...calmNamed, ...stormNamed]
 
 for (const [label, cfg] of named) {
   const result = validateConfig(cfg)
@@ -126,16 +143,16 @@ for (const [label, cfg] of named) {
 for (const [label, cfg] of named) {
   const layout = solveLayout(cfg)
   check(
-    `${label}: no E_END_FLOATING — every column lands`,
+    `${label}: no E_END_FLOATING — every floor column lands`,
     layout.violations.length === 0,
     layout.violations.map((v) => `col ${v.col} @ ${v.clearanceCm.toFixed(2)}cm`).join(' | '),
   )
   check(
-    `${label}: every chain reports grounded with a clearance on the floor`,
-    layout.columnChains.every(
-      (ch) => ch.grounded === true && ch.endClearanceCm >= -0.25 && ch.endClearanceCm <= 0.5,
-    ),
-    JSON.stringify(layout.columnChains.map((ch) => [ch.grounded, ch.endClearanceCm])),
+    `${label}: every FLOOR chain reports grounded with a clearance on the floor`,
+    layout.columnChains
+      .filter((ch) => ch.endSupport !== 'wall')
+      .every((ch) => ch.grounded === true && ch.endClearanceCm >= -0.25 && ch.endClearanceCm <= 0.5),
+    JSON.stringify(layout.columnChains.map((ch) => [ch.endSupport, ch.grounded, ch.endClearanceCm])),
   )
 }
 {
@@ -151,14 +168,16 @@ for (const [label, cfg] of named) {
   }
   check('presetRandom lands every column for seeds 0..30', allGrounded, firstBad)
 }
-// The landing is the LAST row's business: every preset's last pitch is ≤ 0, i.e.
-// the strip is coming down (or level) as it reaches the back of the store.
+// The landing is the LAST row's business: every FLOOR column's last pitch is ≤ 0,
+// i.e. the strip is coming down (or level) as it reaches the back of the store. A
+// WALL column is the exception on purpose — 'wallcrash' column 5 is still climbing
+// when it meets the wall, which is the whole point of it.
 for (const [label, cfg] of named) {
   const last = profiles(cfg).map((p) => p[p.length - 1])
   check(
-    `${label}: every column's final pitch is level or descending`,
-    last.every((psi) => psi <= 1e-9),
-    JSON.stringify(last),
+    `${label}: every FLOOR column's final pitch is level or descending`,
+    last.every((psi, c) => columnEndSupport(cfg, c) === 'wall' || psi <= 1e-9),
+    JSON.stringify(last.map((psi, c) => [columnEndSupport(cfg, c), psi])),
   )
 }
 
@@ -342,25 +361,48 @@ checkNoThrow('buildPreset throws on unknown id', () => {
   assert.throws(() => buildPreset('nope'))
 })
 
-// Shape: 6 columns × 4 joints, version 2.
+// Shape: 6 columns × (grid.rows − 1) joints, version 2, rows inside 5..8.
 for (const [label, cfg] of named) {
   check(
-    `${label}: version 2, 6×5, 6 fold sequences of 4`,
+    `${label}: version 2, 6 columns × ${cfg.grid.rows} rows, ${cfg.grid.rows - 1} folds each`,
     cfg.version === 2 &&
       cfg.grid.cols === 6 &&
-      cfg.grid.rows === 5 &&
+      cfg.grid.rows >= 5 &&
+      cfg.grid.rows <= 8 &&
       cfg.columns.length === 6 &&
-      cfg.columns.every((col) => Array.isArray(col.foldsDeg) && col.foldsDeg.length === 4),
+      cfg.columns.every(
+        (col) => Array.isArray(col.foldsDeg) && col.foldsDeg.length === cfg.grid.rows - 1,
+      ),
     JSON.stringify({ version: cfg.version, grid: cfg.grid, columns: cfg.columns.length }),
   )
   check(
-    `${label}: every cumulative pitch profile starts at 0 (row 0 is the shore)`,
-    profiles(cfg).every((p) => p[0] === 0),
-    JSON.stringify(profiles(cfg)),
+    `${label}: every profile's first entry IS the column's startPitchDeg`,
+    profiles(cfg).every((p, c) => p[0] === cfg.columns[c].startPitchDeg),
+    JSON.stringify(profiles(cfg).map((p) => p[0])),
+  )
+  check(
+    `${label}: every endSupport is 'floor', or 'wall' on the WALL-ADJACENT column 0 only`,
+    cfg.columns.every(
+      (col, c) => col.endSupport === 'floor' || (col.endSupport === 'wall' && c === WALL_COLUMN),
+    ),
+    JSON.stringify(cfg.columns.map((col) => col.endSupport)),
   )
   check(
     `${label}: no v1 leftovers (rows / rowFoldsDeg / rowAnchor)`,
     cfg.rows === undefined && cfg.rowFoldsDeg === undefined && cfg.rowAnchor === undefined,
+  )
+}
+// The CALM family's defining rule: 5 rows and a flat front in every column.
+for (const [label, cfg] of calmNamed) {
+  check(
+    `${label} (calm family): 5 rows, every front FLAT on the shore (startPitchDeg 0)`,
+    cfg.grid.rows === 5 && cfg.columns.every((col) => col.startPitchDeg === 0),
+    JSON.stringify(cfg.columns.map((col) => col.startPitchDeg)),
+  )
+  check(
+    `${label} (calm family): every column stands on the floor`,
+    cfg.columns.every((col) => col.endSupport === 'floor'),
+    JSON.stringify(cfg.columns.map((col) => col.endSupport)),
   )
 }
 
@@ -548,6 +590,412 @@ for (const [label, cfg] of named) {
     }
   }
   check('presetRandom: every plate is legal for seeds 0..59', allLegal, firstBad)
+}
+
+// =============================================================================
+// 5. THE STORM FAMILY — swell / surge / wallcrash
+//
+// Their signature rule, asserted first: NO FLAT FRONT ANYWHERE. Every column of
+// every storm preset has startPitchDeg ≠ 0 — that is what separates the family from
+// the calm one, and it is the thing a future edit is most likely to break.
+// =============================================================================
+{
+  check(
+    'PRESETS lists the storm family as swell / surge / wallcrash',
+    JSON.stringify(PRESETS.filter((p) => p.family === 'storm').map((p) => p.id)) ===
+      JSON.stringify(['swell', 'surge', 'wallcrash']),
+    JSON.stringify(PRESETS.map((p) => [p.id, p.family])),
+  )
+  check(
+    'PRESETS: every entry declares a family, and the calm ones come first',
+    PRESETS.every((p) => p.family === 'calm' || p.family === 'storm') &&
+      PRESETS.findIndex((p) => p.family === 'storm') ===
+        PRESETS.filter((p) => p.family === 'calm').length,
+    JSON.stringify(PRESETS.map((p) => p.family)),
+  )
+  check('no storm preset is seeded', PRESETS.filter((p) => p.family === 'storm').every((p) => !p.seeded))
+}
+
+for (const [label, cfg] of stormNamed) {
+  // --- the signature rule ---------------------------------------------------
+  check(
+    `${label}: EVERY column has a pitched front (startPitchDeg ≠ 0)`,
+    cfg.columns.every((col) => col.startPitchDeg !== 0),
+    JSON.stringify(cfg.columns.map((col) => col.startPitchDeg)),
+  )
+  check(
+    `${label}: every front pitch is inside ±120 and a whole degree (readable JSON)`,
+    cfg.columns.every((col) => Number.isInteger(col.startPitchDeg) && Math.abs(col.startPitchDeg) <= 120),
+    JSON.stringify(cfg.columns.map((col) => col.startPitchDeg)),
+  )
+  // The pitched front costs nothing in support — the panel still rests on the floor.
+  {
+    const layout = solveLayout(cfg)
+    check(
+      `${label}: every pitched FRONT panel still rests on the floor`,
+      cfg.columns.every((_, c) => {
+        const front = layout.panels.find((p) => p.col === c && p.row === 0)
+        return front && Math.abs(panelSolidMinY(front, cfg)) < 1e-7
+      }),
+      JSON.stringify(
+        cfg.columns.map((_, c) => {
+          const front = layout.panels.find((p) => p.col === c && p.row === 0)
+          return front ? Number(panelSolidMinY(front, cfg).toFixed(9)) : null
+        }),
+      ),
+    )
+  }
+  // --- plates crossing ROWS, at least four, by a named rule ------------------
+  check(
+    `${label}: at least ${MIN_RECTS} plates and every one of them VERTICAL (crossing rows)`,
+    cfg.rects.length >= MIN_RECTS && cfg.rects.every((r) => r.orientation === 'vertical'),
+    JSON.stringify(cfg.rects),
+  )
+  check(
+    `${label}: deterministic (JSON-identical across two builds)`,
+    JSON.stringify(buildPreset(label.split('(')[0])) === JSON.stringify(cfg),
+  )
+}
+
+// --- swell: 6 rows, spine plates, fronts ramping 10 → 25, everything grounded ---
+{
+  const swell = presetSwell()
+  const layout = solveLayout(swell)
+  check('swell: 6 rows', swell.grid.rows === 6, String(swell.grid.rows))
+  check(
+    'swell: fronts pitch UP and RISE with column index (10° … 25°)',
+    JSON.stringify(swell.columns.map((col) => col.startPitchDeg)) ===
+      JSON.stringify([10, 13, 16, 19, 22, 25]),
+    JSON.stringify(swell.columns.map((col) => col.startPitchDeg)),
+  )
+  check(
+    "swell: 'spine plates' — one vertical plate mid-strip (rows 2–3) in every column",
+    swell.meta.rectPattern === 'spine plates' &&
+      swell.rects.length === 6 &&
+      swell.rects.every((r) => r.row === 2 && r.orientation === 'vertical') &&
+      new Set(swell.rects.map((r) => r.col)).size === 6,
+    JSON.stringify([swell.meta.rectPattern, swell.rects]),
+  )
+  check(
+    "swell: each spine plate's two rows share one pitch (the plate is rigid)",
+    swell.columns.every((col) => col.foldsDeg[2] === 0),
+    JSON.stringify(swell.columns.map((col) => col.foldsDeg)),
+  )
+  check(
+    'swell: EVERY column stands on the floor — no wall support anywhere',
+    swell.columns.every((col) => col.endSupport === 'floor') &&
+      layout.columnChains.every((ch) => ch.grounded === true) &&
+      layout.violations.length === 0,
+    JSON.stringify(layout.columnChains.map((ch) => [ch.endSupport, ch.grounded])),
+  )
+  // BIG ROLLING AMPLITUDE: the crest heights are the design input, and they arc
+  // across the window — that is what stops the surface reading as a cylinder.
+  const peaks = layout.columnChains.map((ch) => Math.max(...ch.points.map((p) => p[0])))
+  check(
+    'swell: the crest ROLLS — it rises to the middle columns and falls away again',
+    peaks[1] > peaks[0] &&
+      peaks[2] > peaks[1] &&
+      peaks[4] < peaks[3] &&
+      peaks[5] < peaks[4],
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'swell: the roll has real amplitude — the crest varies by more than 30cm across it',
+    Math.max(...peaks) - Math.min(...peaks) > 30,
+    `${Math.min(...peaks).toFixed(1)} … ${Math.max(...peaks).toFixed(1)}`,
+  )
+  check(
+    'swell: it hits the authored 70 / 90 / 105cm targets within a couple of cm',
+    [70, 90, 105, 105, 90, 70].every((want, c) => Math.abs(peaks[c] - want) < 2.5),
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'swell: the crest is a real rise — over 25× the flat lit-face height',
+    Math.max(...peaks) > 25 * 3.7,
+    String(Math.max(...peaks)),
+  )
+  check(
+    'swell: no layout warnings at all',
+    layout.warnings.length === 0,
+    JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+}
+
+// --- surge: 7 rows, two plates per column, peaks well past 150cm ----------------
+{
+  const surge = presetSurge()
+  const layout = solveLayout(surge)
+  check('surge: 7 rows', surge.grid.rows === 7, String(surge.grid.rows))
+  check(
+    'surge: STEEP fronts, 25° … 45°, rising with column index',
+    JSON.stringify(surge.columns.map((col) => col.startPitchDeg)) ===
+      JSON.stringify([25, 29, 33, 37, 41, 45]),
+    JSON.stringify(surge.columns.map((col) => col.startPitchDeg)),
+  )
+  check(
+    "surge: 'double plates' — TWO vertical plates in every column (12 in all)",
+    surge.meta.rectPattern === 'double plates' && surge.rects.length === 12,
+    JSON.stringify([surge.meta.rectPattern, surge.rects.length]),
+  )
+  check(
+    'surge: a crest plate at rows 2–3 and a landing plate at rows 5–6 in each column',
+    [0, 1, 2, 3, 4, 5].every(
+      (c) =>
+        surge.rects.some((r) => r.col === c && r.row === 2 && r.orientation === 'vertical') &&
+        surge.rects.some((r) => r.col === c && r.row === 5 && r.orientation === 'vertical'),
+    ),
+    JSON.stringify(surge.rects.map((r) => `${r.row},${r.col}`)),
+  )
+  check(
+    'surge: two plates per column is more than half the columns (the rule asked for ≥ 3)',
+    [0, 1, 2, 3, 4, 5].filter((c) => surge.rects.filter((r) => r.col === c).length >= 2).length === 6,
+  )
+  check(
+    "surge: both plates' joints are unfolded in every column",
+    surge.columns.every((col) => col.foldsDeg[2] === 0 && col.foldsDeg[5] === 0),
+    JSON.stringify(surge.columns.map((col) => col.foldsDeg)),
+  )
+  const peaks = layout.columnChains.map((ch) => Math.max(...ch.points.map((p) => p[0])))
+  check(
+    'surge: every column peaks WELL above 150cm',
+    peaks.every((y) => y > 150),
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'surge: and is the tallest floor-grounded preset — taller than swell everywhere',
+    Math.min(...peaks) >
+      Math.max(
+        ...solveLayout(presetSwell()).columnChains.map((ch) => Math.max(...ch.points.map((p) => p[0]))),
+      ),
+    `surge min ${Math.min(...peaks).toFixed(1)}`,
+  )
+  check(
+    'surge: ALL SIX columns still land on the floor — nothing leans on the wall',
+    surge.columns.every((col) => col.endSupport === 'floor') && layout.violations.length === 0,
+    JSON.stringify(layout.columnChains.map((ch) => [ch.endSupport, ch.endClearanceCm])),
+  )
+  check(
+    'surge: no layout warnings at all',
+    layout.warnings.length === 0,
+    JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+}
+
+// --- wallcrash: 6 rows, a ramp toward the −X wall, column 0 splashing up it -----
+{
+  const wc = presetWallcrash()
+  const layout = solveLayout(wc)
+  check('wallcrash: 6 rows', wc.grid.rows === 6, String(wc.grid.rows))
+  check(
+    'wallcrash: front pitch RAMPS toward the wall — steepest at column 0, 43° … 8°',
+    JSON.stringify(wc.columns.map((col) => col.startPitchDeg)) ===
+      JSON.stringify([43, 36, 29, 22, 15, 8]),
+    JSON.stringify(wc.columns.map((col) => col.startPitchDeg)),
+  )
+  check(
+    'wallcrash: COLUMN 0 is WALL-SUPPORTED and nothing else is',
+    wc.columns[WALL_COLUMN].endSupport === 'wall' &&
+      wc.columns.slice(1).every((col) => col.endSupport === 'floor'),
+    JSON.stringify(wc.columns.map((col) => col.endSupport)),
+  )
+  check(
+    'wallcrash: columns 1–5 all LAND on the floor',
+    layout.columnChains.slice(1).every((ch) => ch.grounded === true) &&
+      layout.violations.length === 0,
+    JSON.stringify(layout.columnChains.map((ch) => [ch.grounded, ch.endClearanceCm])),
+  )
+  // THE SPLASH: the wall column's end panel is high in the air, and legally so.
+  check(
+    "wallcrash: column 0's end is ELEVATED — well over 30cm off the floor",
+    layout.columnChains[WALL_COLUMN].endClearanceCm > 30,
+    `${layout.columnChains[WALL_COLUMN].endClearanceCm.toFixed(1)}cm`,
+  )
+  check(
+    'wallcrash: that elevated end raises NO violation (the wall holds it)',
+    layout.columnChains[WALL_COLUMN].grounded === false &&
+      layout.columnChains[WALL_COLUMN].endSupport === 'wall' &&
+      !layout.violations.some((v) => v.col === WALL_COLUMN),
+    JSON.stringify(layout.violations),
+  )
+  // The ramp: amplitude climbs monotonically TOWARD the wall, i.e. DOWN the column
+  // index — column 0 is against the wall, so it is the violent end.
+  const peaks = layout.columnChains.map((ch) => Math.max(...ch.points.map((p) => p[0])))
+  check(
+    'wallcrash: amplitude RAMPS monotonically from column 5 up to column 0 (the wall)',
+    peaks.every((y, c) => c === 0 || y < peaks[c - 1]),
+    JSON.stringify(peaks.map((y) => Number(y.toFixed(1)))),
+  )
+  check(
+    'wallcrash: column 5 is gentle (< 80cm) and column 0 at the wall is violent (> 150cm)',
+    peaks[5] < 80 && peaks[WALL_COLUMN] > 150,
+    `col5 ${peaks[5].toFixed(1)} … col0 ${peaks[WALL_COLUMN].toFixed(1)}`,
+  )
+  check(
+    "wallcrash: 'wall splash' — the plates march diagonally back and toward the wall",
+    wc.meta.rectPattern === 'wall splash' &&
+      JSON.stringify(wc.rects.map((r) => `${r.row},${r.col}`)) ===
+        JSON.stringify(['4,0', '4,1', '3,2', '2,3', '1,4', '0,5']),
+    JSON.stringify([wc.meta.rectPattern, wc.rects.map((r) => `${r.row},${r.col}`)]),
+  )
+  check(
+    'wallcrash: the plate row DEEPENS as the columns approach the wall',
+    wc.rects.every((r, i) => i === 0 || r.row <= wc.rects[i - 1].row) &&
+      wc.rects[0].row === 4 &&
+      wc.rects[5].row === 0,
+    JSON.stringify(wc.rects.map((r) => r.row)),
+  )
+  check(
+    "wallcrash: every plate's joint is unfolded, so each plate really is rigid",
+    wc.rects.every((r) => wc.columns[r.col].foldsDeg[r.row] === 0),
+    JSON.stringify(wc.columns.map((col) => col.foldsDeg)),
+  )
+  check(
+    'wallcrash: no layout warnings at all',
+    layout.warnings.length === 0,
+    JSON.stringify(layout.warnings.map((w) => w.code)),
+  )
+}
+
+// --- the three storm presets differ from each other and from the calm family ----
+{
+  const shapes = named.map(([, cfg]) => JSON.stringify([cfg.grid, cfg.columns]))
+  check('all twelve sampled presets have distinct shapes', new Set(shapes).size === shapes.length)
+  const patterns = stormNamed.map(([, cfg]) => cfg.meta.rectPattern)
+  check(
+    'the storm presets name three different plate patterns',
+    new Set(patterns).size === 3,
+    JSON.stringify(patterns),
+  )
+  const calmPatterns = calmNamed.slice(0, 4).map(([, cfg]) => cfg.meta.rectPattern)
+  check(
+    'no storm pattern name collides with a calm one',
+    patterns.every((p) => !calmPatterns.includes(p)),
+    JSON.stringify([patterns, calmPatterns]),
+  )
+}
+
+// =============================================================================
+// 6. REGRESSION GUARD — the calm family's outputs must not have moved
+//
+// Hard-coded from the pre-WP10 build. Pitched fronts, the wall and the row range
+// were all added as OPT-IN fields, so every one of these has to be byte-identical:
+// if a change to the chain walker or the grounding solver shifts them, this fires.
+// =============================================================================
+{
+  const EXPECTED = {
+    flat: {
+      folds: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+      rects: ['1,1,v', '3,1,v', '1,4,v', '3,4,v'],
+      pattern: 'mirrored quad',
+    },
+    calm: {
+      folds: [
+        [10, -10, -10, 10],
+        [10, -10, -10, 10],
+        [5, 5, -15, -5],
+        [5, 5, -15, -5],
+        [10, -10, -10, 10],
+        [10, -10, -10, 10],
+      ],
+      rects: ['1,0,h', '3,0,h', '1,4,h', '3,4,h'],
+      pattern: 'mirrored pairs',
+    },
+    wave: {
+      folds: [
+        [40, 0, -80, -1],
+        [35, 0, -70, -1],
+        [30, 0, -60, -0.5],
+        [0, 25, 0, -86],
+        [0, 22, 0, -73],
+        [0, 18, 0, -57],
+      ],
+      rects: ['1,0,v', '1,1,v', '1,2,v', '2,3,v', '2,4,v', '2,5,v'],
+      pattern: 'crest plates',
+    },
+    crash: {
+      folds: [
+        [0, 85, -115.5, 0],
+        [10, 65, -110.25, 0],
+        [20, 40, -97.75, 0],
+        [25, 20, -79.9, 0],
+        [15, 15, -52.5, 0],
+        [5, 10, -25, 0],
+      ],
+      rects: ['3,0,v', '3,1,v', '3,2,v', '3,3,v', '3,4,v', '3,5,v'],
+      pattern: 'landing plates',
+    },
+  }
+  for (const [id, want] of Object.entries(EXPECTED)) {
+    const cfg = buildPreset(id)
+    check(
+      `regression: ${id}'s fold sequences are unchanged`,
+      JSON.stringify(cfg.columns.map((col) => col.foldsDeg)) === JSON.stringify(want.folds),
+      JSON.stringify(cfg.columns.map((col) => col.foldsDeg)),
+    )
+    check(
+      `regression: ${id}'s plates are unchanged`,
+      JSON.stringify(cfg.rects.map((r) => `${r.row},${r.col},${r.orientation[0]}`)) ===
+        JSON.stringify(want.rects),
+      JSON.stringify(cfg.rects),
+    )
+    check(
+      `regression: ${id} still names the pattern "${want.pattern}"`,
+      cfg.meta.rectPattern === want.pattern,
+      String(cfg.meta.rectPattern),
+    )
+    check(
+      `regression: ${id} is still 6×5 with flat fronts on the floor`,
+      cfg.grid.rows === 5 &&
+        cfg.columns.every((col) => col.startPitchDeg === 0 && col.endSupport === 'floor'),
+      JSON.stringify(cfg.grid),
+    )
+  }
+  // The seeded generator too — the random stream and its templates must not shift.
+  const RANDOM_EXPECTED = {
+    1: {
+      pattern: 'alternating-bands',
+      folds: [
+        [22, 0, -43, -2.5],
+        [45, -25, -52, 0],
+        [22, 0, -46, 4],
+        [45, -25, -52, 0],
+        [6, 0, -18.067091464598626, 12.067091464598626],
+        [7, 15, -36.4, 0],
+      ],
+    },
+    42: {
+      pattern: 'mirrored-pairs',
+      folds: [
+        [27, -7, -32, -25],
+        [22, 0, -44, 0],
+        [12, 16, -37, -23],
+        [21, -10, -15, -25],
+        [22, 0, -44, 0],
+        [23, 8, -55, -6.5],
+      ],
+    },
+  }
+  for (const [seed, want] of Object.entries(RANDOM_EXPECTED)) {
+    const cfg = presetRandom(Number(seed))
+    check(
+      `regression: random(${seed}) still draws '${want.pattern}' with the same folds`,
+      cfg.meta.rectPattern === want.pattern &&
+        JSON.stringify(cfg.columns.map((col) => col.foldsDeg)) === JSON.stringify(want.folds),
+      `${cfg.meta.rectPattern} ${JSON.stringify(cfg.columns.map((col) => col.foldsDeg))}`,
+    )
+  }
+  // …and the solved geometry, not just the config: the flat lattice is exact.
+  {
+    const flatLayout = solveLayout(buildPreset('flat'))
+    check(
+      'regression: presetFlat still lays out on the exact 61cm lattice at y = 3.7',
+      flatLayout.panels.every((p) => {
+        const wantY = 3.7
+        return p.position[1] === wantY && p.position[0] === 30 + 61 * p.col
+      }),
+      JSON.stringify(flatLayout.panels.slice(0, 3).map((p) => p.position)),
+    )
+  }
 }
 
 // =============================================================================

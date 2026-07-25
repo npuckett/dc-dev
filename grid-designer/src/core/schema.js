@@ -12,7 +12,8 @@
  * A `cols × rows` grid of ceiling light panels (Drop Ceiling installation V2,
  * the "agentic body of water") standing on the floor of a storefront. The window
  * / shore is the line z = 0; rows recede into the store along +Z; columns run
- * across the window along +X.
+ * across the window along +X. A WALL closes the −X side of the grid, beside COLUMN
+ * 0, running window → back (see THE WALL below).
  *
  * FOLDING HAPPENS ONLY ALONG COLUMNS. Each column c is an independent STRIP: a
  * chain of `rows` panels hinged at the `rows - 1` joints between consecutive
@@ -28,9 +29,11 @@
  *     constant `gap` in X by construction. Their 3D edge separation only grows
  *     when two adjacent columns' fold profiles differ in pitch or in the height
  *     / depth they have reached — that is exactly what report.js measures.
- *   - Row 0 is the SHORE and is flat on the ground BY CONSTRUCTION: every chain
- *     starts at pitch 0, z = 0, y = PANEL_PROFILE.overallThickness. There is no
- *     shore validation rule; you cannot tilt row 0.
+ *   - ROW 0 IS THE FRONT PANEL AT THE WINDOW, AND ITS PITCH IS DESIGNABLE.
+ *     `columns[c].startPitchDeg` (default 0) tilts it; the chain's front edge
+ *     stays on the window line z = 0 and the front panel stays ON THE FLOOR BY
+ *     CONSTRUCTION — see PITCHED FRONTS below. There is no flat-shore rule any
+ *     more; a flat front is simply `startPitchDeg: 0`.
  *   - WAVES ARE MADE BY PHASE-SHIFTING FOLD SEQUENCES ACROSS COLUMNS. Give
  *     column c a fold sequence whose crest sits one step further back than
  *     column c-1's, and the surface reads as a swell travelling across the
@@ -40,15 +43,65 @@
  *     on; placement.js emits W_BELOW_FLOOR for them. A chain that rises before
  *     it descends (all cumulative pitches ≥ 0, or a descent no deeper than the
  *     height already gained) stays supported.
- *   - THE WAVE RETURNS TO THE WATER — see the next section. Every column's LAST
- *     panel must come back down and touch the floor.
+ *   - THE WAVE RETURNS TO THE WATER — see the next section. Every FLOOR column's
+ *     LAST panel must come back down and touch the floor. A WALL-SUPPORTED
+ *     column is exempt: it may end high, splashing up the wall.
+ *
+ * =============================================================================
+ * PITCHED FRONTS — `columns[c].startPitchDeg`
+ * =============================================================================
+ * `startPitchDeg` is the cumulative pitch of ROW 0 — the front / window panel —
+ * clamped to the same ±120° as a hinge. Every later row's pitch is that value
+ * plus the running sum of the folds in front of it:
+ *
+ *   ψ(0, c) = startPitchDeg(c),   ψ(r, c) = startPitchDeg(c) + Σ_{k < r} fold(c, k)
+ *
+ * THE FRONT EDGE STAYS ON THE WINDOW LINE (z = 0) AND THE FRONT PANEL STAYS ON
+ * THE FLOOR. The chain's start height y0 is not a constant any more: it is
+ * derived per column (`frontRestY`) as the value that puts the LOWEST point of
+ * the front panel's SOLID (its 4 lit-face corners plus the 4 at the back of the
+ * housing, `PANEL_PROFILE.overallThickness` = 3.7cm along −n̂) at exactly y = 0:
+ *
+ *   y0(θ, L) = max(0, 3.7·cos θ) − min(0, L·sin θ)
+ *
+ * with L the front panel's footprint ALONG the chain (60 for a square or a
+ * horizontal plate, 121 for a vertical plate at row 0). Read it as two cases:
+ *   θ ≥ 0  (the front pitches UP, the common case) → y0 = 3.7·cos θ: the panel
+ *          rests on the housing edge under its FRONT edge, at the window.
+ *   θ < 0  (the front DIVES toward the floor) → the front edge has to lift by
+ *          L·sin|θ| so the panel's REAR edge is what rests on the ground; the
+ *          whole strip starts that much higher. Nothing is clamped and nothing
+ *          is special-cased: a profile that keeps diving behind row 0 drives
+ *          later panels under the floor and simply raises W_BELOW_FLOOR.
+ * At θ = 0 the formula gives exactly 3.7 — the historical `SHORE_Y` — so a
+ * config without `startPitchDeg` lays out bit-identically to before.
+ *
+ * =============================================================================
+ * THE WALL — `columns[c].endSupport`
+ * =============================================================================
+ * The real room has a wall at the −X edge of the grid: the plane x = `WALL_X` = 0,
+ * which is the OUTER edge of column 0, running from the window straight back. The
+ * column beside it — c = `WALL_COLUMN` = 0 — can therefore be SIDE-BRACKETED to
+ * that wall instead of standing on the floor:
+ *
+ *   `columns[0].endSupport: 'wall'`      → the strip may end HIGH, water
+ *                                          splashing up the wall
+ *   `endSupport: 'floor'` (the default)  → the grounded-end rule applies
+ *
+ * 'wall' on any other column is an E_SHAPE error: only the wall-adjacent column
+ * has a wall to bracket to. A wall-supported column is skipped by the
+ * E_END_FLOATING check, by `groundAllFolds`, and by the UI's "Ground all".
+ *
+ * NOTE ON SIDES. The wall is at LOW x, so it is the LEFT edge of the plan view
+ * (core/../components/GridMap.jsx draws column 0 at the left) and the RIGHT edge of
+ * the 3D view (the camera looks in from the window, so +X runs leftward there).
  *
  * =============================================================================
  * THE GROUNDED-END RULE (a MUST for every generated design)
  * =============================================================================
- * THE LAST PANEL OF EVERY COLUMN MUST TOUCH THE FLOOR. Either it lies flat on
- * the ground, or it is tilted with one of its housing edges down on the ground —
- * it may NEVER float in mid-air. ("The wave returns to the water.")
+ * THE LAST PANEL OF EVERY FLOOR-SUPPORTED COLUMN MUST TOUCH THE FLOOR. Either it
+ * lies flat on the ground, or it is tilted with one of its housing edges down on
+ * the ground — it may NEVER float in mid-air. ("The wave returns to the water.")
  *
  * Formally: over the last panel's SOLID (its 4 lit-face corners plus those 4
  * corners pushed `PANEL_PROFILE.overallThickness` = 3.7cm along −n̂, the back of
@@ -73,6 +126,8 @@
  *   `core/ground.js` exports `solveGroundingFold(config, c)` / `groundAllFolds`,
  *   which solve the last surviving hinge of a column for floor contact — that is
  *   the mechanical fix; designing the arc is still the generator's job.
+ *   A WALL-SUPPORTED column needs none of this: bracketed to the −X wall, it is
+ *   allowed — and in the 'wallcrash' preset, meant — to end high.
  *
  * =============================================================================
  * JSON CONFIG SCHEMA (v2) — this is the shape an LLM generator should emit
@@ -82,7 +137,10 @@
  *     "version": 2,                            // must be exactly 2
  *     "units": "cm",                           // must be "cm"
  *     "name": "wave study 3",                  // optional, free text
- *     "grid": { "cols": 6, "rows": 5 },        // 6 columns × 5 rows
+ *     "grid": { "cols": 6, "rows": 5 },        // 6 columns × rows; rows must be 5..8
+ *                                              // (MIN_ROWS..MAX_ROWS — below 5 the
+ *                                              // shore-plus-wave reading collapses,
+ *                                              // above 8 the strip runs out of store)
  *     "cell": { "size": 60, "rectLength": 121 },  // square cell 60cm; 2-cell rect 121cm
  *     "gap": 1.0,                              // physical joint gap spanned by connectors.
  *                                              // KEEP 2·size + gap = rectLength: 60+1+60 = 121
@@ -95,8 +153,15 @@
  *                                              // touching the floor when its solid
  *                                              // reaches within this many cm of y = 0
  *     "columns": [                             // exactly grid.cols entries; 0 = leftmost (x = 0 side)
- *       { "foldsDeg": [30, -60, 60, -30] },    // exactly grid.rows-1 SIGNED hinge angles
- *       { "foldsDeg": [20, -40, 40, -20] },    // [k] = hinge between rows k and k+1
+ *       { "foldsDeg": [30, -60, 60, -30],      // exactly grid.rows-1 SIGNED hinge angles
+ *         "startPitchDeg": 0,                  // [k] = hinge between rows k and k+1
+ *         "endSupport": "floor" },             // pitch of ROW 0 (the front / window panel),
+ *                                              // ±120; the front panel stays on the floor
+ *                                              // whatever it is (see PITCHED FRONTS).
+ *                                              // endSupport 'wall' is legal ONLY on the
+ *                                              // last column and exempts it from the
+ *                                              // grounded-end rule (see THE WALL).
+ *       { "foldsDeg": [20, -40, 40, -20] },    // both new fields default when omitted
  *       { "foldsDeg": [0, 0, 0, 0] },
  *       { "foldsDeg": [0, 0, 0, 0] },
  *       { "foldsDeg": [0, 0, 0, 0] },
@@ -152,9 +217,10 @@
  * `columns[c].foldsDeg[k]` is that hinge's SIGNED dihedral in degrees, clamped
  * to ±120. A POSITIVE fold pitches the next panel UP (toward +Y).
  *
- * Cumulative pitch of cell (r, c) is the running sum of the folds in front of it:
+ * Cumulative pitch of cell (r, c) is `startPitchDeg` plus the running sum of the
+ * folds in front of it:
  *
- *   ψ(r, c) = Σ_{k < r} foldsDeg(c, k),   ψ(0, c) = 0
+ *   ψ(r, c) = startPitchDeg(c) + Σ_{k < r} foldsDeg(c, k),   ψ(0, c) = startPitchDeg(c)
  *
  * (see `cellPitches()`), and the chain's depth direction there is
  * d = (0, sinψ, cosψ) — so ψ = 90° stands the panel straight up and ψ > 90°
@@ -170,12 +236,16 @@
  * VALIDATION CODES
  * =============================================================================
  * Errors (ok === false):
- *   E_SHAPE                     structural problems: bad version/units, grid
- *                               dims < 1, wrong columns / foldsDeg lengths,
- *                               malformed column or rect entries, out-of-bounds
- *                               rects, non-positive gapTolerance / groundTolerance
- *                               (message names the specific problem)
- *   E_RANGE                     a fold outside ±120, gap not in (0, 10]
+ *   E_SHAPE                     structural problems: bad version/units, grid.cols
+ *                               < 1, grid.rows outside 5..8, wrong columns /
+ *                               foldsDeg lengths, malformed column or rect entries,
+ *                               a non-numeric startPitchDeg, an endSupport that is
+ *                               neither 'floor' nor 'wall', endSupport 'wall' on a
+ *                               column that is not the wall-adjacent one,
+ *                               out-of-bounds rects, non-positive gapTolerance /
+ *                               groundTolerance (the message names the problem)
+ *   E_RANGE                     a fold or startPitchDeg outside ±120, gap not in
+ *                               (0, 10]
  *   E_RECT_OVERLAP              two rects share a cell
  *   E_FOLD_ON_REMOVED_JOINT     columns[c].foldsDeg[r] ≠ 0 at a joint removed by
  *                               a vertical rect (the plate is rigid there)
@@ -204,7 +274,8 @@
  *                               plates one at a time
  *
  * The grounded-end rule is deliberately NOT here: it is a solved-layout property,
- * reported as `solveLayout(...).violations` (E_END_FLOATING), not a config error.
+ * reported as `solveLayout(...).violations` (E_END_FLOATING), not a config error —
+ * and it is skipped entirely for a wall-supported column.
  */
 
 import { PANEL_PROFILE } from '../config.js'
@@ -212,9 +283,39 @@ import { PANEL_PROFILE } from '../config.js'
 // -----------------------------------------------------------------------------
 // Limits
 // -----------------------------------------------------------------------------
-/** Per-joint signed dihedral limit, degrees. */
+/**
+ * Per-joint signed dihedral limit, degrees. `columns[c].startPitchDeg` — the
+ * pitch of the front / window panel — shares the same limit.
+ */
 export const MAX_FOLD_DEG = 120
 export const MAX_GAP_CM = 10
+/**
+ * Row-resolution band. Fewer than 5 rows and the design stops reading as a shore
+ * plus a wave breaking behind it (the front panel, the climb, the crest, the
+ * descent and the landing need five cells); more than 8 and a 61cm-pitch strip
+ * runs past 5m into the store. `grid.rows` outside this raises E_SHAPE.
+ */
+export const MIN_ROWS = 5
+export const MAX_ROWS = 8
+/** The two ways a column's deep end can be held up. See THE WALL above. */
+export const END_SUPPORTS = ['floor', 'wall']
+/**
+ * The x of the WALL plane closing the −X side of the grid, cm.
+ *
+ * It is 0 — the OUTER (low-x) edge of column 0 — and, unlike the shore line's
+ * extent or the column lattice, it does NOT depend on cols / size / gap: the grid
+ * is laid out FROM the wall, with column 0 against it. Hence a constant rather
+ * than a function of the config.
+ */
+export const WALL_X = 0
+/**
+ * The only column that may set `endSupport: 'wall'` — the one beside the wall.
+ *
+ * Column 0 occupies x ∈ [0, size], so its outer edge IS the wall plane `WALL_X`.
+ * Every other column has grid between it and the wall and therefore nothing to
+ * side-bracket to, which `validateConfig` reports as E_SHAPE.
+ */
+export const WALL_COLUMN = 0
 /** Two cells of a horizontal rect must agree in pitch to within this many degrees. */
 export const PITCH_MATCH_EPSILON_DEG = 0.1
 /**
@@ -248,16 +349,29 @@ export const DEFAULT_GAP_TOLERANCE = 1.5
  * floor, cm. 0.5cm ≈ the slack a printed foot / the floor's own flatness eats.
  */
 export const DEFAULT_GROUND_TOLERANCE = 0.5
-/** Every chain starts with its lit face at this height (housings on the floor). */
+/** A flat front panel — the historical, and still the default, row-0 pitch. */
+export const DEFAULT_START_PITCH_DEG = 0
+/** Columns stand on the floor unless explicitly bracketed to the wall. */
+export const DEFAULT_END_SUPPORT = 'floor'
+/**
+ * The chain start height of a FLAT front panel: its lit face sits here and its
+ * housing rests on the floor. Kept as a named constant because it is the
+ * historical anchor of the whole lattice — `frontRestY(0, L)` reproduces it
+ * exactly for any L, which is what makes a config without `startPitchDeg` lay out
+ * bit-identically to the pre-pitched-fronts model.
+ */
 export const SHORE_Y = PANEL_PROFILE.overallThickness
 
 /**
- * Flat 6×5 surface: every joint unfolded, no rects.
+ * Flat 6×5 surface: every joint unfolded, every front flat, no rects.
  *
  * Deliberately plate-free — it is the bare reference geometry other code measures
  * against, not a design — so it is the one config that raises `W_FEW_RECTS` by
  * construction. `presetFlat()` is the designed flat surface, and it does carry its
  * four plates.
+ *
+ * The per-column `startPitchDeg` / `endSupport` are spelled out rather than left
+ * to `normalizeConfig` so the reference config also documents the column shape.
  */
 export const DEFAULT_CONFIG = Object.freeze({
   version: 2,
@@ -269,12 +383,12 @@ export const DEFAULT_CONFIG = Object.freeze({
   gapTolerance: DEFAULT_GAP_TOLERANCE,
   groundTolerance: DEFAULT_GROUND_TOLERANCE,
   columns: [
-    { foldsDeg: [0, 0, 0, 0] },
-    { foldsDeg: [0, 0, 0, 0] },
-    { foldsDeg: [0, 0, 0, 0] },
-    { foldsDeg: [0, 0, 0, 0] },
-    { foldsDeg: [0, 0, 0, 0] },
-    { foldsDeg: [0, 0, 0, 0] },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
+    { foldsDeg: [0, 0, 0, 0], startPitchDeg: 0, endSupport: 'floor' },
   ],
   rects: [],
   meta: { preset: 'flat', notes: '' },
@@ -344,12 +458,21 @@ export function normalizeConfig(partial) {
   return out
 }
 
+/**
+ * Deep-copy the column entries, defaulting the two OPTIONAL per-column fields so
+ * older configs (and hand-written ones) keep working: a column without
+ * `startPitchDeg` gets a flat front, one without `endSupport` stands on the floor.
+ * `foldsDeg` is deliberately NOT defaulted — its length is load-bearing.
+ */
 function normalizeColumns(columns) {
   if (!Array.isArray(columns)) return columns
   return columns.map((column) => {
     if (!isPlainObject(column)) return column
     return {
       foldsDeg: Array.isArray(column.foldsDeg) ? column.foldsDeg.slice() : column.foldsDeg,
+      startPitchDeg:
+        column.startPitchDeg !== undefined ? column.startPitchDeg : DEFAULT_START_PITCH_DEG,
+      endSupport: column.endSupport !== undefined ? column.endSupport : DEFAULT_END_SUPPORT,
     }
   })
 }
@@ -399,6 +522,78 @@ export function columnFoldDeg(config, c, k) {
   const v = Number(column.foldsDeg[k])
   if (!Number.isFinite(v)) return 0
   return clamp(v, -MAX_FOLD_DEG, MAX_FOLD_DEG)
+}
+
+/**
+ * The pitch of column `c`'s FRONT (window) panel — row 0 — clamped to
+ * ±MAX_FOLD_DEG. Missing / non-numeric reads as 0 (a flat front), so the walkers
+ * never produce NaN and a pre-pitched-fronts config behaves exactly as before.
+ *
+ * @param {object} config normalized config
+ * @param {number} c column index
+ * @returns {number} degrees
+ */
+export function columnStartPitchDeg(config, c) {
+  const column = Array.isArray(config.columns) ? config.columns[c] : undefined
+  if (!isPlainObject(column)) return 0
+  const v = Number(column.startPitchDeg)
+  if (!Number.isFinite(v)) return 0
+  return clamp(v, -MAX_FOLD_DEG, MAX_FOLD_DEG)
+}
+
+/**
+ * How column `c`'s deep end is held up: 'wall' only when it says so (and only the
+ * wall-adjacent column may — see `validateConfig`), 'floor' for anything else.
+ *
+ * @param {object} config normalized config
+ * @param {number} c column index
+ * @returns {'floor'|'wall'}
+ */
+export function columnEndSupport(config, c) {
+  const column = Array.isArray(config.columns) ? config.columns[c] : undefined
+  return isPlainObject(column) && column.endSupport === 'wall' ? 'wall' : 'floor'
+}
+
+/**
+ * The chain start height y0 for a front panel pitched `pitchDeg` and occupying
+ * `along` cm of the chain — the value that rests that panel's SOLID on the floor
+ * with its front edge still on the window line z = 0:
+ *
+ *   y0 = max(0, 3.7·cos θ) − min(0, L·sin θ)
+ *
+ * The first term is the housing's own drop below the lit face at the front edge
+ * (zero once the panel has tipped past vertical, where the front edge itself is
+ * the lowest point); the second lifts the whole chain when a NEGATIVE pitch dives
+ * the panel's rear edge below the floor, so it is the rear edge that rests.
+ *
+ * θ = 0 gives exactly `SHORE_Y` (3.7·1, no float noise) for any L — the backward
+ * compatibility guarantee.
+ *
+ * @param {number} pitchDeg row-0 pitch, degrees
+ * @param {number} along the front panel's footprint along the chain, cm
+ * @returns {number} cm
+ */
+export function frontRestY(pitchDeg, along) {
+  const psi = Number(pitchDeg)
+  if (!Number.isFinite(psi)) return SHORE_Y
+  const L = Number(along)
+  const rise = Number.isFinite(L) ? L * Math.sin(psi * DEG) : 0
+  const housing = PANEL_PROFILE.overallThickness * Math.cos(psi * DEG)
+  return Math.max(0, housing) - Math.min(0, rise)
+}
+
+/**
+ * `frontRestY` for a whole column — the y its chain walk starts from.
+ *
+ * @param {object} config config (raw or normalized — normalized internally)
+ * @param {number} c column index
+ * @returns {number} cm
+ */
+export function chainStartY(config, c) {
+  const cfg = normalizeConfig(config)
+  const segments = columnSegments(cfg, c)
+  const along = segments.length > 0 ? Number(segments[0].length) : Number(cfg.cell.size)
+  return frontRestY(columnStartPitchDeg(cfg, c), along)
 }
 
 /**
@@ -457,7 +652,8 @@ export function columnSegments(config, c) {
  * Walk column `c`'s chain in the 2D (Y, Z) plane — the cheap model both
  * validation and placement are checked against.
  *
- * Start at (y = SHORE_Y, z = 0) with pitch ψ = 0, then per segment:
+ * Start at (y = `chainStartY(cfg, c)`, z = 0) with pitch ψ = `startPitchDeg`, then
+ * per segment:
  *   d = (sinψ, cosψ)                             (in (y, z))
  *   advance p += length · d
  *   at the joint k after the segment (k = its last row, when k ≤ rows-2):
@@ -466,6 +662,11 @@ export function columnSegments(config, c) {
  * Advancing along the bisector is what makes every in-column joint exact: the
  * near panel's trailing edge and the far panel's leading edge end up exactly
  * `gap` apart, edge-parallel, with zero skew.
+ *
+ * The START is where PITCHED FRONTS enter the geometry: z is always 0 (the front
+ * edge is on the window line) and y is whatever rests the front panel's solid on
+ * the floor at its pitch. At `startPitchDeg` 0 that is exactly 3.7 = SHORE_Y, so
+ * the flat lattice is untouched.
  *
  * `origins[r]` is where cell (r, c)'s own 60cm sub-rectangle STARTS along the
  * chain. For a vertical plate's second cell that is `rectLength - size` past the
@@ -491,13 +692,14 @@ export function columnChain(config, c) {
   }
 
   const segments = columnSegments(cfg, c)
-  const pitchesDeg = new Array(rowCount).fill(0)
+  const startPitch = columnStartPitchDeg(cfg, c)
+  const pitchesDeg = new Array(rowCount).fill(startPitch)
   const origins = new Array(rowCount)
   const points = []
 
-  let y = SHORE_Y
+  let y = frontRestY(startPitch, segments.length > 0 ? segments[0].length : size)
   let z = 0
-  let psi = 0
+  let psi = startPitch
   points.push([y, z])
 
   for (const seg of segments) {
@@ -548,6 +750,10 @@ export function columnChain(config, c) {
  * Per-row cumulative pitch (degrees) for column `c` — the transpose of v1's
  * `cellTilts`. Both validation (E_CROSSCOL_ANGLE_MISMATCH) and the placement
  * solver use it, so the surface being checked is the surface being placed.
+ *
+ * `[0]` is the column's `startPitchDeg`, NOT necessarily 0: the front panel's
+ * pitch is designable now, and every later row's pitch is that plus the folds in
+ * front of it.
  *
  * @param {object} config config (raw or normalized — normalized internally)
  * @param {number} c column index
@@ -600,8 +806,14 @@ export function validateConfig(config) {
     err('E_SHAPE', `grid.cols must be an integer ≥ 1 (got ${JSON.stringify(cols)})`, 'grid.cols')
     gridOk = false
   }
-  if (!isInt(rowCount) || rowCount < 1) {
-    err('E_SHAPE', `grid.rows must be an integer ≥ 1 (got ${JSON.stringify(rowCount)})`, 'grid.rows')
+  if (!isInt(rowCount) || rowCount < MIN_ROWS || rowCount > MAX_ROWS) {
+    err(
+      'E_SHAPE',
+      `grid.rows must be an integer in ${MIN_ROWS}..${MAX_ROWS} (got ${JSON.stringify(rowCount)}) — ` +
+        `below ${MIN_ROWS} the design stops reading as a shore with a wave breaking behind it, ` +
+        `above ${MAX_ROWS} the strip runs out of store`,
+      'grid.rows',
+    )
     gridOk = false
   }
 
@@ -663,6 +875,45 @@ export function validateConfig(config) {
         columnsOk = false
         return
       }
+
+      // --- the front panel's pitch (row 0) ---------------------------------
+      if (!isFiniteNumber(column.startPitchDeg)) {
+        err(
+          'E_SHAPE',
+          `startPitchDeg must be a number — the pitch of this column's front / window panel, ` +
+            `0 for a flat front (got ${JSON.stringify(column.startPitchDeg)})`,
+          `${path}.startPitchDeg`,
+        )
+        columnsOk = false
+      } else if (Math.abs(column.startPitchDeg) > MAX_FOLD_DEG) {
+        err(
+          'E_RANGE',
+          `startPitchDeg must be within ±${MAX_FOLD_DEG}° (got ${column.startPitchDeg})`,
+          `${path}.startPitchDeg`,
+        )
+      }
+
+      // --- how the deep end is held up ------------------------------------
+      if (!END_SUPPORTS.includes(column.endSupport)) {
+        err(
+          'E_SHAPE',
+          `endSupport must be ${END_SUPPORTS.map((s) => `"${s}"`).join(' or ')} ` +
+            `(got ${JSON.stringify(column.endSupport)})`,
+          `${path}.endSupport`,
+        )
+        columnsOk = false
+      } else if (column.endSupport === 'wall' && c !== WALL_COLUMN) {
+        err(
+          'E_SHAPE',
+          `endSupport "wall" is only valid for the WALL-ADJACENT column (columns[${WALL_COLUMN}], ` +
+            `the first one) — the wall closes the −X edge of the grid at x = ${WALL_X}, which is ` +
+            `column ${WALL_COLUMN}'s outer edge, so column ${c} has grid between it and the wall ` +
+            `and nothing to bracket to. Use "floor" and land its last panel instead.`,
+          `${path}.endSupport`,
+        )
+        columnsOk = false
+      }
+
       if (!Array.isArray(column.foldsDeg)) {
         err(
           'E_SHAPE',

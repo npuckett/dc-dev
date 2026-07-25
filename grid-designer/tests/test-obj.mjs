@@ -238,6 +238,80 @@ const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 }
 
 // =============================================================================
+// 2b. A STORM preset exports — deeper grid (7 rows), pitched fronts, 12 plates
+// =============================================================================
+{
+  const config = normalizeConfig(buildPreset('surge'))
+  check('surge: config validates', validateConfig(config).ok, JSON.stringify(validateConfig(config).errors))
+  check('surge: 7 rows', config.grid.rows === 7, String(config.grid.rows))
+
+  const layout = solveLayout(config)
+  // 'double plates': 6 cols × 7 rows = 42 cells, 12 plates each fusing two → 30 panels.
+  check(
+    'surge: 42 cells − 12 plates = 30 panels',
+    layout.panels.length === 30 && layout.panels.length === 42 - config.rects.length,
+    `got ${layout.panels.length}, ${config.rects.length} rects`,
+  )
+
+  const objects = parseObjObjects(objPayload(layout))
+  const names = objects.map((o) => o.name)
+  check(
+    'surge OBJ: one `o ` block per panel, names unique',
+    objects.length === layout.panels.length && new Set(names).size === names.length,
+    `${objects.length} objects vs ${layout.panels.length} panels`,
+  )
+  check(
+    'surge OBJ: names/order match exportPanelName over layout.panels',
+    JSON.stringify(names) === JSON.stringify(layout.panels.map(exportPanelName)),
+    JSON.stringify(names.slice(0, 4)),
+  )
+  // Named object spot-check: the row-5 landing plate of the wall-side column.
+  check(
+    'surge OBJ: contains `o rect_v_r5_c5` — the deepest column\'s landing plate',
+    names.includes('rect_v_r5_c5'),
+    JSON.stringify(names.filter((n) => n.startsWith('rect_v_r5'))),
+  )
+  check(
+    'surge OBJ: 12 rect_v_* plates, no rect_h_*, and 18 plain panels',
+    names.filter((n) => n.startsWith('rect_v_')).length === 12 &&
+      names.filter((n) => n.startsWith('rect_h_')).length === 0 &&
+      names.filter((n) => n.startsWith('panel_')).length === 18,
+    JSON.stringify(names.filter((n) => !n.startsWith('panel_'))),
+  )
+  const expectCount = { '2x2': typeVertexCount('2x2'), '2x4': typeVertexCount('2x4') }
+  check(
+    'surge OBJ: per-object vertex counts match buildPanelGeometry',
+    objects.every((o, i) => o.vertices.length === expectCount[layout.panels[i].type]),
+    JSON.stringify(objects.slice(0, 3).map((o) => [o.name, o.vertices.length])),
+  )
+  // The pitched FRONT panels are the interesting bake case: their world y no longer
+  // starts at 3.7, so a stale start-height assumption would show up right here.
+  let frontsOk = true
+  let frontDetail = ''
+  for (let c = 0; c < config.grid.cols; c++) {
+    const panel = layout.panels.find((p) => p.col === c && p.row === 0)
+    const obj = objects.find((o) => o.name === exportPanelName(panel))
+    for (const corner of panelWorldCorners(panel, config)) {
+      const best = obj.vertices.reduce((m, v) => Math.min(m, dist3(v, corner)), Infinity)
+      if (best > 1e-4) {
+        frontsOk = false
+        frontDetail = `${obj.name}: nearest vertex ${best.toExponential(2)} from ${JSON.stringify(corner)}`
+      }
+    }
+  }
+  check(
+    "surge OBJ: every pitched front panel's world corners appear in its own object",
+    frontsOk,
+    frontDetail,
+  )
+  check(
+    'surge OBJ: the bake is above the floor — no vertex below y = −0.01',
+    objects.every((o) => o.vertices.every((v) => v[1] > -0.01)),
+    String(Math.min(...objects.flatMap((o) => o.vertices.map((v) => v[1])))),
+  )
+}
+
+// =============================================================================
 // 3. Config JSON round-trip
 // =============================================================================
 {

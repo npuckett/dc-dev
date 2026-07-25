@@ -1,5 +1,5 @@
 /**
- * grid-designer — browser smoke test / screenshot harness (WP9, schema v2).
+ * grid-designer — browser smoke test / screenshot harness (WP10, schema v2).
  *
  * Self-contained: it starts its OWN dev server (`npm run dev`, port 5175 via
  * vite.config.js strictPort), waits for it, drives the UI, and tears the server
@@ -36,6 +36,17 @@
  *                  moved; the map explains why inline.
  *   08-json.png    after pasting a MINIMAL v2 config (columns only — everything
  *                  else defaulted by normalizeConfig) and hitting Apply
+ *   09-swell.png   the STORM family's 'Swell': 6 rows, a PITCHED FRONT in every
+ *                  column (10° → 25°, the family's signature) and a 121cm spine
+ *                  plate mid-strip in each — still every column on the floor
+ *   10-wallcrash.png the one design that engages the −X WALL: column 0 — the
+ *                  column against it — is `endSupport: 'wall'`, ends ~170cm up, and
+ *                  raises NO violation while columns 1–5 land normally
+ *   11-rows.png    the ROWS STEPPER driven on the flat preset — 5 → 6 (26 → 32
+ *                  panels), up to the 8-row ceiling and back down, with the four
+ *                  plates surviving throughout
+ *   12-front.png   the FRONT slider dragged on one column: its window panel pitched
+ *                  to 35°, the whole strip pitching with it, no hinge touched
  *
  * Placement cells are never hard-coded: legal / illegal candidates are derived
  * from the live config's fold sequences and the solved `columnChains[c].pitchesDeg`
@@ -71,6 +82,19 @@
  *     "Ground all" lands every column it can reach while flagging the rest
  *   - the JSON panel applies a minimal v2 config and REJECTS a v1 one with the
  *     "version must be 2" message
+ *   - PITCHED FRONTS end to end: the storm presets arrive with a non-zero
+ *     `startPitchDeg` in every column, the per-column FRONT slider sets one by hand,
+ *     and the pitch readout / sparkline follow
+ *   - THE WALL end to end: 'wallcrash' marks column 0 wall-supported, its block shows
+ *     a WALL-SUPPORTED badge instead of FLOATING with no "Ground end" button, the
+ *     design reports zero violations despite that column ending ~170cm up, and the
+ *     grid map draws the wall rule on its LEFT (−X) edge. Its end-support TOGGLE
+ *     (offered on column 0 only) then proves the exemption is doing the work:
+ *     standing the same geometry on the floor raises E_END_FLOATING, bracketing it
+ *     back clears it, and no angle moves either way
+ *   - ROW RESOLUTION end to end: the stepper reads the preset's row count, walks the
+ *     flat grid 5 → 6 → 8 → 6, grows and shrinks the panel count accordingly, appends
+ *     hinges at the BACK of every strip and keeps the plates that still fit
  *   - Export OBJ / Download JSON fire real downloads with the expected names, the
  *     OBJ payload contains `o panel_r0_c0`, one object per panel, and the JSON is
  *     the current fully-defaulted v2 config
@@ -251,6 +275,9 @@ const storeState = (page) =>
       rows: s.config.grid.rows,
       gap: s.config.gap,
       folds: s.config.columns.map((col) => col.foldsDeg.slice()),
+      startPitches: s.config.columns.map((col) => col.startPitchDeg),
+      endSupports: s.config.columns.map((col) => col.endSupport),
+      chainEndSupports: layout.columnChains.map((chain) => chain.endSupport),
       pitches: layout.columnChains.map((chain) => chain.pitchesDeg.slice()),
       rectObjs: s.config.rects.map((r) => ({ ...r })),
       rects: s.config.rects.map((r) => `${r.orientation[0]}(${r.row},${r.col})`),
@@ -400,6 +427,44 @@ try {
     flatState.folds.length === 6 && flatState.folds.every((f) => f.length === 4 && f.every((v) => v === 0)),
     'flat default: 6 columns × 4 hinges, all 0°',
     JSON.stringify(flatState.folds),
+  )
+  check(
+    flatState.rows === 5 &&
+      (await page.textContent('[data-testid="rows-value"]')).includes('5 rows') &&
+      (await page.isDisabled('[data-testid="rows-dec"]')),
+    'flat default: the rows stepper reads 5 rows and is already at its floor',
+    `rows=${flatState.rows}`,
+  )
+  check(
+    flatState.startPitches.every((p) => p === 0) &&
+      flatState.endSupports.every((s) => s === 'floor'),
+    'flat default (calm family): every front FLAT, every column on the floor',
+    `${JSON.stringify(flatState.startPitches)} / ${JSON.stringify(flatState.endSupports)}`,
+  )
+  check(
+    await page.isVisible('[data-testid="front-0"]') && await page.isVisible('[data-testid="front-5"]'),
+    'every column block carries a FRONT slider above its hinges',
+  )
+  check(
+    !(await page.isVisible('[data-testid="column-wall-0"]')) &&
+      (await page.textContent('[data-testid="column-endsupport-0"]')).includes('bracket to wall'),
+    'no WALL-SUPPORTED badge on an all-floor design, just the offer to bracket column 0',
+  )
+  check(
+    await page.isVisible('[data-testid="gridmap-wall"]') &&
+      (await page.textContent('[data-testid="grid-map"]')).includes('closes the left edge (col 0)'),
+    'the grid map marks the −X wall on its LEFT edge and says so in the hint',
+  )
+  check(
+    (await page.textContent('[data-testid="column-0"]')).includes('at the wall'),
+    "column 0's header says it is the strip against the wall",
+  )
+  check(
+    await page.isVisible('[data-testid="preset-swell"]') &&
+      await page.isVisible('[data-testid="preset-surge"]') &&
+      await page.isVisible('[data-testid="preset-wallcrash"]') &&
+      await page.isVisible('[data-testid="preset-divider-storm"]'),
+    'the preset bar offers the storm family behind a family divider',
   )
   check(
     flatState.violations.length === 0 &&
@@ -991,6 +1056,294 @@ try {
     `${jsonText.length} bytes`,
   )
 
+  // --- (i) THE STORM FAMILY: pitched fronts, a deeper grid, the wall --------
+  // 'swell' is 6 rows with a pitched front in EVERY column and a spine plate in
+  // each — the family's two signatures at once.
+  await page.click('[data-testid="preset-swell"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const swellShot = await assertCanvasRenders(page, 'swell')
+  const swellState = await storeState(page)
+  check(swellState.preset === 'swell', 'Swell preset applied', `preset=${swellState.preset}`)
+  check(
+    swellState.rows === 6 &&
+      (await page.textContent('[data-testid="rows-value"]')).includes('6 rows'),
+    'the rows stepper followed the preset to 6 rows',
+    `rows=${swellState.rows} stepper="${(await page.textContent('[data-testid="rows-value"]')).trim()}"`,
+  )
+  check(
+    swellState.folds.every((f) => f.length === 5),
+    'every column carries grid.rows-1 = 5 hinges',
+    JSON.stringify(swellState.folds.map((f) => f.length)),
+  )
+  check(
+    swellState.startPitches.every((p) => p !== 0) &&
+      JSON.stringify(swellState.startPitches) === JSON.stringify([10, 13, 16, 19, 22, 25]),
+    "swell's signature: NO flat front anywhere — the pitches ramp 10° → 25°",
+    JSON.stringify(swellState.startPitches),
+  )
+  check(
+    swellState.panels === 30 && swellState.rectObjs.length === 6,
+    'swell: 36 cells − 6 spine plates = 30 panels',
+    `panels=${swellState.panels} rects=${swellState.rectObjs.length}`,
+  )
+  const swellCaption = (await page.textContent('[data-testid="rect-pattern"]')) ?? ''
+  check(
+    swellState.rectPattern === 'spine plates' && swellCaption.includes('spine plates'),
+    'the grid map captions the "spine plates" pattern',
+    swellCaption.trim(),
+  )
+  check(
+    swellState.violations.length === 0 &&
+      swellState.grounded.every(Boolean) &&
+      swellState.chainEndSupports.every((s) => s === 'floor'),
+    'swell: every column stands on the FLOOR and lands (no wall support anywhere)',
+    `${JSON.stringify(swellState.chainEndSupports)} clearances=${JSON.stringify(swellState.clearances)}`,
+  )
+  check(
+    await page.isVisible('[data-testid="badge-grounded"]'),
+    'swell shows "all grounded ✓"',
+  )
+  check(
+    (await page.textContent('[data-testid="column-5"]')).includes('25°'),
+    "column 5's readout shows its 25° front pitch",
+    `startPitches=${JSON.stringify(swellState.startPitches)}`,
+  )
+  check(
+    (await page.inputValue('[data-testid="front-0"]')) === '10',
+    "the FRONT slider of column 0 reads its 10° pitch",
+  )
+  check(canvasChanged(jsonShot, swellShot), 'the swell render differs from the pasted config')
+  await page.screenshot({ path: `${OUT}/09-swell.png` })
+  console.log('  → tests/screenshots/09-swell.png')
+
+  // 'wallcrash' is the one design that engages the −X wall, beside column 0.
+  await page.click('[data-testid="preset-wallcrash"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const wallShot = await assertCanvasRenders(page, 'wallcrash')
+  const wallState = await storeState(page)
+  check(wallState.preset === 'wallcrash', 'Wallcrash preset applied', `preset=${wallState.preset}`)
+  check(
+    JSON.stringify(wallState.endSupports) ===
+      JSON.stringify(['wall', 'floor', 'floor', 'floor', 'floor', 'floor']),
+    'only the wall-adjacent column 0 is wall-supported',
+    JSON.stringify(wallState.endSupports),
+  )
+  check(
+    wallState.startPitches.every((p) => p !== 0) &&
+      JSON.stringify(wallState.startPitches) === JSON.stringify([43, 36, 29, 22, 15, 8]),
+    'wallcrash: pitched fronts RAMPING toward the wall — steepest at column 0 (43° → 8°)',
+    JSON.stringify(wallState.startPitches),
+  )
+  const wallBadge = (await page.textContent('[data-testid="column-wall-0"]')) ?? ''
+  check(
+    wallBadge.includes('WALL-SUPPORTED') && /\d+cm up/.test(wallBadge),
+    "column 0's block reads WALL-SUPPORTED with the height its end reaches",
+    wallBadge.trim(),
+  )
+  check(
+    !(await page.isVisible('[data-testid="column-floating-0"]')) &&
+      !(await page.isVisible('[data-testid="column-ground-0"]')),
+    'the wall column shows no FLOATING badge and no "Ground end" button',
+  )
+  check(
+    (await page.getAttribute('[data-testid="profile-end-0"]', 'data-end-support')) === 'wall' &&
+      (await page.getAttribute('[data-testid="profile-end-5"]', 'data-end-support')) === 'floor',
+    'the sparkline endpoint marker is tagged wall-supported for column 0 only',
+  )
+  check(
+    wallState.violations.length === 0 && wallState.lastErrors.length === 0,
+    'wallcrash: NO violations at all, even though column 0 ends in mid-air',
+    `violations=${JSON.stringify(wallState.violations)} errors=${JSON.stringify(wallState.lastErrors)}`,
+  )
+  check(
+    wallState.grounded[0] === false && wallState.clearances[0] > 30,
+    "column 0's end is genuinely elevated — the splash up the wall",
+    `clearance=${wallState.clearances[0]}cm`,
+  )
+  check(
+    wallState.grounded.slice(1).every(Boolean),
+    'columns 1–5 all land on the floor',
+    JSON.stringify(wallState.clearances.slice(1)),
+  )
+  check(
+    await page.isVisible('[data-testid="badge-grounded"]'),
+    'the summary badge still reads "all grounded ✓" — the wall column is exempt',
+  )
+  check(
+    await page.isVisible('[data-testid="gridmap-wall"]'),
+    'the grid map draws the wall rule along the −X (left) edge',
+  )
+  check(canvasChanged(swellShot, wallShot), 'the wallcrash render differs from swell')
+  await page.screenshot({ path: `${OUT}/10-wallcrash.png` })
+  console.log('  → tests/screenshots/10-wallcrash.png')
+
+  // --- (i2) the END-SUPPORT toggle: take the wall away and the rule bites ----
+  check(
+    (await page.isVisible('[data-testid="column-endsupport-0"]')) &&
+      !(await page.isVisible('[data-testid="column-endsupport-1"]')) &&
+      !(await page.isVisible('[data-testid="column-endsupport-5"]')),
+    'only column 0 — the column against the wall — offers an end-support toggle',
+  )
+  await page.click('[data-testid="column-endsupport-0"]')
+  await page.waitForTimeout(600)
+  const unwalledState = await storeState(page)
+  check(
+    unwalledState.endSupports[0] === 'floor' &&
+      JSON.stringify(unwalledState.floatingCols) === JSON.stringify([0]) &&
+      unwalledState.violations.every((code) => code === 'E_END_FLOATING'),
+    'standing column 0 on the floor makes the SAME geometry break the grounded-end rule',
+    `endSupports=${JSON.stringify(unwalledState.endSupports)} floating=${JSON.stringify(unwalledState.floatingCols)}`,
+  )
+  check(
+    JSON.stringify(unwalledState.folds) === JSON.stringify(wallState.folds) &&
+      JSON.stringify(unwalledState.startPitches) === JSON.stringify(wallState.startPitches),
+    'the toggle changed no angle at all — only how the end is held up',
+    JSON.stringify(unwalledState.folds[0]),
+  )
+  check(
+    (await page.isVisible('[data-testid="column-floating-0"]')) &&
+      (await page.isVisible('[data-testid="column-ground-0"]')) &&
+      !(await page.isVisible('[data-testid="column-wall-0"]')),
+    'it now shows the FLOATING badge and a "Ground end" button instead of the wall badge',
+  )
+  await page.click('[data-testid="column-endsupport-0"]')
+  await page.waitForTimeout(600)
+  const rewalledState = await storeState(page)
+  check(
+    rewalledState.endSupports[0] === 'wall' &&
+      rewalledState.violations.length === 0 &&
+      rewalledState.lastErrors.length === 0,
+    'bracketing it back to the wall clears the violation again',
+    `endSupports=${JSON.stringify(rewalledState.endSupports)} violations=${JSON.stringify(rewalledState.violations)}`,
+  )
+
+  // --- (j) the ROWS STEPPER on a flat design -------------------------------
+  await page.click('[data-testid="preset-flat"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const flatAgain = await storeState(page)
+  check(
+    flatAgain.rows === 5 && flatAgain.panels === 26,
+    'back to the flat preset: 5 rows, 26 panels',
+    `rows=${flatAgain.rows} panels=${flatAgain.panels}`,
+  )
+  check(
+    await page.isDisabled('[data-testid="rows-dec"]'),
+    'the rows stepper cannot go below 5',
+  )
+  await page.click('[data-testid="rows-inc"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const rowsState = await storeState(page)
+  const rowsShot = await assertCanvasRenders(page, 'rows')
+  check(
+    rowsState.rows === 6 &&
+      (await page.textContent('[data-testid="rows-value"]')).includes('6 rows'),
+    'the stepper took the flat grid from 5 rows to 6',
+    `rows=${rowsState.rows}`,
+  )
+  check(
+    rowsState.panels === 32 && rowsState.panels > flatAgain.panels,
+    'the surface GREW: 36 cells − the 4 kept plates = 32 panels',
+    `${flatAgain.panels} → ${rowsState.panels} panels`,
+  )
+  check(
+    rowsState.folds.every((f) => f.length === 5) &&
+      rowsState.folds.every((f, c) =>
+        JSON.stringify(f.slice(0, 4)) === JSON.stringify(flatAgain.folds[c]),
+      ),
+    'every column got a fifth hinge appended at the BACK; the front four are untouched',
+    JSON.stringify(rowsState.folds),
+  )
+  check(
+    JSON.stringify(rowsState.rects) === JSON.stringify(flatAgain.rects) &&
+      rowsState.lastErrors.length === 0,
+    'the four plates all still fit, so none were dropped, and it committed',
+    `${JSON.stringify(rowsState.rects)} errors=${JSON.stringify(rowsState.lastErrors)}`,
+  )
+  check(
+    rowsState.violations.length === 0,
+    'the extra row is level, so every column still lands',
+    JSON.stringify(rowsState.violations),
+  )
+  // …up to the ceiling, and back down again.
+  await page.click('[data-testid="rows-inc"]')
+  await page.click('[data-testid="rows-inc"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const maxRowsState = await storeState(page)
+  check(
+    maxRowsState.rows === 8 && (await page.isDisabled('[data-testid="rows-inc"]')),
+    'the stepper reaches 8 rows and stops there',
+    `rows=${maxRowsState.rows}`,
+  )
+  check(
+    maxRowsState.panels === 44 && maxRowsState.folds.every((f) => f.length === 7),
+    'at 8 rows: 48 cells − 4 plates = 44 panels, 7 hinges per column',
+    `panels=${maxRowsState.panels} folds=${JSON.stringify(maxRowsState.folds.map((f) => f.length))}`,
+  )
+  await page.click('[data-testid="rows-dec"]')
+  await page.click('[data-testid="rows-dec"]')
+  await page.waitForTimeout(SETTLE_MS)
+  const backRowsState = await storeState(page)
+  check(
+    backRowsState.rows === 6 && backRowsState.panels === 32,
+    'stepping back down to 6 rows restores the 32-panel surface',
+    `rows=${backRowsState.rows} panels=${backRowsState.panels}`,
+  )
+  check(canvasChanged(wallShot, rowsShot), 'the row-resolution change re-rendered the surface')
+  await page.screenshot({ path: `${OUT}/11-rows.png` })
+  console.log('  → tests/screenshots/11-rows.png')
+
+  // --- (k) the FRONT slider: pitch one column's window panel ---------------
+  const FRONT_COL = 2
+  await page.locator(`[data-testid="front-${FRONT_COL}"]`).fill('35')
+  await page.waitForTimeout(SETTLE_MS)
+  let frontState = await storeState(page)
+  if (frontState.startPitches[FRONT_COL] !== 35) {
+    console.log('! front slider fill did not register — falling back to the store action')
+    await page.evaluate(
+      (c) => window.__gridDesignerStore.getState().setColumnStartPitch(c, 35),
+      FRONT_COL,
+    )
+    await page.waitForTimeout(SETTLE_MS)
+    frontState = await storeState(page)
+  }
+  const frontShot = await assertCanvasRenders(page, 'front')
+  check(
+    frontState.startPitches[FRONT_COL] === 35,
+    `the FRONT slider set column ${FRONT_COL}'s window panel to 35°`,
+    JSON.stringify(frontState.startPitches),
+  )
+  check(
+    JSON.stringify(frontState.startPitches.filter((_, c) => c !== FRONT_COL)) ===
+      JSON.stringify([0, 0, 0, 0, 0]),
+    'no other column was touched',
+    JSON.stringify(frontState.startPitches),
+  )
+  check(
+    JSON.stringify(frontState.folds) === JSON.stringify(backRowsState.folds),
+    'it changed the front pitch, not any hinge',
+    JSON.stringify(frontState.folds),
+  )
+  check(
+    frontState.pitches[FRONT_COL].every((p) => p === 35),
+    'the whole strip pitched with it — every row of that column now reads 35°',
+    JSON.stringify(frontState.pitches[FRONT_COL]),
+  )
+  check(
+    frontState.lastErrors.length === 0 &&
+      (await page.inputValue(`[data-testid="front-${FRONT_COL}"]`)) === '35',
+    'it committed through validation and the slider shows the value',
+    JSON.stringify(frontState.lastErrors),
+  )
+  // A strip that only ever climbs cannot land — the grounded-end rule notices.
+  check(
+    frontState.floatingCols.includes(FRONT_COL),
+    'a 35° front with no descent behind it leaves that column floating',
+    `clearance=${frontState.clearances[FRONT_COL]}cm`,
+  )
+  check(canvasChanged(rowsShot, frontShot), 'the front pitch re-rendered the surface')
+  await page.screenshot({ path: `${OUT}/12-front.png` })
+  console.log('  → tests/screenshots/12-front.png')
+
   // --- byte-level differences ---------------------------------------------
   const shots = [
     '01-flat.png',
@@ -1001,6 +1354,10 @@ try {
     '06-rects.png',
     '07-reject.png',
     '08-json.png',
+    '09-swell.png',
+    '10-wallcrash.png',
+    '11-rows.png',
+    '12-front.png',
   ].map(
     (name) => ({ name, buf: readFileSync(`${OUT}/${name}`) }),
   )

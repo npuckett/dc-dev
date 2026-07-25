@@ -427,9 +427,136 @@ const ids = (list) => list.map((j) => j.id).join(', ')
 }
 
 // =============================================================================
+// 6b. ROW RESOLUTION — the joint enumeration follows grid.rows, not a literal
+//
+// Hand counts for a cols × rows grid with no plates:
+//   in-row    = rows·(cols−1)      (column-to-column, one per row)
+//   in-column = cols·(rows−1)      (the fold hinges)
+// =============================================================================
+{
+  for (const rows of [5, 6, 7, 8]) {
+    const cfg = cfgOf({
+      grid: { cols: 6, rows },
+      columns: columnsOf(Array.from({ length: 6 }, () => new Array(rows - 1).fill(0))),
+    })
+    check(`rows ${rows}: config validates`, validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+    const rep = run(cfg)
+    check(
+      `rows ${rows}: ${rows * 5} in-row + ${6 * (rows - 1)} in-column = ${rows * 5 + 6 * (rows - 1)} joints`,
+      inRow(rep).length === rows * 5 &&
+        inCol(rep).length === 6 * (rows - 1) &&
+        rep.summary.total === rows * 5 + 6 * (rows - 1),
+      `${inRow(rep).length} / ${inCol(rep).length} / ${rep.summary.total}`,
+    )
+    check(
+      `rows ${rows}: a flat grid is exact everywhere`,
+      rep.summary.flagged === 0 &&
+        rep.joints.every((j) => near(j.gapMid, GAP) && near(j.skewDeg, 0)),
+      ids(rep.joints.filter((j) => !j.ok)),
+    )
+    check(
+      `rows ${rows}: the deepest in-column joint is k = ${rows - 2}`,
+      Math.max(...inCol(rep).map((j) => j.row)) === rows - 2,
+      String(Math.max(...inCol(rep).map((j) => j.row))),
+    )
+  }
+}
+{
+  // A folded 7-row config: the fold hinges stay exact at any depth, and a column
+  // whose neighbours differ flags the in-row joints beside it — nothing about the
+  // measurement depends on the grid being 5 deep.
+  const columns = columnsOf(Array.from({ length: 6 }, () => new Array(6).fill(0)))
+  columns[3] = { foldsDeg: [25, 15, -20, -20, 0, 0] }
+  const cfg = cfgOf({ grid: { cols: 6, rows: 7 }, columns })
+  check('rows 7 folded: config validates', validateConfig(cfg).ok, JSON.stringify(validateConfig(cfg).errors))
+  const rep = run(cfg)
+  check('rows 7 folded: total 35 + 36 = 71 joints', rep.summary.total === 71, String(rep.summary.total))
+  check(
+    'rows 7 folded: every in-column joint is exact and reproduces its fold',
+    inCol(rep).every((j) => j.ok && near(j.dihedralDeg, j.expectedFoldDeg, 1e-6)),
+    ids(inCol(rep).filter((j) => !j.ok)),
+  )
+  check(
+    'rows 7 folded: the flagged joints are all in-row, beside column 3',
+    rep.joints.filter((j) => !j.ok).every((j) => j.class === 'in-row' && (j.col === 2 || j.col === 3)) &&
+      rep.summary.flagged > 0,
+    ids(rep.joints.filter((j) => !j.ok)),
+  )
+  check(
+    'rows 7 folded: the shore row is still exact (every column at pitch 0 there)',
+    inRow(rep).filter((j) => j.row === 0).every((j) => j.ok),
+    ids(inRow(rep).filter((j) => j.row === 0 && !j.ok)),
+  )
+}
+
+// =============================================================================
+// 6c. A STORM preset runs through jointReport — pitched fronts and a wall column
+//     change the surface, not the measurement.
+// =============================================================================
+{
+  const cfg = buildPreset('wallcrash')
+  const layout = solveLayout(cfg)
+  const rep = jointReport(layout, cfg)
+
+  // 'wall splash' is six VERTICAL plates on a 6×6 grid, so:
+  //   in-row    = 6 rows · 5 boundaries                                = 30
+  //   in-column = 6 cols · 5 boundaries − 6 (one interior to each plate) = 24
+  check('wallcrash: 30 in-row joints', inRow(rep).length === 30, `got ${inRow(rep).length}`)
+  check('wallcrash: 24 in-column joints (six interior to the six plates)', inCol(rep).length === 24, `got ${inCol(rep).length}`)
+  check('wallcrash: total 54 joints', rep.summary.total === 54, String(rep.summary.total))
+  check(
+    "wallcrash: every plate's interior boundary is absent from the report",
+    cfg.rects.every((r) => !rep.joints.some((j) => j.id === `in-column:c${r.col}:k${r.row}`)),
+    ids(rep.joints.filter((j) => cfg.rects.some((r) => j.id === `in-column:c${r.col}:k${r.row}`))),
+  )
+  check(
+    'wallcrash: EVERY in-column joint (fold hinge) is still exact at the gap',
+    inCol(rep).every((j) => j.ok && near(j.gapMid, GAP)),
+    ids(inCol(rep).filter((j) => !j.ok)),
+  )
+  check(
+    'wallcrash: every in-column dihedral reproduces its configured fold',
+    inCol(rep).every((j) => near(j.dihedralDeg, j.expectedFoldDeg, 1e-5)),
+    JSON.stringify(
+      inCol(rep)
+        .filter((j) => !near(j.dihedralDeg, j.expectedFoldDeg, 1e-5))
+        .map((j) => [j.id, j.dihedralDeg, j.expectedFoldDeg]),
+    ),
+  )
+  check(
+    'wallcrash: the flagged joints are all in-row — the price of the ramp',
+    rep.joints.filter((j) => !j.ok).every((j) => j.class === 'in-row') && rep.summary.flagged > 0,
+    ids(rep.joints.filter((j) => !j.ok)),
+  )
+  check(
+    'wallcrash: the SHORE row is flagged too — the fronts are pitched differently',
+    inRow(rep).some((j) => j.row === 0 && !j.ok),
+    ids(inRow(rep).filter((j) => j.row === 0)),
+  )
+  check(
+    'wallcrash: every metric is finite and skew stays inside [0, 90]',
+    rep.joints.every(
+      (j) =>
+        Number.isFinite(j.gapMid) &&
+        Number.isFinite(j.gapMin) &&
+        Number.isFinite(j.gapMax) &&
+        Number.isFinite(j.skewDeg) &&
+        Number.isFinite(j.dihedralDeg) &&
+        j.skewDeg >= 0 &&
+        j.skewDeg <= 90 + 1e-9,
+    ),
+  )
+  check(
+    'wallcrash: jointReport is deterministic',
+    JSON.stringify(rep) === JSON.stringify(jointReport(solveLayout(cfg), cfg)),
+  )
+  check('wallcrash: formatReport returns text', formatReport(rep).length > 100)
+}
+
+// =============================================================================
 // 7. All presets produce a sane report
 // =============================================================================
-for (const id of ['flat', 'calm', 'wave', 'crash']) {
+for (const id of ['flat', 'calm', 'wave', 'crash', 'swell', 'surge', 'wallcrash']) {
   const cfg = buildPreset(id)
   const rep = run(cfg)
   check(

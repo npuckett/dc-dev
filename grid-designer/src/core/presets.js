@@ -11,8 +11,28 @@
  *     preset inherits the default geometry where 2·size + gap = 60 + 1 + 60 = 121
  *     is exactly cell.rectLength, so a plate is an exact drop-in),
  *   - is free of W_BELOW_FLOOR: no panel dips under the floor,
- *   - is free of E_END_FLOATING: EVERY column's last panel touches the ground, and
+ *   - is free of E_END_FLOATING: every FLOOR-supported column's last panel touches
+ *     the ground (a WALL-supported column is exempt by design — see the storm
+ *     family below), and
  *   - is free of W_FEW_RECTS: every preset places AT LEAST `MIN_RECTS` = 4 plates.
+ *
+ * =============================================================================
+ * TWO FAMILIES
+ * =============================================================================
+ * THE CALM FAMILY — flat / calm / wave / crash / random. Six columns, 5 rows,
+ *   every front panel FLAT on the shore (`startPitchDeg` 0) and every column
+ *   standing on the floor. `random` is this family's generator.
+ *
+ * THE STORM FAMILY — swell / surge / wallcrash. Different rules:
+ *   1. EVERY column has a PITCHED FRONT (`startPitchDeg` ≠ 0). That is the
+ *      family's signature: the water is already moving as it comes through the
+ *      window, instead of lying flat on the shore first.
+ *   2. Higher row resolution (6, 7, 6) — the drama needs the depth.
+ *   3. Plates cross ROWS (vertical 121cm spines) rather than bridging columns, so
+ *      each strip reads as a long rigid run inside a moving surface.
+ *   4. 'wallcrash' additionally engages THE WALL: its column 0 is
+ *      `endSupport: 'wall'` and ends deliberately HIGH, water splashing up the −X
+ *      wall while the other five land on the floor.
  *
  * =============================================================================
  * HOW THESE ARE BUILT
@@ -26,10 +46,17 @@
  *                            crest one step further back than its left neighbour)
  *
  * Each sequence is authored as a CUMULATIVE PITCH profile and differenced into
- * hinge angles, because the pitch profile is what governs both ground rules:
+ * hinge angles, because the pitch profile is what governs both ground rules. A
+ * profile is the whole column: `profiles[c][0]` becomes that column's
+ * `startPitchDeg` (the front panel's pitch) and the successive differences become
+ * its `foldsDeg` — see `fromProfiles`.
  *
- *   ROW 0 is the shore, always ψ = 0 (flat on the ground at the window).
- *   ROWS 1..3 are the AUTHORED HEAD — the wave's shape. The chain climbs by
+ *   ROW 0 is the front / window panel. In the CALM family its pitch is 0 (flat on
+ *     the shore); in the STORM family it is deliberately not. Either way the front
+ *     panel rests on the floor by construction (schema.js `frontRestY`), so a
+ *     pitched front costs nothing in support — it just starts the chain at a
+ *     different height.
+ *   ROWS 1..rows-2 are the AUTHORED HEAD — the wave's shape. The chain climbs by
  *     60·sin ψ per row, so a head whose sines cancel arcs back down to the shore
  *     height; a head that only rises leaves the strip stranded in mid-air.
  *   THE LAST ROW is the LANDING. Its pitch is generally not authored: the profile
@@ -60,6 +87,15 @@
  *                             121cm plate that skids down into the floor. 6 plates.
  *   random one of four named templates drawn from the seed (see RANDOM_TEMPLATES).
  *
+ *   swell  'spine plates'     one vertical plate mid-strip in EVERY column — a long
+ *                             rigid spine inside a big rolling swell. 6 plates.
+ *   surge  'double plates'    a crest plate AND a landing plate in every column:
+ *                             twelve 121cm plates, the steepest floor-grounded
+ *                             design the kit can stand up.
+ *   wallcrash 'wall splash'   the plates MARCH diagonally back and toward the −X
+ *                             wall — (0,5) (1,4) (2,3) (3,2) (4,1) (4,0) — with the
+ *                             last two rearing up the wall itself. 6 plates.
+ *
  * THE FOLDS ARE DESIGNED AROUND THE PLATES, NOT THE OTHER WAY ROUND. A vertical
  * plate at (r, c) removes joint r, so rows r and r+1 must sit at ONE pitch — a
  * PLATEAU in the pitch profile. Every preset above therefore authors its plateaus
@@ -75,7 +111,13 @@
  *     `land()` is always the outermost call here for exactly that reason.
  */
 
-import { DEFAULT_CONFIG, MIN_RECTS, normalizeConfig, validateConfig } from './schema.js'
+import {
+  DEFAULT_CONFIG,
+  MIN_RECTS,
+  frontRestY,
+  normalizeConfig,
+  validateConfig,
+} from './schema.js'
 import { solveLayout } from './placement.js'
 import { groundAllFolds } from './ground.js'
 
@@ -99,44 +141,80 @@ export function mulberry32(seed) {
 
 // -----------------------------------------------------------------------------
 // Preset metadata (for the UI's preset bar)
+//
+// `family` groups the bar: 'calm' (flat fronts on the shore, 5 rows) then 'storm'
+// (pitched fronts everywhere, deeper grids, wall engagement). The bar draws a
+// divider between the two.
 // -----------------------------------------------------------------------------
 export const PRESETS = [
   {
     id: 'flat',
     label: 'Flat',
+    family: 'calm',
     description: 'Every panel level on the floor, with a mirrored quad of plates.',
     seeded: false,
   },
   {
     id: 'calm',
     label: 'Calm',
+    family: 'calm',
     description: 'A symmetric ripple bridged by mirrored pairs of horizontal plates.',
     seeded: false,
   },
   {
     id: 'wave',
     label: 'Wave',
+    family: 'calm',
     description: 'A swell travelling across the window, a rigid plate on every crest.',
     seeded: false,
   },
   {
     id: 'crash',
     label: 'Crash',
+    family: 'calm',
     description: 'Near-vertical crests plunging onto one long landing plate per column.',
     seeded: false,
   },
   {
     id: 'random',
     label: 'Random',
+    family: 'calm',
     description: 'Deterministic per seed: one of four named plate patterns, always grounded.',
     seeded: true,
+  },
+  {
+    id: 'swell',
+    label: 'Swell',
+    family: 'storm',
+    description:
+      'STORM · 6 rows. Fronts pitched up 10–25° rising across the window, one long rigid spine plate per column, everything grounded.',
+    seeded: false,
+  },
+  {
+    id: 'surge',
+    label: 'Surge',
+    family: 'storm',
+    description:
+      'STORM · 7 rows. Steep 25–45° fronts, a crest plate AND a landing plate in every column, peaks well past 150cm — still all on the floor.',
+    seeded: false,
+  },
+  {
+    id: 'wallcrash',
+    label: 'Wallcrash',
+    family: 'storm',
+    description:
+      'STORM · 6 rows. Amplitude ramps toward the −X wall beside column 0; that column is wall-supported and ends high, splashing up it.',
+    seeded: false,
   },
 ]
 
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
-const GRID = { cols: 6, rows: 5 }
+/** Every preset is six columns wide — the installation's real width. */
+const COLS = 6
+/** The calm family's row resolution. The storm family overrides it per preset. */
+const CALM_ROWS = 5
 const DEG = Math.PI / 180
 const asinDeg = (v) => Math.asin(v < -1 ? -1 : v > 1 ? 1 : v) / DEG
 const sinDeg = (d) => Math.sin(d * DEG)
@@ -161,8 +239,54 @@ const RANDOM_MAX_RISE_PLATED = 1.05
 const PLATEAU_MAX_DEG = 22
 
 /**
+ * Height a chain has reached after a run of `[length, pitch]` segments, starting
+ * from `startY`. The 1cm gap advances are deliberately IGNORED: across a whole
+ * column they add well under 1cm in y, which is far below the resolution the storm
+ * family's angles are rounded to, and leaving them out keeps this a one-line closed
+ * form the preset code can reason with. The authoritative geometry is still
+ * `columnChain`; this is only used to CHOOSE angles, never to place anything.
+ *
+ * @param {number} startY cm
+ * @param {Array<[number, number]>} steps [length cm, cumulative pitch deg]
+ * @returns {number} cm
+ */
+const climbTo = (startY, steps) => steps.reduce((y, [L, psi]) => y + L * sinDeg(psi), startY)
+
+/**
+ * The (negative, whole-degree) pitch a `length`-cm panel needs to take a chain
+ * standing `fromCm` up down to `toCm`. Clamped into a panel's actual reach, so an
+ * over-ambitious ask becomes the steepest available descent rather than NaN.
+ *
+ * @param {number} fromCm height at the start of the panel
+ * @param {number} toCm height wanted at its far end
+ * @param {number} length the panel's length along the chain, cm
+ * @returns {number} degrees, ≤ 0
+ */
+function descentPitch(fromCm, toCm, length) {
+  return -Math.round(asinDeg(clampNum((fromCm - toCm) / length, 0, 1)))
+}
+
+/**
+ * The crest pitch a 121cm plate needs so a chain that has climbed to `fromCm`
+ * tops out at `crestCm`. This is what lets the storm family give every column the
+ * SAME crest height while their front pitches differ: a steeper front has already
+ * spent more of the budget, so its plate sits flatter.
+ *
+ * @param {number} fromCm height at the start of the plate
+ * @param {number} crestCm height wanted at its far end
+ * @param {number} length the plate's length along the chain, cm
+ * @returns {number} degrees, ≥ 0
+ */
+function crestPitch(fromCm, crestCm, length) {
+  return Math.round(asinDeg(clampNum((crestCm - fromCm) / length, 0, 1)))
+}
+
+/**
  * Difference a cumulative pitch profile into per-joint hinge angles.
- * `pitches[0]` must be 0 (row 0 is the shore).
+ *
+ * `pitches[0]` is the column's `startPitchDeg` (the front panel's pitch) — 0 for
+ * the calm family, non-zero throughout the storm family — and is NOT part of the
+ * result: only the rows-1 differences are hinges.
  *
  * @param {number[]} pitches length grid.rows
  * @returns {number[]} length grid.rows-1
@@ -201,24 +325,51 @@ function pitchesHeldToEnd(head) {
 }
 
 /**
- * @param {{name:string, folds:number[][], rects?:Array, meta:object}} spec
+ * @param {{name:string, rows?:number, folds:number[][], startPitches?:number[],
+ *          endSupports?:string[], rects?:Array, meta:object}} spec
  * @returns {object} normalized config
  */
-function baseConfig({ name, folds, rects = [], meta }) {
+function baseConfig({
+  name,
+  rows = CALM_ROWS,
+  folds,
+  startPitches,
+  endSupports,
+  rects = [],
+  meta,
+}) {
   return normalizeConfig({
     ...DEFAULT_CONFIG,
     name,
-    grid: { ...GRID },
+    grid: { cols: COLS, rows },
     cell: { ...DEFAULT_CONFIG.cell },
-    columns: folds.map((foldsDeg) => ({ foldsDeg: foldsDeg.slice() })),
+    columns: folds.map((foldsDeg, c) => ({
+      foldsDeg: foldsDeg.slice(),
+      startPitchDeg: startPitches ? startPitches[c] : 0,
+      endSupport: endSupports ? endSupports[c] : 'floor',
+    })),
     rects: rects.map((rect) => ({ ...rect })),
     meta,
   })
 }
 
-/** `baseConfig` from cumulative pitch PROFILES rather than hinge angles. */
-function fromProfiles({ name, profiles, rects, meta }) {
-  return baseConfig({ name, folds: profiles.map(foldsFromPitches), rects, meta })
+/**
+ * `baseConfig` from cumulative pitch PROFILES rather than hinge angles: each
+ * profile's first entry becomes its column's `startPitchDeg` and the successive
+ * differences become its hinges, so `rows` follows the profile length. That is why
+ * the storm family can pitch its fronts without a second code path — a pitched
+ * front is simply a profile that does not start at 0.
+ */
+function fromProfiles({ name, profiles, rects, meta, endSupports }) {
+  return baseConfig({
+    name,
+    rows: profiles[0].length,
+    folds: profiles.map(foldsFromPitches),
+    startPitches: profiles.map((p) => p[0]),
+    endSupports,
+    rects,
+    meta,
+  })
 }
 
 /**
@@ -454,6 +605,227 @@ export function presetCrash() {
 }
 
 // -----------------------------------------------------------------------------
+// THE STORM FAMILY — pitched fronts, deeper grids, the wall
+//
+// Shared rules (see TWO FAMILIES at the top):
+//   - EVERY column's front panel is pitched (`startPitchDeg` ≠ 0) — the signature,
+//     asserted in tests/test-presets.mjs;
+//   - the plates run ALONG the columns (vertical 121cm spines crossing rows), never
+//     across them;
+//   - the crest height is authored as a TARGET and each column's plate pitch is
+//     solved back from it (`crestPitch`), so a steeper front automatically gets a
+//     flatter plate and every column tops out together. That is what keeps the
+//     surface reading as ONE swell while its fronts ramp.
+// -----------------------------------------------------------------------------
+/**
+ * How high each 'swell' column tops out, cm — the swell's AMPLITUDE PROFILE, and
+ * the thing that makes it roll rather than read as a cylinder: one broad crest
+ * standing in the middle of the window, dying away at both jambs. 105 is close to
+ * the ceiling this structure can land from: the descent row and the landing square
+ * give back 60cm each, and the hinge in front of the descent has to stay inside
+ * ±120° of the spine's pitch.
+ */
+const SWELL_CREST_CM = [70, 90, 105, 105, 90, 70]
+/**
+ * The height a 'swell' column hands to its 60cm landing panel. A 60cm panel can
+ * give back at most ~60cm, so 46 leaves the landing solver real room — the reason
+ * no swell column ever comes back E_UNGROUNDABLE.
+ */
+const SWELL_HANDOVER_CM = 46
+/** How high every 'surge' column tops out, cm — the drama, and well past 150. */
+const SURGE_CREST_CM = 168
+/**
+ * The height a 'surge' column hands to its 121cm LANDING PLATE. Twice the panel,
+ * so twice the reach: 118cm of drop is comfortably inside it, which is the whole
+ * reason surge can crest at 168 and still stand on the floor.
+ */
+const SURGE_HANDOVER_CM = 118
+
+/**
+ * SWELL — 6 rows. One big rolling swell whose fronts RAMP across the window.
+ *
+ * Every column: front pitched 10 + 3c (10° … 25°, rising toward the wall), a short
+ * climb, then a 121cm SPINE PLATE across rows 2–3 whose pitch is solved so the
+ * chain tops out at that column's `SWELL_CREST_CM`. Then one descent row hands
+ * `SWELL_HANDOVER_CM` to the landing square, and `land()` solves the last hinge.
+ *
+ * Two independent gradients are what make it read as water rather than as a ramp:
+ * the crest heights arc 70 → 105 → 70 across the window (the swell itself), while
+ * the front pitches climb steadily 10° → 25° (the direction it is travelling). And
+ * because each column's spine pitch is solved BACK from its crest target, a steeper
+ * front automatically gets a flatter plate — the amplitude profile is the design
+ * input, not an emergent accident of six hand-picked angles.
+ *
+ * PLATE PATTERN — 'spine plates': ONE vertical plate mid-strip in every column,
+ * rows 2–3, at (2,0) … (2,5). Six plates in a single band across the middle of the
+ * surface, each a rigid 121cm spine inside a moving column. The plateau in every
+ * pitch profile exists because of them: a vertical plate at (2, c) removes joint 2,
+ * so rows 2 and 3 must share one pitch.
+ */
+export function presetSwell() {
+  const SPINE_ROW = 2
+  const profile = (c) => {
+    const front = 10 + 3 * c
+    const y0 = frontRestY(front, 60)
+    // Row 1 is solved rather than offset from the front, in two passes: first ask
+    // what pitch the spine would need if row 1 simply held the front's pitch, then
+    // put row 1 HALFWAY between the two and re-solve the spine against it. That is
+    // what keeps the profile smooth all the way across — a fixed `front + 10` makes
+    // the steep-fronted columns (whose crest target is LOW) kink hard at row 2,
+    // because their front has already spent the whole climb budget.
+    const holdFront = crestPitch(climbTo(y0, [[60, front], [60, front]]), SWELL_CREST_CM[c], 121)
+    const climb = Math.round((front + holdFront) / 2)
+    const beforeSpine = climbTo(y0, [[60, front], [60, climb]])
+    const spine = crestPitch(beforeSpine, SWELL_CREST_CM[c], 121)
+    const crest = climbTo(beforeSpine, [[121, spine]])
+    const descent = descentPitch(crest, SWELL_HANDOVER_CM, 60)
+    // rows: 0 front · 1 climb · 2–3 the spine plateau · 4 descent · 5 landing
+    return [front, climb, spine, spine, descent, descent]
+  }
+
+  return land(
+    fromProfiles({
+      name: 'swell',
+      profiles: Array.from({ length: COLS }, (_, c) => profile(c)),
+      rects: Array.from({ length: COLS }, (_, c) => ({
+        row: SPINE_ROW,
+        col: c,
+        orientation: 'vertical',
+      })),
+      meta: {
+        preset: 'swell',
+        rectPattern: 'spine plates',
+        notes:
+          'STORM family: every front pitched (10° → 25° across the window), one big ' +
+          'rolling swell whose crest arcs 70 → 105 → 70cm, all six columns landing on the ' +
+          'floor. Plate pattern "spine plates": one vertical 121cm plate mid-strip (rows ' +
+          '2–3) in every column, so each strip carries a long rigid spine.',
+      },
+    }),
+  )
+}
+
+/**
+ * SURGE — 7 rows, the most violent design that still stands entirely on the floor.
+ *
+ * Fronts pitched 25 + 4c (25° … 45°) — steep enough that the water is already
+ * rearing as it leaves the window — climbing hard to a CREST PLATE across rows 2–3
+ * whose pitch is solved for `SURGE_CREST_CM` ≈ 168cm, then one descent row handing
+ * ~118cm to a 121cm LANDING PLATE across rows 5–6 that `land()` tilts down onto the
+ * floor. Peaks past 150cm in every column.
+ *
+ * The two plates are what make it possible. A 60cm landing square could only give
+ * back ~60cm, which would cap the crest near 110; the 121cm plate gives back nearly
+ * twice that, and the crest plate spends 121cm of panel on a single climb instead of
+ * two 60cm steps with a hinge budget between them.
+ *
+ * PLATE PATTERN — 'double plates': TWO vertical plates in every column — a crest
+ * plate at rows 2–3 and a landing plate at rows 5–6, (2,c) and (5,c) for all six c.
+ * Twelve 121cm plates, half the surface, in two clean bands.
+ */
+export function presetSurge() {
+  const CREST_ROW = 2
+  const LANDING_ROW = 5 // = rows - 2
+  const profile = (c) => {
+    const front = 25 + 4 * c
+    const climb = front + 18
+    const y0 = frontRestY(front, 60)
+    const beforeCrest = climbTo(y0, [[60, front], [60, climb]])
+    const crestDeg = crestPitch(beforeCrest, SURGE_CREST_CM, 121)
+    const crest = climbTo(beforeCrest, [[121, crestDeg]])
+    const descent = descentPitch(crest, SURGE_HANDOVER_CM, 60)
+    // rows: 0 front · 1 climb · 2–3 crest plate · 4 descent · 5–6 landing plate
+    return [front, climb, crestDeg, crestDeg, descent, descent, descent]
+  }
+
+  return land(
+    fromProfiles({
+      name: 'surge',
+      profiles: Array.from({ length: COLS }, (_, c) => profile(c)),
+      rects: Array.from({ length: COLS }, (_, c) => [
+        { row: CREST_ROW, col: c, orientation: 'vertical' },
+        { row: LANDING_ROW, col: c, orientation: 'vertical' },
+      ]).flat(),
+      meta: {
+        preset: 'surge',
+        rectPattern: 'double plates',
+        notes:
+          'STORM family: steep pitched fronts (25° → 45°), crests past 150cm, every ' +
+          'column still landing on the floor. Plate pattern "double plates": two vertical ' +
+          '121cm plates per column — a crest plate at rows 2–3 and a landing plate at rows ' +
+          '5–6 — twelve in two bands, and the reason the crest can be this high.',
+      },
+    }),
+  )
+}
+
+/**
+ * WALLCRASH — 6 rows. The wave hits the WALL, which is at the −X edge of the grid,
+ * beside COLUMN 0 (schema.js `WALL_X` / `WALL_COLUMN`).
+ *
+ * Everything RAMPS toward that wall, so everything ramps DOWN in column index: the
+ * front pitch (43° at the wall → 8° at the far jamb), the amplitude (a ~200cm
+ * rear-up in column 0 → a 62cm ripple in column 5), and the plate positions.
+ * Columns 1–5 are ordinary floor columns and land; COLUMN 0 IS `endSupport: 'wall'`
+ * — side-bracketed to the plane x = `WALL_X` = 0 — so it is exempt from the
+ * grounded-end rule and climbs monotonically to end HIGH against the wall, the water
+ * splashing up it. `land()` skips it automatically (core/ground.js).
+ *
+ * The six profiles are authored by hand rather than from a shared budget, because
+ * the plate diagonal gives every column a DIFFERENT segment structure — column 5's
+ * front panel IS a 121cm plate, column 1's landing panel is one — and therefore a
+ * different descent capacity to design against.
+ *
+ * PLATE PATTERN — 'wall splash': the plates MARCH diagonally back and toward the
+ * wall — (0,5) (1,4) (2,3) (3,2) (4,1) (4,0) — one row deeper per column as they
+ * approach it, until the final two rear up side by side against the wall itself.
+ * Every plateau in the profiles below is there to hold one of them.
+ */
+export function presetWallcrash() {
+  // Listed in column order; the row DEEPENS as the column index falls toward the
+  // wall, and the last two share row 4 because there is nowhere deeper to go.
+  const rects = [
+    { row: 4, col: 0, orientation: 'vertical' },
+    { row: 4, col: 1, orientation: 'vertical' },
+    { row: 3, col: 2, orientation: 'vertical' },
+    { row: 2, col: 3, orientation: 'vertical' },
+    { row: 1, col: 4, orientation: 'vertical' },
+    { row: 0, col: 5, orientation: 'vertical' },
+  ]
+
+  // Cumulative pitch per row (0..5). The plateau in each is the plate's two rows;
+  // the last authored pitch is a first guess that `land()` refines (except column 0,
+  // which is wall-supported and left exactly as authored).
+  const profiles = [
+    [43, 58, 52, 30, 12, 12], //  c0 · plate rows 4–5 · WALL: climbs to ~200cm and stays
+    [36, 60, 30, -35, -45, -45], //  c1 · plate rows 4–5 (the landing plate) · ~122cm
+    [29, 42, 45, -30, -30, -30], //  c2 · plate rows 3–4 · ~116cm
+    [22, 30, 26, 26, -60, -60], //  c3 · plate rows 2–3 · ~109cm
+    [15, 30, 30, 5, -30, -30], //  c4 · plate rows 1–2 · ~85cm
+    [8, 8, 22, 18, -20, -20], //  c5 · plate rows 0–1 · a 62cm ripple, gentle
+  ]
+
+  return land(
+    fromProfiles({
+      name: 'wallcrash',
+      profiles,
+      endSupports: ['wall', 'floor', 'floor', 'floor', 'floor', 'floor'],
+      rects,
+      meta: {
+        preset: 'wallcrash',
+        rectPattern: 'wall splash',
+        notes:
+          'STORM family: front pitch and amplitude both ramp toward the −X wall beside ' +
+          'column 0 (43° → 8°, ~200cm → 62cm). Columns 1–5 land on the floor; column 0 is ' +
+          'wall-supported and deliberately ends high, splashing up the wall. Plate pattern ' +
+          '"wall splash": the plates march diagonally back and toward the wall — (0,5) ' +
+          '(1,4) (2,3) (3,2) (4,1) (4,0).',
+      },
+    }),
+  )
+}
+
+// -----------------------------------------------------------------------------
 // Random — named plate templates
 // -----------------------------------------------------------------------------
 /**
@@ -576,7 +948,7 @@ function randomColumnPitches(draw, plateaus, psi1Pin) {
 
   // A plate on the last two rows lands the column on 121cm of plate, not 60cm of
   // square — twice the reach, so twice the rise budget.
-  const plated = plateaus.includes(GRID.rows - 2)
+  const plated = plateaus.includes(CALM_ROWS - 2)
   const budget = plated ? RANDOM_MAX_RISE_PLATED : RANDOM_MAX_RISE
 
   switch (key) {
@@ -640,7 +1012,7 @@ function randomColumnPitches(draw, plateaus, psi1Pin) {
  */
 export function presetRandom(seed = 1) {
   const rnd = mulberry32(seed)
-  const { cols } = GRID
+  const cols = COLS
 
   // --- fixed draw order --------------------------------------------------
   const draws = []
@@ -699,6 +1071,9 @@ export function buildPreset(id, seed = 1) {
     case 'wave': return presetWave()
     case 'crash': return presetCrash()
     case 'random': return presetRandom(seed)
+    case 'swell': return presetSwell()
+    case 'surge': return presetSurge()
+    case 'wallcrash': return presetWallcrash()
     default: throw new Error(`unknown preset id: ${id}`)
   }
 }

@@ -17,9 +17,12 @@
  * WORLD CONVENTIONS
  *   Units cm. Y up. Columns along +X (c = 0..cols-1) and NEVER moving: column c
  *   owns x ∈ [c·(size+gap), c·(size+gap)+size] forever. Rows recede along +Z
- *   (r = 0..rows-1) with the shore/window at z = 0. Everything is lifted by
- *   PANEL_PROFILE.overallThickness (3.7, = schema.js SHORE_Y) in +Y so the
- *   housings rest on the floor — a flat panel's lit face is at y = 3.7.
+ *   (r = 0..rows-1) with the shore/window at z = 0, and a WALL closes the −X side
+ *   at x = 0 (schema.js `WALL_X`, the outer edge of column 0). Each column's chain starts at
+ *   the height that rests its FRONT panel on the floor at that panel's pitch
+ *   (schema.js `frontRestY`); for the default flat front that is
+ *   PANEL_PROFILE.overallThickness (3.7, = schema.js SHORE_Y), so a flat panel's
+ *   lit face is at y = 3.7 exactly as before.
  *
  * PANEL LOCAL FRAME (matches geometry/panelGeometry.js)
  *   Lit face lies in the local XZ plane at local y = 0, centered on the origin.
@@ -31,12 +34,12 @@
  * -----------------------------------------------------------------------------
  * THE COLUMN CHAIN
  * -----------------------------------------------------------------------------
- * The chain walk itself lives in schema.js (`columnChain`) so validation and
- * placement can never disagree about the surface: it returns each segment's
- * cumulative pitch ψ and its start point (y, z), starting from (3.7, 0) at ψ = 0
- * and advancing `length·d` per segment plus `gap·bisector` at every surviving
- * joint, with d = (sinψ, cosψ) in (y, z). This module turns that into world
- * placements:
+ * The chain walk itself lives in schema.js (`columnChain`) — there is deliberately
+ * NO second walker here, so validation and placement can never disagree about the
+ * surface. It returns each segment's cumulative pitch ψ and its start point (y, z),
+ * starting from (`frontRestY`, 0) at ψ = `startPitchDeg` and advancing `length·d`
+ * per segment plus `gap·bisector` at every surviving joint, with d = (sinψ, cosψ)
+ * in (y, z). This module turns that into world placements:
  *
  *   depth dir      d = (0, sinψ, cosψ)
  *   panel center   = ( xCenter, p + (L_chain/2)·d )
@@ -78,7 +81,8 @@
  *     panels: [{ id, row, col, cells, type, rectOrientation,
  *                position: [x,y,z], quaternion: [x,y,z,w], rowPitchDeg }],
  *     columnChains: [{ col, points: [[y,z], …], pitchesDeg: [ψ per row],
- *                     grounded: boolean, endClearanceCm: number }],
+ *                     grounded: boolean, endClearanceCm: number,
+ *                     endSupport: 'floor'|'wall' }],
  *     warnings: [{ code, message }],
  *     violations: [{ code, col, clearanceCm, message }],
  *   }
@@ -97,14 +101,19 @@
  *                      nothing to stand on
  *
  * Layout violations (the design is not finished while any are present):
- *   E_END_FLOATING     a column's LAST panel does not touch the floor. See the
- *                      grounded-end rule in schema.js: "the wave returns to the
- *                      water". Measured over the panel's SOLID (its 4 lit-face
- *                      corners AND those 4 corners at the back of the housing,
- *                      3.7cm along −n̂); grounded iff that minimum y is within
- *                      `groundTolerance` of 0. Floating and below-floor are
+ *   E_END_FLOATING     a FLOOR-SUPPORTED column's LAST panel does not touch the
+ *                      floor. See the grounded-end rule in schema.js: "the wave
+ *                      returns to the water". Measured over the panel's SOLID (its
+ *                      4 lit-face corners AND those 4 corners at the back of the
+ *                      housing, 3.7cm along −n̂); grounded iff that minimum y is
+ *                      within `groundTolerance` of 0. Floating and below-floor are
  *                      INDEPENDENT: a panel can dip under the floor (W_BELOW_FLOOR)
  *                      and a column can float (E_END_FLOATING) without the other.
+ *                      A column with `endSupport: 'wall'` is EXEMPT — it is
+ *                      side-bracketed to the −X wall and may end high (the water
+ *                      splashing up the wall). Its chain entry still carries the
+ *                      honest `grounded` / `endClearanceCm` measurement so the UI
+ *                      can show how high it ends; only the violation is skipped.
  * This is a violation rather than a validation error on purpose — a fold slider
  * necessarily passes through floating states while it is being dragged, and the
  * store only commits configs that validate.
@@ -114,7 +123,12 @@
  */
 
 import * as THREE from 'three'
-import { DEFAULT_GROUND_TOLERANCE, columnChain, normalizeConfig } from './schema.js'
+import {
+  DEFAULT_GROUND_TOLERANCE,
+  columnChain,
+  columnEndSupport,
+  normalizeConfig,
+} from './schema.js'
 import { PANEL_PROFILE } from '../config.js'
 
 const DEG = Math.PI / 180
@@ -537,10 +551,12 @@ export function solveLayout(config) {
     const chain = columnChain(cfg, c)
     const colPanels = buildColumnPanels(cfg, c, chain)
 
-    // Grounded-end rule: the column's LAST panel must reach the floor.
+    // Grounded-end rule: the column's LAST panel must reach the floor — unless the
+    // column is bracketed to the −X wall, in which case ending high is the design.
     const end = colPanels.length > 0 ? colPanels[colPanels.length - 1] : null
     const clearance = end ? round9(panelSolidMinY(end, cfg)) : 0
     const grounded = clearance <= groundTol
+    const endSupport = columnEndSupport(cfg, c)
 
     columnChains.push({
       col: c,
@@ -548,9 +564,10 @@ export function solveLayout(config) {
       pitchesDeg: chain.pitchesDeg.map(round9),
       grounded,
       endClearanceCm: clearance,
+      endSupport,
     })
 
-    if (!grounded) {
+    if (!grounded && endSupport !== 'wall') {
       violations.push({
         code: 'E_END_FLOATING',
         col: c,

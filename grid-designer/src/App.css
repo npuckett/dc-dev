@@ -73,6 +73,30 @@ body {
   color: #eaf2ff;
 }
 
+/* the two preset families, split by a thin rule */
+.preset-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-divider {
+  display: inline-block;
+  width: 1px;
+  height: 17px;
+  background: #3ad0c0;
+  opacity: 0.4;
+}
+
+/* storm family: pitched fronts, deeper grids, the wall in play */
+.preset-storm { border-color: #2f5c58; }
+.preset-storm:hover { border-color: #3ad0c0; }
+.preset-storm.preset-active {
+  background: #1e4a46;
+  border-color: #3ad0c0;
+  color: #e2fffb;
+}
+
 .seed-group {
   display: flex;
   align-items: center;
@@ -267,10 +291,11 @@ body {
 .grid-map-hit { cursor: pointer; }
 .grid-map-hit:hover { fill-opacity: 0.09; }
 
+/* row labels sit on the RIGHT of the map — the wall owns the left margin */
 .grid-map-rowlabel {
   font-size: 9px;
   fill: #5f5f80;
-  text-anchor: end;
+  text-anchor: start;
 }
 
 .grid-map-collabel {
@@ -285,6 +310,13 @@ body {
   fill: #8fcaff;
 }
 
+/* the −X wall, along the LEFT edge of the plan (the RIGHT side in 3D) */
+.grid-map-wall {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  fill: #3ad0c0;
+}
+
 .grid-map-hint {
   margin-top: 3px;
   font-size: 9.5px;
@@ -295,6 +327,7 @@ body {
 .grid-map-hint b { color: #8fb9ff; font-weight: 600; }
 .grid-map-hint .wash-up { color: #8fc4ff; }
 .grid-map-hint .wash-down { color: #ffb27f; }
+.grid-map-hint .wash-wall { color: #3ad0c0; }
 
 .grid-map-error {
   margin-top: 4px;
@@ -372,6 +405,41 @@ body {
   flex: 0 0 auto;
   gap: 4px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+/* row-resolution stepper (grid.rows, 5..8) */
+.rows-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding-right: 5px;
+  margin-right: 1px;
+  border-right: 1px solid #2a2a3e;
+}
+
+.rows-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  padding: 3px 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rows-btn:disabled {
+  color: #4a4a60;
+  background: #17171f;
+  cursor: default;
+}
+
+.rows-value {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: #a8a8c0;
 }
 
 .tool-btn {
@@ -416,7 +484,14 @@ body {
   background: #1e1620;
 }
 
-.col-float-row {
+/* the wall-adjacent column when it is bracketed to the −X wall */
+.col-wall {
+  border-color: #2f6f68;
+  background: #16211f;
+}
+
+.col-float-row,
+.col-wall-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -434,6 +509,28 @@ body {
   background: #3a1620;
   border: 1px solid #7c2438;
 }
+
+.col-wall-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #7fe4d8;
+  background: #14322f;
+  border: 1px solid #2f6f68;
+}
+
+/* the end-support toggle — only the wall-adjacent column has one */
+.col-wall-btn { flex: 0 1 auto; }
+
+.col-wall-btn-on {
+  color: #7fe4d8;
+  background: #14322f;
+  border-color: #2f6f68;
+}
+.col-wall-btn-on:hover { background: #1a423e; border-color: #3ad0c0; }
 
 .col-ground-btn { flex: 0 1 auto; }
 
@@ -478,12 +575,29 @@ body {
 }
 
 .col-pitch .pitch-neg { color: #c48f6d; }
+/* row 0's pitch is the FRONT panel's own, not the result of a hinge */
+.col-pitch .pitch-front { font-weight: 700; color: #9fd6ff; }
+.col-pitch .pitch-front.pitch-neg { color: #ffc39c; }
 
 .slider-row {
   display: flex;
   align-items: center;
   gap: 7px;
 }
+
+/* the front-panel pitch sits above the hinges, separated by a hairline */
+.slider-row-front {
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid #24243a;
+}
+
+.slider-row-front .slider-label {
+  font-weight: 600;
+  color: #9fd6ff;
+}
+
+.slider-row-front input[type='range'] { accent-color: #6fa9e8; }
 
 .slider-label {
   flex: 0 0 30px;
@@ -508,15 +622,24 @@ body {
   color: #cfcfe4;
 }
 
-/* --- in-scene shore label (drei <Html>) ------------------------------------ */
-.shore-label {
+/* --- in-scene labels (drei <Html>) ----------------------------------------- */
+.shore-label,
+.wall-label {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.16em;
   white-space: nowrap;
-  color: #8fcaff;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
   pointer-events: none;
   user-select: none;
+}
+
+.shore-label { color: #8fcaff; }
+
+/* deliberately quieter than the shore label — the wall is context, not content */
+.wall-label {
+  font-size: 10px;
+  color: #3ad0c0;
+  opacity: 0.75;
 }

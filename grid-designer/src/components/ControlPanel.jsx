@@ -112,7 +112,7 @@ export default function ControlPanel() {
         </div>
       )}
 
-      <ColumnToolbar selected={selectedCol} floating={floating} />
+      <ColumnToolbar selected={selectedCol} floating={floating} rows={config.grid.rows} />
 
       <div className="cols-scroll">
         {Array.from({ length: colCount }, (_, c) => (

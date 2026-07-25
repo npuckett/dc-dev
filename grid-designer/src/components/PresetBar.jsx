@@ -6,6 +6,12 @@
  * started from) keep the highlight, and an imported config without meta shows
  * none. The seeded 'random' preset gets a seed field plus a reroll that bumps
  * the seed and re-applies immediately.
+ *
+ * The buttons are grouped by `PRESETS[].family` with a thin divider between the
+ * CALM family (flat fronts on the shore, 5 rows, everything grounded) and the
+ * STORM family (pitched fronts everywhere, deeper grids, and — for 'wallcrash' —
+ * a column bracketed to the −X wall). The two families follow different rules, so
+ * the bar says so rather than presenting eight interchangeable buttons.
  */
 
 import useStore from '../store.js'
@@ -20,17 +26,26 @@ export default function PresetBar() {
 
   return (
     <div className="preset-bar">
-      {PRESETS.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          data-testid={`preset-${p.id}`}
-          className={`preset-btn${active === p.id ? ' preset-active' : ''}`}
-          title={p.description}
-          onClick={() => applyPreset(p.id, p.seeded ? seed : undefined)}
-        >
-          {p.label}
-        </button>
+      {PRESETS.map((p, i) => (
+        <span key={p.id} className="preset-slot">
+          {i > 0 && PRESETS[i - 1].family !== p.family && (
+            <span
+              className="preset-divider"
+              data-testid={`preset-divider-${p.family}`}
+              title={`the ${p.family} family — different rules: pitched fronts in every column, deeper grids, and the −X wall in play`}
+              aria-hidden="true"
+            />
+          )}
+          <button
+            type="button"
+            data-testid={`preset-${p.id}`}
+            className={`preset-btn${active === p.id ? ' preset-active' : ''}${p.family === 'storm' ? ' preset-storm' : ''}`}
+            title={p.description}
+            onClick={() => applyPreset(p.id, p.seeded ? seed : undefined)}
+          >
+            {p.label}
+          </button>
+        </span>
       ))}
 
       <span className="seed-group">

@@ -25,7 +25,13 @@
  * panels float is perfectly valid and committable (dragging a fold slider passes
  * through such states constantly) — it just carries `violations` in its derived
  * layout. `groundColumn(c)` / `groundAllColumns()` solve them away on demand, and
- * report E_UNGROUNDABLE through `lastErrors` when the last hinge cannot reach.
+ * report E_UNGROUNDABLE through `lastErrors` when the last hinge cannot reach. A
+ * WALL-SUPPORTED column (`endSupport: 'wall'`, legal only on the last column) is
+ * exempt from the rule and skipped by both actions.
+ *
+ * `setRows(n)` is the one action that changes the SHAPE of the config rather than a
+ * value in it — it resizes every `foldsDeg` and drops plates that no longer fit,
+ * all through the same single commit, so the store never holds a half-resized grid.
  *
  * =============================================================================
  * DERIVED DATA MEMOIZATION
@@ -46,7 +52,10 @@ import { create } from 'zustand'
 import { produce } from 'immer'
 import {
   MAX_FOLD_DEG,
+  MAX_ROWS,
+  MIN_ROWS,
   clamp,
+  columnEndSupport,
   normalizeConfig,
   validateConfig,
 } from './core/schema.js'
@@ -173,6 +182,84 @@ const useStore = create((set, get) => {
       }),
 
     /**
+     * Set the pitch of column `c`'s FRONT (window) panel — row 0. Clamped to
+     * ±120°; positive tilts the front UP out of the window. The chain's front edge
+     * stays on the window line z = 0 and the front panel stays ON THE FLOOR at any
+     * pitch (core/schema.js `frontRestY` picks the start height), so this only ever
+     * changes the shape of the strip, never whether its front is supported.
+     *
+     * A NEGATIVE pitch dives the strip at the window: the front panel's rear edge
+     * becomes its contact edge, the whole chain starts that much higher, and a
+     * profile that keeps diving pushes later panels under the floor (W_BELOW_FLOOR).
+     * That is surfaced, not prevented.
+     */
+    setColumnStartPitch: (c, deg) =>
+      commit((draft) => {
+        const column = draft.columns?.[c]
+        if (!column || typeof column !== 'object') return
+        const n = numOrNull(deg)
+        column.startPitchDeg = n === null ? 0 : clamp(n, -MAX_FOLD_DEG, MAX_FOLD_DEG)
+      }),
+
+    /**
+     * Set how column `c`'s deep end is held up: 'floor' (it must land — the
+     * grounded-end rule) or 'wall' (side-bracketed to the −X wall, so it may end
+     * high). 'wall' is only valid on the wall-adjacent column, so the store's
+     * commit rule rejects it anywhere else with E_SHAPE.
+     */
+    setColumnEndSupport: (c, endSupport) =>
+      commit((draft) => {
+        const column = draft.columns?.[c]
+        if (!column || typeof column !== 'object') return
+        column.endSupport = endSupport
+      }),
+
+    /**
+     * Change the ROW RESOLUTION of the whole grid (how many panels deep each
+     * column strip is). Range MIN_ROWS..MAX_ROWS = 5..8; anything else is clamped
+     * into it rather than rejected, so a stepper can never wedge the UI.
+     *
+     * The resize is deliberately SIMPLE AND PREDICTABLE, all in one commit:
+     *   - every column's `foldsDeg` is truncated or zero-padded AT THE END (the
+     *     back of the strip), so the shape you already designed at the window is
+     *     never touched — growing adds level rows behind the last one, shrinking
+     *     drops the deepest hinges;
+     *   - `startPitchDeg` / `endSupport` are untouched;
+     *   - rects that no longer fit are DROPPED (a plate whose anchor row is past
+     *     the new last row, or a vertical plate that no longer has a second row).
+     * Every kept plate stays legal, because the folds in front of the truncation
+     * point do not move.
+     *
+     * Grounding is NOT re-solved: shrinking can leave a column's new last panel in
+     * mid-air, which shows up as an E_END_FLOATING violation for "Ground all" to
+     * fix — the same as any other fold edit.
+     *
+     * @param {number} n desired row count
+     * @returns {boolean} whether the change was committed
+     */
+    setRows: (n) => {
+      const v = numOrNull(n)
+      const rows = v === null ? MIN_ROWS : clamp(Math.trunc(v), MIN_ROWS, MAX_ROWS)
+      return commit((draft) => {
+        if (draft.grid?.rows === rows) return
+        draft.grid.rows = rows
+        const want = rows - 1
+        for (const column of Array.isArray(draft.columns) ? draft.columns : []) {
+          if (!column || !Array.isArray(column.foldsDeg)) continue
+          while (column.foldsDeg.length > want) column.foldsDeg.pop()
+          while (column.foldsDeg.length < want) column.foldsDeg.push(0)
+        }
+        if (Array.isArray(draft.rects)) {
+          draft.rects = draft.rects.filter((rect) => {
+            if (!rect || typeof rect !== 'object') return false
+            const lastRow = rect.orientation === 'vertical' ? rows - 2 : rows - 1
+            return Number.isInteger(rect.row) && rect.row >= 0 && rect.row <= lastRow
+          })
+        }
+      })
+    },
+
+    /**
      * Give every column the fold sequence of column `c` — a cylindrical fold,
      * whose in-row joints are all exact by construction (identical profiles).
      *
@@ -231,11 +318,20 @@ const useStore = create((set, get) => {
      * reaches down, and the fold profile in FRONT of the end has to arc back down
      * instead. That case reports E_UNGROUNDABLE and changes nothing.
      *
+     * A WALL-SUPPORTED column is a NO-OP: it is bracketed to the −X wall and is
+     * meant to end high, so there is nothing to solve. (The UI hides its button
+     * too — this is the belt to that braces.)
+     *
      * @param {number} c column index
      * @returns {boolean} whether the change was committed
      */
     groundColumn: (c) => {
-      const solved = solveGroundingFold(get().config, c)
+      const config = get().config
+      if (columnEndSupport(config, c) === 'wall') {
+        set({ lastErrors: [] })
+        return true
+      }
+      const solved = solveGroundingFold(config, c)
       if (!solved) {
         set({
           lastErrors: [
@@ -260,8 +356,10 @@ const useStore = create((set, get) => {
 
     /**
      * Ground every floating column at once. Columns already touching the floor are
-     * left exactly as they are, and a column the solver cannot rescue is skipped
-     * (it stays in `violations`) rather than blocking the others.
+     * left exactly as they are, a WALL-SUPPORTED column is skipped entirely (its
+     * end is held by the wall, and pulling it down would undo the design), and a
+     * column the solver cannot rescue is skipped (it stays in `violations`) rather
+     * than blocking the others.
      *
      * @returns {boolean} whether the change was committed
      */
