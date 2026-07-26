@@ -28,8 +28,10 @@
 
 import { useMemo, useState } from 'react'
 import useStore, { getDerived } from '../store.js'
+import { isStorageAvailable } from '../persistence.js'
 import GridMap, { PLACEMENT_CODES } from './GridMap.jsx'
 import JsonPanel from './JsonPanel.jsx'
+import SlotsPanel from './SlotsPanel.jsx'
 import ColumnControls, { ColumnToolbar, chainBounds } from './ColumnControls.jsx'
 
 export default function ControlPanel() {
@@ -50,6 +52,11 @@ export default function ControlPanel() {
   // One scale for all six sparklines, so their heights compare directly.
   const bounds = useMemo(() => chainBounds(layout), [layout])
   const selectedCol = Math.min(selected, colCount - 1)
+  // A real probe (set + remove a throwaway key), not just "does the API exist" —
+  // private browsing can expose localStorage but throw on first write. Checked
+  // once per mount rather than per config change; storage availability doesn't
+  // flip mid-session in practice.
+  const autosaveOk = useMemo(() => isStorageAvailable(), [])
 
   return (
     <aside className="control-panel">
@@ -74,6 +81,23 @@ export default function ControlPanel() {
         ) : (
           <span className="badge-item badge-grounded" data-testid="badge-grounded" title="every column's last panel touches the floor">
             all grounded ✓
+          </span>
+        )}
+        {autosaveOk ? (
+          <span
+            className="badge-item badge-grounded"
+            data-testid="badge-autosave"
+            title="the working design is saved to this browser automatically — a reload (including a dev hot reload) restores it"
+          >
+            autosave ✓
+          </span>
+        ) : (
+          <span
+            className="badge-item badge-flagged"
+            data-testid="badge-autosave"
+            title="localStorage is unavailable (private browsing, disabled storage, or a full quota) — nothing is being autosaved. Copy or download the JSON before reloading."
+          >
+            autosave off
           </span>
         )}
       </div>
@@ -138,6 +162,7 @@ export default function ControlPanel() {
         ))}
       </div>
 
+      <SlotsPanel />
       <JsonPanel />
     </aside>
   )

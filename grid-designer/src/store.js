@@ -65,6 +65,21 @@
  *
  * Chosen over zustand middleware because it also works outside React (the
  * Playwright harness and node scripts can call `getDerived` directly).
+ *
+ * =============================================================================
+ * PERSISTENCE (persistence.js)
+ * =============================================================================
+ * The working config is autosaved to localStorage so a page reload — including
+ * a Vite hot reload from editing a source file — does not silently discard
+ * in-progress work (see README.md / HANDOFF.md §5.1; this destroyed real work
+ * twice before this existed). On store creation, `loadWorkingConfig()` is tried
+ * FIRST and only used if it also passes `validateConfig` — a corrupt, absent,
+ * or schema-stale save falls back to the same flat-preset default as before,
+ * silently, never throwing. Every successful `commitConfig` (which every commit
+ * path funnels through) and every `undo()` / `redo()` calls `saveWorkingConfig`,
+ * which debounces its actual write ~300ms so dragging a slider does not hammer
+ * localStorage. UI-only state (`showBounds`, `armedCell`, undo/redo history,
+ * `lastErrors`, `lastNotice`) is never passed to it — only `config`.
  */
 
 import { create } from 'zustand'
@@ -83,6 +98,7 @@ import { mergeCells as coreMergeCells } from './core/merge.js'
 import { layoutBounds, solveLayout } from './core/placement.js'
 import { groundAllFolds, solveGroundingFold } from './core/ground.js'
 import { jointReport } from './core/report.js'
+import { loadWorkingConfig, saveWorkingConfig } from './persistence.js'
 
 // -----------------------------------------------------------------------------
 // Derived-data cache
@@ -185,7 +201,10 @@ const useStore = create((set, get) => {
    * On success the OUTGOING config (with the warnings it was carrying) is pushed
    * onto the undo stack and the redo stack is dropped — the standard linear
    * history. `lastNotice` is cleared here so a merge's note never outlives the
-   * change it describes; `mergeCells` sets it again right after.
+   * change it describes; `mergeCells` sets it again right after. Also
+   * autosaves `candidate` (debounced, see persistence.js) — this is the ONE
+   * place every commit path funnels through, so it is the one place autosave
+   * needs wiring.
    */
   function commitConfig(candidate) {
     const result = validateConfig(candidate)
@@ -206,11 +225,39 @@ const useStore = create((set, get) => {
       canUndo: past.length > 0,
       canRedo: false,
     })
+    saveWorkingConfig(candidate)
     return true
   }
 
-  const initialConfig = normalizeConfig(buildPreset('flat'))
-  const initialValidation = validateConfig(initialConfig)
+  /**
+   * Seed the store from the autosaved working config when there is one AND it
+   * validates; otherwise fall back to the flat preset exactly as before. Never
+   * throws — a corrupt or schema-stale save (see persistence.js's
+   * `EXPECTED_CONFIG_VERSION`) is indistinguishable from no save at all.
+   */
+  function loadInitialConfig() {
+    const fallback = () => {
+      const config = normalizeConfig(buildPreset('flat'))
+      return { config, validation: validateConfig(config) }
+    }
+    let saved
+    try {
+      saved = loadWorkingConfig()
+    } catch {
+      saved = null
+    }
+    if (!saved) return fallback()
+    try {
+      const config = normalizeConfig(saved)
+      const validation = validateConfig(config)
+      if (validation.ok) return { config, validation }
+    } catch {
+      // fall through to the default below
+    }
+    return fallback()
+  }
+
+  const { config: initialConfig, validation: initialValidation } = loadInitialConfig()
 
   return {
     // --- state ------------------------------------------------------------
@@ -649,6 +696,7 @@ const useStore = create((set, get) => {
         canUndo: state.past.length - 1 > 0,
         canRedo: true,
       })
+      saveWorkingConfig(entry.config)
       return true
     },
 
@@ -674,6 +722,7 @@ const useStore = create((set, get) => {
         canUndo: past.length > 0,
         canRedo: state.future.length - 1 > 0,
       })
+      saveWorkingConfig(entry.config)
       return true
     },
 

@@ -421,6 +421,81 @@ body {
 
 .json-note-err { color: #ff8b9c; }
 
+/* --- saved-design slots (SlotsPanel, same disclosure idiom as CONFIG JSON) - */
+.slots-save-row {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.slots-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  color: #d2d2e4;
+  background: #0d0d15;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+}
+
+.slots-list {
+  list-style: none;
+  margin-top: 6px;
+  max-height: 108px;
+  overflow-y: auto;
+}
+
+.slot-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slot-row + .slot-row { margin-top: 3px; }
+
+.slot-load-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 7px;
+  color: #cfcfe0;
+  background: #1e1e2c;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.slot-load-btn:hover { background: #26263a; border-color: #3d3d5a; }
+
+.slot-delete-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  padding: 3px 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  color: #a8a8c0;
+  background: #1e1e2c;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.slot-delete-btn:hover { background: #3a1620; border-color: #7c2438; color: #ff8b9c; }
+
+.slots-empty {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #6f6f8a;
+}
+
 /* --- cross-column toolbar -------------------------------------------------- */
 .col-tools {
   display: flex;
