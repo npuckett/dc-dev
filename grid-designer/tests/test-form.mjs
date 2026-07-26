@@ -19,7 +19,7 @@
  *      mesh sampler's index bookkeeping.
  */
 
-import { DEFAULT_FORM, driftFrame, driftGradient, driftHeight, driftNormal, normalizeForm, sampleDriftMesh } from '../src/core/form.js'
+import { DEFAULT_FORM, driftFrame, driftGradient, driftHeight, driftNormal, normalizeForm, sampleDriftMesh } from '../src/core/v3/form.js'
 
 let passed = 0
 const failures = []
