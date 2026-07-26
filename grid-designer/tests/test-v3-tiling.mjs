@@ -13,6 +13,7 @@
 
 import { driftHeight } from '../src/core/v3/form.js'
 import { DEFAULT_CONFIG, normalizeConfig } from '../src/core/v3/schema.js'
+import { buildTarget } from '../src/core/v3/target.js'
 import { MIN_PLATES, SAGITTA_SAMPLE_COUNT, buildFewPlatesWarning, materialToPlanApprox, solveTiling } from '../src/core/v3/tiling.js'
 
 let passed = 0
@@ -326,12 +327,33 @@ for (const [cols, rows] of GRID_SPREAD) {
   // curvature (pronounced crest, steep ridge shear, sharp toes) while leaving
   // enough eligible candidates (7 plates' worth) for the strategies' scoring
   // to actually disagree about which ones to take.
+  //
+  // UPDATE: the strategies can only disagree while the FIT GATE IS BINDING —
+  // i.e. while some candidates fit and others do not, so there is a real choice
+  // to make. A FACETED target is locally planar by construction, so sagitta
+  // collapses to near zero almost everywhere, nearly every candidate survives,
+  // and greedy placement takes them all: all three strategies then agree
+  // trivially because none of them had to choose. That is a genuine property of
+  // the model, not a bug, and it is why the default settings no longer
+  // differentiate the strategies — see HANDOFF's note on plate count.
+  //
+  // So this fixture makes the gate bind: angularity 0 (a smooth target, which
+  // rigid plates genuinely struggle to lie on) plus a tight tolerance.
   const strongCfg = {
     ...structuredClone(DEFAULT_CONFIG),
     sheet: { cols: 6, rows: 8 },
-    form: { ...DEFAULT_CONFIG.form, amplitude: 100, crestX: 0.75, crestZ: 0.25, ridgeShear: 0.4, toeSharpX: 0.45, toeSharpZ: 0.45 },
+    // 3.0, not tighter: at 1.2-2.0 only 3-6 candidates survive the gate, and
+    // ridge-aligned and toe-bands then pick the SAME few — agreeing for want of
+    // choice rather than because they behave alike. 3.0 leaves ~15 plates' worth
+    // of eligible candidates, which is where all three genuinely diverge.
+    tiling: { ...DEFAULT_CONFIG.tiling, plateFitToleranceCm: 3.0 },
+    form: {
+      ...DEFAULT_CONFIG.form, amplitude: 100, crestX: 0.75, crestZ: 0.25,
+      ridgeShear: 0.4, toeSharpX: 0.45, toeSharpZ: 0.45, angularity: 0,
+    },
   }
-  const outputs = STRATEGIES.map((strategy) => JSON.stringify(solveTiling({ ...strongCfg, tiling: { strategy } }).tiles))
+  const outputs = STRATEGIES.map((strategy) => JSON.stringify(
+    solveTiling({ ...strongCfg, tiling: { ...strongCfg.tiling, strategy } }).tiles))
   check('flat-lie and ridge-aligned produce different tilings', outputs[0] !== outputs[1])
   check('flat-lie and toe-bands produce different tilings', outputs[0] !== outputs[2])
   check('ridge-aligned and toe-bands produce different tilings', outputs[1] !== outputs[2])
@@ -395,42 +417,48 @@ for (const [cols, rows] of GRID_SPREAD) {
 }
 
 // =============================================================================
-// 10. PLATE FIT (P2b) — every placed plate's reported sagittaCm is verified
-// by INDEPENDENTLY recomputing it here from form.js's driftHeight (not by
-// trusting tiling.js's own value). This mirrors SAGITTA_SAMPLE_COUNT (the
-// documented, exported sample count) but is otherwise a fresh implementation
-// of the chord/perpendicular-distance math, built only from each tile's
-// public `uv`/`axis` fields — the same "independent method, not the same bug
-// checked against itself" spirit as §5's brute-force adjacency check.
+// 10. PLATE FIT — every placed plate's reported sagittaCm is verified by
+// INDEPENDENTLY recomputing it here (not by trusting tiling.js's own value).
+// Fresh implementation of the chord/perpendicular-distance math, built only
+// from each tile's public `uv`/`axis` fields — the same "independent method,
+// not the same bug checked against itself" spirit as §5's brute-force
+// adjacency check.
+//
+// Measured against the TARGET (target.js), in 3D, because that is the surface
+// the panels are actually seated on. This used to read form.js's driftHeight
+// through materialToPlanApprox, matching an earlier tiling.js that was blind to
+// faceting: it reported one sagitta for every angularity/facetCells setting
+// while placement.js seated the panels on the faceted target. Both sides read
+// the same surface now.
 // =============================================================================
-function independentSagittaCm(cfg, tile) {
+function independentSagittaCm(cfg, tile, target) {
   const { u0, v0, uLen, vLen } = tile.uv
   const along = tile.axis === 'u' ? { start: u0, len: uLen } : { start: v0, len: vLen }
   const crossPos = tile.axis === 'u' ? v0 + vLen / 2 : u0 + uLen / 2
 
-  const heights = []
+  const pts = []
   for (let k = 0; k < SAGITTA_SAMPLE_COUNT; k++) {
     const t = k / (SAGITTA_SAMPLE_COUNT - 1)
     const pos = along.start + t * along.len
     const u = tile.axis === 'u' ? pos : crossPos
     const v = tile.axis === 'u' ? crossPos : pos
-    const plan = materialToPlanApprox(cfg, u, v)
-    heights.push(driftHeight(cfg.form, plan.x, plan.z))
+    pts.push(target.frameAtMaterial(u, v).point)
   }
 
-  const h0 = heights[0]
-  const h1 = heights[heights.length - 1]
-  const dx = along.len
-  const dh = h1 - h0
-  const chordLen = Math.hypot(dx, dh) || 1e-9
-
+  // Greatest perpendicular distance in 3D from the chord joining the two ends,
+  // via |w x d| / |d| — a rigid plate is a straight chord in space.
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const dLen = Math.hypot(d[0], d[1], d[2]) || 1e-9
   let maxSagitta = 0
-  for (let k = 1; k < heights.length - 1; k++) {
-    const t = k / (SAGITTA_SAMPLE_COUNT - 1)
-    const x = t * along.len
-    const h = heights[k]
-    const crossMag = Math.abs(dx * (h - h0) - dh * x)
-    maxSagitta = Math.max(maxSagitta, crossMag / chordLen)
+  for (let k = 1; k < pts.length - 1; k++) {
+    const w = [pts[k][0] - a[0], pts[k][1] - a[1], pts[k][2] - a[2]]
+    maxSagitta = Math.max(maxSagitta, Math.hypot(
+      w[1] * d[2] - w[2] * d[1],
+      w[2] * d[0] - w[0] * d[2],
+      w[0] * d[1] - w[1] * d[0],
+    ) / dLen)
   }
   return maxSagitta
 }
@@ -453,7 +481,8 @@ function independentSagittaCm(cfg, tile) {
       tiling: { strategy, plateFitToleranceCm },
       form: { ...DEFAULT_CONFIG.form, amplitude },
     })
-    const result = solveTiling(cfg)
+    const target = buildTarget(cfg)
+    const result = solveTiling(cfg, target)
     const label = `${cols}x${rows} ${strategy} tol=${plateFitToleranceCm} amp=${amplitude}`
     for (const tile of result.tiles) {
       if (tile.type === '2x2') {
@@ -461,7 +490,7 @@ function independentSagittaCm(cfg, tile) {
         continue
       }
       checkedAtLeastOnePlate = true
-      const recomputed = independentSagittaCm(cfg, tile)
+      const recomputed = independentSagittaCm(cfg, tile, target)
       check(
         `${label} ${tile.id}: independently recomputed sagitta matches the reported sagittaCm`,
         Math.abs(recomputed - tile.sagittaCm) < 1e-9,
@@ -495,9 +524,21 @@ function independentSagittaCm(cfg, tile) {
   console.log('amplitude -> plate count (6x8 sheet, flat-lie, plateFitToleranceCm=2.0cm):')
   for (let k = 0; k < amplitudes.length; k++) console.log(`  amplitude=${amplitudes[k]}: ${counts[k]} plates`)
 
-  let nonIncreasing = true
-  for (let k = 1; k < counts.length; k++) if (counts[k] > counts[k - 1]) nonIncreasing = false
-  check('plate count is non-increasing across the amplitude sweep', nonIncreasing, JSON.stringify(counts))
+  // Plate count falls STRONGLY but not monotonically with amplitude. Faceting is
+  // why: `facetCells` blocks are fixed in material space, so as the form steepens
+  // a candidate can move from straddling a crease (bad fit) to sitting inside one
+  // facet (perfect fit), which can lift the count at a single step even while the
+  // overall trend falls hard. Asserting strict monotonicity would be asserting
+  // that faceting does not interact with amplitude, which is false — so assert
+  // the trend, plus a bound on any single upward step.
+  const first = counts[0]
+  const last = counts[counts.length - 1]
+  check('plate count falls substantially as the form steepens', last <= first / 2,
+    `first=${first} last=${last} counts=${JSON.stringify(counts)}`)
+  let worstRise = 0
+  for (let k = 1; k < counts.length; k++) worstRise = Math.max(worstRise, counts[k] - counts[k - 1])
+  check('no large upward jump in plate count across the sweep', worstRise <= 3,
+    `worst single-step rise=${worstRise} counts=${JSON.stringify(counts)}`)
   check('the sweep actually varies — amplitude really drives plate count, not a flat line', new Set(counts).size > 1, JSON.stringify(counts))
   check('a flat form (amplitude 0) tiles almost entirely in plates (>=20 of 24 possible)', counts[0] >= 20, String(counts[0]))
   check(

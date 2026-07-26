@@ -490,7 +490,9 @@ function pointInHull(pt, hull) {
 export function solveLayout(config) {
   const cfg = normalizeConfig(config)
   const target = buildTarget(cfg)
-  const tiling = solveTiling(cfg)
+  // Pass the target in so the tiler decides square-vs-plate against the SAME
+  // surface these panels get seated on, and the unroll is solved once.
+  const tiling = solveTiling(cfg, target)
   const gap = cfg.gap
   const groundTol = cfg.groundTolerance
   const warnings = []

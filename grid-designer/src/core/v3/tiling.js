@@ -142,7 +142,7 @@
  * (`axisAdjacency`) finds each real, distinct shared segment on its own.
  */
 
-import { driftHeight } from './form.js'
+import { buildTarget } from './target.js'
 import { normalizeConfig } from './schema.js'
 
 export const MIN_PLATES = 4
@@ -236,24 +236,25 @@ function candidateCellCenters(cand, pitch, size) {
  * sampled at the two cell centres and their midpoint (V3_SPEC §3.1 — an
  * explicit discrete estimate, not an analytic curvature).
  */
-function scoreFlatLie(cfg, cand) {
+function scoreFlatLie(cfg, cand, target) {
   const pitch = cfg.cell.size + cfg.gap
   const [cA, cB] = candidateCellCenters(cand, pitch, cfg.cell.size)
   const mid = [(cA[0] + cB[0]) / 2, (cA[1] + cB[1]) / 2]
 
-  const pA = mapMaterialToPlan(cfg, cA[0], cA[1])
-  const pM = mapMaterialToPlan(cfg, mid[0], mid[1])
-  const pB = mapMaterialToPlan(cfg, cB[0], cB[1])
+  // Read the TARGET, for the same reason computeSagittaCm does — scoring
+  // against the smooth form while the panels sit on the faceted target ranks
+  // candidates by a surface that is not the one they have to lie on.
+  const pA = target.frameAtMaterial(cA[0], cA[1]).point
+  const pM = target.frameAtMaterial(mid[0], mid[1]).point
+  const pB = target.frameAtMaterial(cB[0], cB[1]).point
 
-  const hA = driftHeight(cfg.form, pA.x, pA.z)
-  const hM = driftHeight(cfg.form, pM.x, pM.z)
-  const hB = driftHeight(cfg.form, pB.x, pB.z)
-
-  // Plan-space spacing between consecutive samples (A→mid, mid→B are equal
-  // because materialToPlanApprox is a per-axis linear scale, which preserves
-  // midpoints exactly).
-  const h = Math.hypot(pM.x - pA.x, pM.z - pA.z) || 1e-9
-  const secondDiff = (hB - 2 * hM + hA) / (h * h)
+  // Spacing between consecutive samples along the actual surface, so the second
+  // difference is a curvature and not an index difference. The arc-length unroll
+  // makes A->mid and mid->B unequal in general, so use their mean.
+  const dA = Math.hypot(pM[0] - pA[0], pM[1] - pA[1], pM[2] - pA[2])
+  const dB = Math.hypot(pB[0] - pM[0], pB[1] - pM[1], pB[2] - pM[2])
+  const h = (dA + dB) / 2 || 1e-9
+  const secondDiff = (pB[1] - 2 * pM[1] + pA[1]) / (h * h)
   return -Math.abs(secondDiff)
 }
 
@@ -296,10 +297,10 @@ function scoreToeBands(cand) {
   return cand.axis === 'v' ? 1 / (1 + cand.i) : 1 / (1 + cand.j)
 }
 
-function scoreCandidate(strategy, cfg, cand) {
+function scoreCandidate(strategy, cfg, cand, target) {
   if (strategy === 'ridge-aligned') return scoreRidgeAligned(cfg, cand)
   if (strategy === 'toe-bands') return scoreToeBands(cand)
-  return scoreFlatLie(cfg, cand)
+  return scoreFlatLie(cfg, cand, target)
 }
 
 // =============================================================================
@@ -345,48 +346,55 @@ function plateFootprint(cfg, cand) {
 }
 
 /**
- * Sagitta (cm) of a candidate plate's long axis against the target surface
- * `H` — see "PLATE FIT" in the file header. Samples `SAGITTA_SAMPLE_COUNT`
- * points evenly along the plate's 121cm long axis, cross-axis held fixed at
- * the plate's own centreline, maps each to plan space via
- * `materialToPlanApprox` (approximate, scoring-only — see the file header's
- * warning on that function) and reads `H` there. Returns the maximum
- * perpendicular distance, in the local (distance-along-axis, height) plane,
- * from the straight chord joining the two end samples to every sample in
- * between — exactly what "how far does the surface bow away from a rigid
- * plate resting on its two ends" means physically.
+ * Sagitta (cm) of a candidate plate against **the surface the panels actually
+ * sit on** — see "PLATE FIT" in the file header.
+ *
+ * MEASURED AGAINST THE TARGET, NOT THE SMOOTH FORM. This used to read
+ * `driftHeight` through `materialToPlanApprox`, and that was wrong in both
+ * directions once faceting existed: the tiler reported an identical sagitta for
+ * every `angularity` / `facetCells` setting, because it could not see faceting
+ * at all, while `placement.js` was seating the panels on the faceted target. So
+ * the tiler and the placer disagreed about what surface the panels lie on.
+ * Measured at amplitude 100: the tiler claimed 1.70cm everywhere, while the true
+ * sagitta ranged 0.17cm (broad facets — plates fit far better than the tiler
+ * believed, so good plates were being refused) to 5.26cm (2.6x over tolerance —
+ * bad plates were being placed). Both failure modes are gone now.
+ *
+ * Samples `SAGITTA_SAMPLE_COUNT` points evenly along the plate's long MATERIAL
+ * axis with the cross-axis held at the plate's own centreline, and returns the
+ * greatest perpendicular distance in 3D from the straight chord joining the two
+ * end samples. 3D, not (distance, height): a rigid plate is a straight chord in
+ * space, and the arc-length unroll means the plan spacing between samples is not
+ * uniform, so the flattened 2D version quietly understated the bow.
  */
-function computeSagittaCm(cfg, cand) {
+function computeSagittaCm(cfg, cand, target) {
   const uv = plateFootprint(cfg, cand)
   const along = cand.axis === 'u' ? { start: uv.u0, len: uv.uLen } : { start: uv.v0, len: uv.vLen }
   const crossPos = cand.axis === 'u' ? uv.v0 + uv.vLen / 2 : uv.u0 + uv.uLen / 2
 
-  const heights = new Array(SAGITTA_SAMPLE_COUNT)
+  const pts = new Array(SAGITTA_SAMPLE_COUNT)
   for (let k = 0; k < SAGITTA_SAMPLE_COUNT; k++) {
     const t = k / (SAGITTA_SAMPLE_COUNT - 1)
     const pos = along.start + t * along.len
     const u = cand.axis === 'u' ? pos : crossPos
     const v = cand.axis === 'u' ? crossPos : pos
-    const plan = mapMaterialToPlan(cfg, u, v)
-    heights[k] = driftHeight(cfg.form, plan.x, plan.z)
+    pts[k] = target.frameAtMaterial(u, v).point
   }
 
-  const h0 = heights[0]
-  const h1 = heights[heights.length - 1]
-  // Chord in the (distance-along-span, height) plane: (0, h0) → (along.len, h1).
-  const dx = along.len
-  const dh = h1 - h0
-  const chordLen = Math.hypot(dx, dh) || 1e-9
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const dLen = Math.hypot(d[0], d[1], d[2]) || 1e-9
 
   let maxSagitta = 0
-  for (let k = 1; k < heights.length - 1; k++) {
-    const t = k / (SAGITTA_SAMPLE_COUNT - 1)
-    const x = t * along.len
-    const h = heights[k]
-    // Perpendicular distance from point (x, h) to the line through (0, h0)
-    // and (dx, h0 + dh): |dx·(h − h0) − dh·(x − 0)| / |chord|.
-    const crossMag = Math.abs(dx * (h - h0) - dh * x)
-    maxSagitta = Math.max(maxSagitta, crossMag / chordLen)
+  for (let k = 1; k < pts.length - 1; k++) {
+    const p = pts[k]
+    const w = [p[0] - a[0], p[1] - a[1], p[2] - a[2]]
+    // |w x d| / |d| — perpendicular distance from the point to the chord line.
+    const cx = w[1] * d[2] - w[2] * d[1]
+    const cy = w[2] * d[0] - w[0] * d[2]
+    const cz = w[0] * d[1] - w[1] * d[0]
+    maxSagitta = Math.max(maxSagitta, Math.hypot(cx, cy, cz) / dLen)
   }
   return maxSagitta
 }
@@ -507,11 +515,18 @@ function computeAdjacency(tiles, gap) {
  * @param {object} config raw or normalized v3 config
  * @returns {{ tiles: Array, adjacency: Array, pattern: string, warnings: Array }}
  */
-export function solveTiling(config) {
+export function solveTiling(config, injectedTarget = null) {
   const cfg = normalizeConfig(config)
   const { cols, rows } = cfg.sheet
   const strategy = cfg.tiling.strategy
   const tolerance = cfg.tiling.plateFitToleranceCm
+
+  // The tiler and the placer MUST measure the same surface, or the tiler decides
+  // square-vs-plate against a shape the panels never lie on. `placement.js`
+  // injects the target it is about to place on; a standalone caller gets one
+  // built here. Injection is not an optimisation detail — it is what guarantees
+  // the two agree, and it also avoids solving the arc-length unroll twice.
+  const target = injectedTarget ?? buildTarget(cfg)
 
   // --- 1. Enumerate every candidate domino, score it, and measure its fit ---
   const candidates = []
@@ -522,8 +537,8 @@ export function solveTiling(config) {
     }
   }
   for (const c of candidates) {
-    c.score = scoreCandidate(strategy, cfg, c)
-    c.sagittaCm = computeSagittaCm(cfg, c)
+    c.score = scoreCandidate(strategy, cfg, c, target)
+    c.sagittaCm = computeSagittaCm(cfg, c, target)
   }
 
   // --- 2. PLATE FIT — drop any candidate whose sagitta exceeds the tolerance

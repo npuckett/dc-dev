@@ -117,8 +117,15 @@ console.log('5. the trade-off is monotone where it claims to be')
   // must not have tighter worst-case joints than the shortest.
   ok(measured.dune.worst > measured.closed.worst,
     `taller costs joint deviation (dune ${measured.dune.worst.toFixed(2)}cm > closed ${measured.closed.worst.toFixed(2)}cm)`)
-  ok(measured.crest.worst > measured.dune.worst,
-    `crest costs more still (${measured.crest.worst.toFixed(2)}cm > ${measured.dune.worst.toFixed(2)}cm)`)
+  // NOT asserting crest.worst > dune.worst. Worst-joint is not monotone in peak
+  // across the family, because the presets differ in facetCells and gap as well
+  // as amplitude — crest is taller than dune yet has tighter joints, because it
+  // facets differently. What IS true, and is crest's actual claim, is that it is
+  // the tallest and the only one that fails to be collision-free.
+  const tallestOverall = PRESET_IDS.reduce((a, b) => (measured[a].peak >= measured[b].peak ? a : b))
+  ok(tallestOverall === 'crest', `crest is the tallest preset overall (got ${tallestOverall})`)
+  ok(PRESET_IDS.filter((id) => measured[id].collisions > 0).join() === 'crest',
+    'crest is the ONLY preset with panel interpenetration — that is what it exists to show')
 }
 
 console.log('\n   preset   peak  worst  flagged  coll  plates  worst edge clearance')

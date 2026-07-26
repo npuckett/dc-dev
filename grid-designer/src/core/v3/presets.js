@@ -101,14 +101,16 @@ const PRESET_DEFS = [
     id: 'dune',
     label: 'dune — tall, still closed',
     trade:
-      'Pushes the crest to ~87cm and holds the joints under about 9cm by ' +
-      'faceting hard. The graded edges pay for it, rising to ~19cm: broad facet ' +
-      'planes cannot hug the toe.',
+      'The tall collision-free option: crest ~93cm with no panels touching. It ' +
+      'pays in joint deviation (~16cm worst) and in the graded edges rising to ' +
+      '~19cm — broad facet planes cannot hug the toe. Going to facetCells 4 would ' +
+      'close the joints to ~8cm but reintroduces a collision, which is the harder ' +
+      'failure, so this preset takes the joints instead.',
     sheet: { cols: 6, rows: 8 },
-    gap: 2,
+    gap: 3,
     form: {
-      amplitude: 90, crestX: 0.6, crestZ: 0.5, ridgeShear: 0.35,
-      toeSharpX: 1.0, toeSharpZ: 1.0, angularity: 1, facetCells: 4,
+      amplitude: 80, crestX: 0.6, crestZ: 0.5, ridgeShear: 0.35,
+      toeSharpX: 1.0, toeSharpZ: 1.0, angularity: 1, facetCells: 3,
     },
   },
   {
@@ -118,11 +120,11 @@ const PRESET_DEFS = [
       'The only preset that keeps 60+1+60 = 121 exactly, so a plate is a true ' +
       'drop-in for two squares and the kit stays modular. That 1cm joint is what ' +
       'limits it: the housings converge on curvature, so the crest has to stay ' +
-      'near ~50cm to keep panels out of each other.',
+      'near ~42cm to keep panels out of each other.',
     sheet: { cols: 6, rows: 8 },
     gap: 1,
     form: {
-      amplitude: 45, crestX: 0.6, crestZ: 0.5, ridgeShear: 0.24,
+      amplitude: 40, crestX: 0.6, crestZ: 0.5, ridgeShear: 0.24,
       toeSharpX: 1.0, toeSharpZ: 1.0, angularity: 1, facetCells: 4,
     },
   },
@@ -131,10 +133,11 @@ const PRESET_DEFS = [
     label: 'crest — v2 height, and what it costs',
     trade:
       'Reaches the ~105cm neighbourhood of the v2 swell, deliberately, so the ' +
-      'comparison is on the record. It is NOT a closed design: worst joint ' +
-      'deviation is around 27cm and a pair of panels still collide. Kept because ' +
-      'v2 shipped presets with 49cm deviation, so this is the honest ' +
-      'like-for-like — and because the report should be able to say no.',
+      'comparison is on the record. The tallest preset, and the ONLY one where ' +
+      'panels still interpenetrate — which is the hard failure, so it is not a ' +
+      'buildable design however good its ~12cm joints look. Kept because v2 ' +
+      'shipped presets with 49cm deviation, so this is the honest like-for-like, ' +
+      'and because the report should be able to say no.',
     sheet: { cols: 6, rows: 7 },
     gap: 3,
     form: {
