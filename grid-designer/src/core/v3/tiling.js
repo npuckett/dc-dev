@@ -27,28 +27,27 @@
  * (i, j+1).
  *
  * =============================================================================
- * materialToPlanApprox — READ THIS BEFORE TOUCHING THE SCORING FUNCTIONS
+ * WHICH SURFACE THE SCORING READS
  * =============================================================================
- * Scoring needs to sample the target surface `H(x, z)` (src/core/v3/form.js),
- * but `H` is defined in PLAN coordinates while the tiling lives in MATERIAL
- * coordinates, and the true material→plan map is not known until the
- * placement walk runs (V3_SPEC.md §4, a later package — it depends on the
- * spanning tree and the accumulated dihedral at every joint). So for scoring
- * PURPOSES ONLY, this file uses an explicit, deliberately approximate map:
- * scale each material axis linearly onto the plan footprint, as if the sheet
- * lay flat. It is exported as `materialToPlanApprox` — the name says what it
- * is.
+ * Scoring and the fit gate both read the TARGET (src/core/v3/target.js), via an
+ * injected `target` argument to `solveTiling` — the same object `placement.js`
+ * is about to seat the panels on. That is not an optimisation; it is what stops
+ * the tiler and the placer disagreeing about what surface the panels lie on.
  *
- * THIS IS WRONG IN A SPECIFIC, KNOWN WAY: a curved surface's plan-view shadow
- * is smaller than its developed (flattened) area, because the surface leans
- * away from vertical wherever it's not flat. A linear scale ignores that
- * entirely. That is FINE HERE, because scoring only has to decide WHICH cells
- * get a plate — a comparative, local question — not WHERE panels end up in
- * the finished installation, which is what placement.js (not yet built) will
- * answer properly by actually walking the tiling edge by edge.
+ * They used to disagree. This file measured `driftHeight` (the SMOOTH form)
+ * through `materialToPlanApprox`, a deliberately-approximate linear material→
+ * plan scale, while placement seated the panels on the FACETED target via the
+ * real arc-length unroll. The tiler was therefore blind to `angularity` and
+ * `facetCells` and reported an identical sagitta for every faceting setting —
+ * placing plates where they physically could not fit (measured 5.26cm against a
+ * 2cm tolerance) while refusing plates that would have fitted almost perfectly
+ * (0.17cm). Both failure modes came from the same root cause.
  *
- * ANYONE WHO REACHES FOR THIS FUNCTION TO COMPUTE AN ACTUAL PANEL POSITION IS
- * MAKING A MISTAKE. It exists for scoring only.
+ * `materialToPlanApprox` is still exported, and is still used by the
+ * `ridge-aligned` / `toe-bands` strategies for PROXIMITY weighting — a
+ * comparative "how near the crest / an edge is this" question where a linear
+ * scale is fine and no fit claim is made. It must NEVER be used to decide
+ * whether a plate fits, or to compute an actual panel position.
  *
  * =============================================================================
  * THE THREE STRATEGIES — V3_SPEC.md §3.1
@@ -125,6 +124,45 @@
  * method and why the midpoint alone is not always the worst point.
  *
  * =============================================================================
+ * MANUAL OVERRIDES (P8) — `config.tiling.overrides`, hard commitments
+ * =============================================================================
+ * The fit gate above went slack for a reason worth restating: a faceted
+ * target (form.angularity > 0) is locally PLANAR by construction, so a
+ * candidate's sagitta collapses to near zero almost everywhere and nearly
+ * every candidate survives the filter — the strategies stop having anything
+ * to choose between, and all three collapse onto the same tiling. Manual
+ * override is the lever that puts choice back in the user's hands: pin a
+ * cell to a square or a plate directly, by hand, from the plan view
+ * (src/v3/TilingMap.jsx) — see schema.js's "MANUAL TILE OVERRIDES" for the
+ * config shape (`{ i, j, type, axis }`, keyed on the candidate's anchor cell,
+ * exactly as this file already identifies one).
+ *
+ * `solveTiling` applies every override BEFORE the scored sweep runs, as a
+ * hard commitment: an override's cells are marked covered first, so the
+ * strategy sweep (which already skips any candidate touching a covered cell)
+ * never sees them as available, and the final square-fill pass never
+ * revisits them either. The partition property — every cell covered exactly
+ * once — holds the same way it always has: `normalizeConfig`'s
+ * `sanitizeOverrides` has already guaranteed the overrides array itself is
+ * in-bounds and cell-disjoint before this file ever sees it, so "place
+ * overrides first" cannot double-cover a cell.
+ *
+ * A MANUALLY-PLACED PLATE IS NEVER SUBJECT TO THE SAGITTA GATE. This is the
+ * crux of the package, and it inverts the automatic behaviour on purpose: an
+ * auto-candidate whose sagitta exceeds `plateFitToleranceCm` is dropped
+ * silently (two squares instead); a manual override with the SAME sagitta is
+ * PLACED — the user is overruling the algorithm intentionally — and instead
+ * raises the non-blocking `W_PLATE_OVERRIDE_MISFIT` warning, naming the tile
+ * and its measured sagitta against the tolerance. v2's `core/merge.js`
+ * (commit 565af13, HANDOFF.md §3.6) hit this exact question and recorded the
+ * answer: a merge tool that refuses every physically-awkward request the
+ * user actually wants is not a usable tool. Sagitta is still measured
+ * IDENTICALLY for an override as for an auto-placed plate — against the
+ * TARGET, in 3D, via the same `computeSagittaCm` (exported below so callers,
+ * including the plan view, can preview the cost of a candidate combination
+ * before committing to it).
+ *
+ * =============================================================================
  * ADJACENCY — computed in MATERIAL space, exactly, never inferred from world
  * positions (V3_SPEC.md §3.2)
  * =============================================================================
@@ -146,6 +184,13 @@ import { buildTarget } from './target.js'
 import { normalizeConfig } from './schema.js'
 
 export const MIN_PLATES = 4
+
+/**
+ * Code for the non-blocking warning a manually-overridden plate raises when
+ * its sagitta exceeds `tiling.plateFitToleranceCm` — see this file's header,
+ * "MANUAL OVERRIDES". Placed anyway; this is the reported cost, not a veto.
+ */
+export const OVERRIDE_MISFIT_CODE = 'W_PLATE_OVERRIDE_MISFIT'
 
 /**
  * Builds the `W_FEW_PLATES` warning, or returns null when there's nothing to
@@ -367,7 +412,7 @@ function plateFootprint(cfg, cand) {
  * space, and the arc-length unroll means the plan spacing between samples is not
  * uniform, so the flattened 2D version quietly understated the bow.
  */
-function computeSagittaCm(cfg, cand, target) {
+export function computeSagittaCm(cfg, cand, target) {
   const uv = plateFootprint(cfg, cand)
   const along = cand.axis === 'u' ? { start: uv.u0, len: uv.uLen } : { start: uv.v0, len: uv.vLen }
   const crossPos = cand.axis === 'u' ? uv.v0 + uv.vLen / 2 : uv.u0 + uv.uLen / 2
@@ -419,6 +464,10 @@ function makeSquareTile(cfg, i, j) {
     // quality only means something for a rigid plate; report 0 here so every
     // tile carries the field uniformly (P2b, see "PLATE FIT").
     sagittaCm: 0,
+    // Overwritten to `true` at the override call site (P8) — see "MANUAL
+    // OVERRIDES". `false` here means "the algorithm chose this", the default
+    // for every tile the scored sweep or the remainder fill produces.
+    pinned: false,
   }
 }
 
@@ -434,6 +483,9 @@ function makePlateTile(cfg, cand) {
     uv,
     // Already computed during candidate scoring/filtering — see solveTiling.
     sagittaCm: cand.sagittaCm,
+    // See makeSquareTile's identical field: `false` unless overwritten at the
+    // override call site.
+    pinned: false,
   }
 }
 
@@ -512,6 +564,13 @@ function computeAdjacency(tiles, gap) {
  * Deterministic, form-driven domino tiling of `config.sheet.cols ×
  * config.sheet.rows`. Safe to call on raw (un-normalized) input.
  *
+ * Each tile carries `pinned: boolean` — `true` for a tile placed from
+ * `config.tiling.overrides` (P8, "MANUAL OVERRIDES"), `false` for one the
+ * scored sweep or the remainder fill chose. `warnings` may include
+ * `W_PLATE_OVERRIDE_MISFIT` (see `OVERRIDE_MISFIT_CODE`) for any override
+ * whose sagitta exceeds `tiling.plateFitToleranceCm` — the plate is placed
+ * regardless; this only reports the cost.
+ *
  * @param {object} config raw or normalized v3 config
  * @returns {{ tiles: Array, adjacency: Array, pattern: string, warnings: Array }}
  */
@@ -527,6 +586,59 @@ export function solveTiling(config, injectedTarget = null) {
   // built here. Injection is not an optimisation detail — it is what guarantees
   // the two agree, and it also avoids solving the arc-length unroll twice.
   const target = injectedTarget ?? buildTarget(cfg)
+
+  const covered = new Set()
+  const cellKey = (i, j) => `${i},${j}`
+  const tiles = []
+  let plateCount = 0
+  const overrideWarnings = []
+
+  // --- 0. MANUAL OVERRIDES — hard commitments, placed BEFORE the scored
+  //        sweep. See the file header's "MANUAL OVERRIDES" section: an
+  //        override always wins over the algorithm, and — critically — a
+  //        manually-placed plate is placed and reported even when its
+  //        sagitta exceeds `plateFitToleranceCm`; it is never subject to the
+  //        PLATE FIT gate below, which only ever filters the algorithm's own
+  //        candidates. `cfg.tiling.overrides` has already been sanitized by
+  //        `normalizeConfig` (schema.js's `sanitizeOverrides`) into an
+  //        in-bounds, cell-disjoint array, so the bounds/overlap guards here
+  //        are defensive, not load-bearing.
+  for (const ov of cfg.tiling.overrides) {
+    if (ov.type === '2x4') {
+      const cand = { i: ov.i, j: ov.j, axis: ov.axis }
+      const cells = cand.axis === 'u' ? [[cand.i, cand.j], [cand.i + 1, cand.j]] : [[cand.i, cand.j], [cand.i, cand.j + 1]]
+      if (cells.some(([i, j]) => i < 0 || i >= cols || j < 0 || j >= rows)) continue
+      if (cells.some(([i, j]) => covered.has(cellKey(i, j)))) continue
+      cand.sagittaCm = computeSagittaCm(cfg, cand, target)
+      for (const [i, j] of cells) covered.add(cellKey(i, j))
+      const plateTile = makePlateTile(cfg, cand)
+      plateTile.pinned = true
+      tiles.push(plateTile)
+      plateCount++
+      if (cand.sagittaCm > tolerance + SAGITTA_EPS) {
+        const tileId = `pl_${cand.i}_${cand.j}_${cand.axis}`
+        const overCm = cand.sagittaCm - tolerance
+        overrideWarnings.push({
+          code: OVERRIDE_MISFIT_CODE,
+          tile: tileId,
+          sagittaCm: cand.sagittaCm,
+          toleranceCm: tolerance,
+          message:
+            `manually-placed plate ${tileId} bows ${cand.sagittaCm.toFixed(2)}cm away from the target ` +
+            `over its 121cm span — ${overCm.toFixed(2)}cm past tiling.plateFitToleranceCm ` +
+            `(${tolerance}cm). Placed anyway: this was a manual override, not the algorithm's choice, ` +
+            `so it is reported rather than refused.`,
+        })
+      }
+    } else {
+      if (ov.i < 0 || ov.i >= cols || ov.j < 0 || ov.j >= rows) continue
+      if (covered.has(cellKey(ov.i, ov.j))) continue
+      covered.add(cellKey(ov.i, ov.j))
+      const squareTile = makeSquareTile(cfg, ov.i, ov.j)
+      squareTile.pinned = true
+      tiles.push(squareTile)
+    }
+  }
 
   // --- 1. Enumerate every candidate domino, score it, and measure its fit ---
   const candidates = []
@@ -545,10 +657,16 @@ export function solveTiling(config, injectedTarget = null) {
   //        BEFORE ranking. See the file header's "PLATE FIT" section: a
   //        strategy chooses among candidates that fit; it never gets to place
   //        one that does not, no matter how well it would otherwise score.
+  //        (Overrides above are exempt from this filter entirely — see
+  //        "MANUAL OVERRIDES".)
   const eligible = candidates.filter((c) => c.sagittaCm <= tolerance + SAGITTA_EPS)
 
   // --- 3. Place highest-score-first among the survivors; ties break on
-  //        (i, j, axis) ---------------------------------------------------
+  //        (i, j, axis). Anything touching a cell an override already
+  //        committed is skipped exactly like a cell an earlier-placed
+  //        candidate already covered — overrides are seeded into `covered`
+  //        before this loop runs, so this is the SAME mechanism, not a
+  //        special case. ---------------------------------------------------
   eligible.sort((p, q) => {
     if (q.score !== p.score) return q.score - p.score
     if (p.i !== q.i) return p.i - q.i
@@ -557,10 +675,6 @@ export function solveTiling(config, injectedTarget = null) {
     return 0
   })
 
-  const covered = new Set()
-  const cellKey = (i, j) => `${i},${j}`
-  const tiles = []
-  let plateCount = 0
   for (const cand of eligible) {
     const cells = cand.axis === 'u' ? [[cand.i, cand.j], [cand.i + 1, cand.j]] : [[cand.i, cand.j], [cand.i, cand.j + 1]]
     if (cells.some(([i, j]) => covered.has(cellKey(i, j)))) continue
@@ -595,7 +709,9 @@ export function solveTiling(config, injectedTarget = null) {
   //        Now genuinely reachable (P2b): a form too curved for
   //        `plateFitToleranceCm` to admit MIN_PLATES plates fires this for
   //        real, and the message says why (points at the tolerance knob).
-  const warnings = []
+  //        Override misfit warnings (P8, "MANUAL OVERRIDES") are collected
+  //        first, so they read before the aggregate plate-count warning.
+  const warnings = [...overrideWarnings]
   const fewPlatesWarning = buildFewPlatesWarning(plateCount, strategy, cols, rows, tolerance)
   if (fewPlatesWarning) warnings.push(fewPlatesWarning)
 

@@ -19,6 +19,8 @@ import {
   DEFAULT_TILING,
   GAP_MAX,
   GAP_MIN,
+  OVERRIDE_AXES,
+  OVERRIDE_TYPES,
   PLACEMENT_TREES,
   PLATE_FIT_TOLERANCE_MAX,
   PLATE_FIT_TOLERANCE_MIN,
@@ -604,6 +606,239 @@ expectValid('groundTolerance 0.1 is allowed', { ...good(), groundTolerance: 0.1 
       Number.isFinite(normalized.gapTolerance) &&
       Number.isFinite(normalized.groundTolerance),
     JSON.stringify(normalized),
+  )
+}
+
+// =============================================================================
+// 13. tiling.overrides (P8) — manual square/plate pins. See schema.js's
+// "MANUAL TILE OVERRIDES": normalizeConfig SANITIZES (drops malformed /
+// out-of-bounds / conflicting entries silently, first-in-array-order wins a
+// contested cell); validateConfig REPORTS the same problems on the RAW array
+// instead of dropping them.
+// =============================================================================
+check(
+  'OVERRIDE_TYPES are exactly 2x2, 2x4',
+  JSON.stringify(OVERRIDE_TYPES) === JSON.stringify(['2x2', '2x4']),
+  JSON.stringify(OVERRIDE_TYPES),
+)
+check('OVERRIDE_AXES are exactly u, v', JSON.stringify(OVERRIDE_AXES) === JSON.stringify(['u', 'v']), JSON.stringify(OVERRIDE_AXES))
+check(
+  'DEFAULT_CONFIG.tiling.overrides is an empty array',
+  Array.isArray(DEFAULT_CONFIG.tiling.overrides) && DEFAULT_CONFIG.tiling.overrides.length === 0,
+)
+check(
+  'DEFAULT_TILING.overrides is an empty array',
+  Array.isArray(DEFAULT_TILING.overrides) && DEFAULT_TILING.overrides.length === 0,
+)
+check(
+  'normalizeConfig defaults tiling.overrides to [] when entirely absent',
+  Array.isArray(normalizeConfig({}).tiling.overrides) && normalizeConfig({}).tiling.overrides.length === 0,
+)
+
+// --- a well-formed overrides array validates and survives normalizeConfig --
+{
+  const cfg = good()
+  cfg.tiling = {
+    ...cfg.tiling,
+    overrides: [
+      { i: 1, j: 2, type: '2x4', axis: 'u' },
+      { i: 0, j: 0, type: '2x2' },
+    ],
+  }
+  expectValid('a well-formed overrides array (one plate, one square) validates', cfg)
+  const norm = normalizeConfig(cfg)
+  check(
+    'normalizeConfig keeps a well-formed plate override exactly',
+    norm.tiling.overrides.some((o) => o.i === 1 && o.j === 2 && o.type === '2x4' && o.axis === 'u'),
+    JSON.stringify(norm.tiling.overrides),
+  )
+  check(
+    'normalizeConfig keeps a well-formed square override, defaulting its axis to "u"',
+    norm.tiling.overrides.some((o) => o.i === 0 && o.j === 0 && o.type === '2x2' && o.axis === 'u'),
+    JSON.stringify(norm.tiling.overrides),
+  )
+  check('normalizeConfig invents no extra overrides', norm.tiling.overrides.length === 2, JSON.stringify(norm.tiling.overrides))
+}
+
+// --- E_OVERRIDE_SHAPE: tiling.overrides itself not an array -----------------
+{
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: 'not an array' }
+  expectError('E_OVERRIDE_SHAPE: tiling.overrides not an array', cfg, 'E_OVERRIDE_SHAPE')
+  check(
+    'normalizeConfig falls back to [] when tiling.overrides is not an array',
+    Array.isArray(normalizeConfig(cfg).tiling.overrides) && normalizeConfig(cfg).tiling.overrides.length === 0,
+  )
+}
+
+// --- E_OVERRIDE_SHAPE: malformed entries, individually and dropped together -
+{
+  // `i`/`non-integer` on a NUMBER (not NaN) is deliberately reported here but
+  // ROUNDED by normalizeConfig, exactly like sheet.cols/rows elsewhere in this
+  // file ("normalizeConfig rounds a fractional sheet.cols before clamping",
+  // §3 above) — validateConfig still flags the raw non-integer input as
+  // E_OVERRIDE_SHAPE, it just isn't one of the entries dropped entirely below.
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 0, j: 1.5, type: '2x2' }] }
+  expectError('E_OVERRIDE_SHAPE: non-integer j is reported on the raw input', cfg, 'E_OVERRIDE_SHAPE')
+  check(
+    'normalizeConfig ROUNDS a non-integer j rather than dropping it (consistent with sheet.cols/rows)',
+    normalizeConfig(cfg).tiling.overrides.length === 1 && normalizeConfig(cfg).tiling.overrides[0].j === 2,
+    JSON.stringify(normalizeConfig(cfg).tiling.overrides),
+  )
+
+  // These, by contrast, have no sane coercion and are DROPPED entirely.
+  const cases = [
+    ['not an object', 'a bare string entry'],
+    [42, 'a bare number entry'],
+    [null, 'a null entry'],
+    [{ i: 'nope', j: 0, type: '2x2' }, 'non-numeric i'],
+    [{ i: 0, j: 0, type: 'bogus' }, 'a bad type'],
+    [{ i: 0, j: 0, type: '2x4' }, 'a 2x4 with no axis at all'],
+    [{ i: 0, j: 0, type: '2x4', axis: 'z' }, 'a 2x4 with a bad axis'],
+  ]
+  for (const [entry, label] of cases) {
+    const c = good()
+    c.tiling = { ...c.tiling, overrides: [entry] }
+    expectError(`E_OVERRIDE_SHAPE: ${label}`, c, 'E_OVERRIDE_SHAPE')
+  }
+  const c = good()
+  c.tiling = { ...c.tiling, overrides: cases.map(([entry]) => entry) }
+  check(
+    'normalizeConfig drops every undroppable-malformed override, leaving none',
+    normalizeConfig(c).tiling.overrides.length === 0,
+    JSON.stringify(normalizeConfig(c).tiling.overrides),
+  )
+}
+
+// --- E_OVERRIDE_BOUNDS: out of bounds, including a plate running off the edge
+{
+  // good() is the 6x8 default sheet: i in 0..5, j in 0..7.
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 6, j: 0, type: '2x2' }] }
+  const result = expectError('E_OVERRIDE_BOUNDS: i at/above sheet.cols', cfg, 'E_OVERRIDE_BOUNDS')
+  check(
+    'E_OVERRIDE_BOUNDS message names the sheet size',
+    result.errors.some((e) => e.code === 'E_OVERRIDE_BOUNDS' && /6×8/.test(e.message)),
+    describe(result),
+  )
+}
+{
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 0, j: 8, type: '2x2' }] }
+  expectError('E_OVERRIDE_BOUNDS: j at/above sheet.rows', cfg, 'E_OVERRIDE_BOUNDS')
+}
+{
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: -1, j: 0, type: '2x2' }] }
+  expectError('E_OVERRIDE_BOUNDS: negative i', cfg, 'E_OVERRIDE_BOUNDS')
+}
+{
+  // The ANCHOR is in bounds, but the plate's second cell is not — exactly
+  // "a plate override that would run off the sheet edge" from the spec.
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 5, j: 0, type: '2x4', axis: 'u' }] } // i+1 = 6, off a 6-col sheet
+  expectError('E_OVERRIDE_BOUNDS: a plate (axis u) running off the sheet edge', cfg, 'E_OVERRIDE_BOUNDS')
+}
+{
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 0, j: 7, type: '2x4', axis: 'v' }] } // j+1 = 8, off an 8-row sheet
+  expectError('E_OVERRIDE_BOUNDS: a plate (axis v) running off the sheet edge', cfg, 'E_OVERRIDE_BOUNDS')
+}
+{
+  const cfg = good()
+  cfg.tiling = { ...cfg.tiling, overrides: [{ i: 99, j: 99, type: '2x2' }] }
+  check(
+    'normalizeConfig drops an out-of-bounds override',
+    normalizeConfig(cfg).tiling.overrides.length === 0,
+    JSON.stringify(normalizeConfig(cfg).tiling.overrides),
+  )
+}
+
+// --- E_OVERRIDE_CONFLICT: two overrides claiming the same cell --------------
+{
+  const cfg = good()
+  cfg.tiling = {
+    ...cfg.tiling,
+    overrides: [
+      { i: 2, j: 2, type: '2x2' },
+      { i: 2, j: 2, type: '2x2' },
+    ],
+  }
+  const result = expectError('E_OVERRIDE_CONFLICT: two identical square overrides', cfg, 'E_OVERRIDE_CONFLICT')
+  check(
+    'E_OVERRIDE_CONFLICT message names both entries and the contested cell',
+    result.errors.some(
+      (e) =>
+        e.code === 'E_OVERRIDE_CONFLICT' &&
+        /tiling\.overrides\[0\]/.test(e.message) &&
+        /tiling\.overrides\[1\]/.test(e.message) &&
+        /\(2, 2\)/.test(e.message),
+    ),
+    describe(result),
+  )
+}
+{
+  // A plate and a square disagreeing about one shared cell.
+  const cfg = good()
+  cfg.tiling = {
+    ...cfg.tiling,
+    overrides: [
+      { i: 0, j: 0, type: '2x4', axis: 'u' }, // covers (0,0) and (1,0)
+      { i: 1, j: 0, type: '2x2' }, // also claims (1,0)
+    ],
+  }
+  expectError('E_OVERRIDE_CONFLICT: a plate and a square disagree about a shared cell', cfg, 'E_OVERRIDE_CONFLICT')
+}
+{
+  // normalizeConfig resolves a conflict deterministically: first-in-array wins.
+  const cfg = good()
+  cfg.tiling = {
+    ...cfg.tiling,
+    overrides: [
+      { i: 0, j: 0, type: '2x4', axis: 'u' },
+      { i: 1, j: 0, type: '2x2' },
+    ],
+  }
+  const norm = normalizeConfig(cfg)
+  check(
+    'normalizeConfig conflict resolution: the first override wins, the second is dropped',
+    norm.tiling.overrides.length === 1 && norm.tiling.overrides[0].type === '2x4',
+    JSON.stringify(norm.tiling.overrides),
+  )
+}
+{
+  // Non-adjacent, non-conflicting overrides are fine together.
+  const cfg = good()
+  cfg.tiling = {
+    ...cfg.tiling,
+    overrides: [
+      { i: 0, j: 0, type: '2x2' },
+      { i: 3, j: 3, type: '2x4', axis: 'v' },
+    ],
+  }
+  expectValid('two non-conflicting overrides validate together', cfg)
+}
+
+// --- round-trip / idempotency with overrides present ------------------------
+{
+  const withOverrides = {
+    ...good(),
+    tiling: {
+      ...good().tiling,
+      overrides: [
+        { i: 0, j: 0, type: '2x4', axis: 'u' },
+        { i: 2, j: 3, type: '2x2', axis: 'u' },
+      ],
+    },
+  }
+  const once = normalizeConfig(withOverrides)
+  const twice = normalizeConfig(once)
+  check('normalizeConfig with overrides is idempotent', JSON.stringify(once) === JSON.stringify(twice))
+  const roundTripped = JSON.parse(JSON.stringify(once))
+  check(
+    'normalizeConfig output with overrides survives a JSON round-trip unchanged',
+    JSON.stringify(once) === JSON.stringify(roundTripped),
   )
 }
 

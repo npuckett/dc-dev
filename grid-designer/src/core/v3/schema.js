@@ -60,6 +60,42 @@
  * it never silently corrects them.
  *
  * =============================================================================
+ * MANUAL TILE OVERRIDES (P8) — pinning a cell to a square or a plate by hand
+ * =============================================================================
+ * "All choices about square or rectangular should be made by the tiling
+ * algorithm" (tiling.js's header) is the DEFAULT, not a mandate — the brief
+ * this package answers is manual control over faceting, because the fit gate
+ * (tiling.js's "PLATE FIT") went slack on a faceted target and the algorithm
+ * alone stopped producing distinguishable tilings. `tiling.overrides` is an
+ * array of pinned domino decisions, each `{ i, j, type: '2x2' | '2x4', axis:
+ * 'u' | 'v' }`, keyed on the candidate's ANCHOR cell exactly the way
+ * `tiling.js` already identifies a candidate domino (see that file's header)
+ * — `axis` only means something for a `'2x4'` entry. `solveTiling` applies
+ * every override as a HARD COMMITMENT before its scored sweep runs (see
+ * tiling.js's "MANUAL OVERRIDES" section), so a manual pin always wins over
+ * the algorithm, and the sweep only ever fills what is left.
+ *
+ * TWO KINDS OF DEFAULTING applies here too, same split as everywhere else in
+ * this file: `normalizeConfig` silently SANITIZES — it drops any override
+ * that is malformed, out of the (already-clamped) sheet's bounds, or that
+ * claims a cell another override already claims (first one in array order
+ * wins) — because it must hand `tiling.js` something safe to place without
+ * re-checking. `validateConfig` does the opposite: it inspects the RAW
+ * `tiling.overrides` array and REPORTS every one of those problems
+ * (`E_OVERRIDE_SHAPE`, `E_OVERRIDE_BOUNDS`, `E_OVERRIDE_CONFLICT`) rather than
+ * silently dropping them, so a user (or an LLM) authoring overrides by hand
+ * is told what is wrong instead of having it quietly vanish.
+ *
+ * A MANUALLY-PLACED PLATE IS NEVER REFUSED FOR NOT FITTING. The sagitta gate
+ * in tiling.js ("PLATE FIT") only ever filters the ALGORITHM's own
+ * candidates; an override bypasses it on purpose — HANDOFF.md §3.6 and the
+ * v2 `core/merge.js` commit (565af13) record why: a merge tool that refuses
+ * every physically-awkward request is not usable, so the tool performs the
+ * override and reports the cost instead. That cost is the non-blocking
+ * `W_PLATE_OVERRIDE_MISFIT` warning `solveTiling` raises, never a
+ * `validateConfig` error.
+ *
+ * =============================================================================
  * VERSION — v1 AND v2 CONFIGS ARE REJECTED, NEVER MIGRATED
  * =============================================================================
  * `version` must be exactly 3. A v1 (row-accordion) or v2 (per-column fold
@@ -115,7 +151,7 @@
  *     "tiling": {
  *       "strategy": "flat-lie",                 // 'flat-lie' | 'ridge-aligned'
  *                                              // | 'toe-bands' — V3_SPEC §3.1
- *       "plateFitToleranceCm": 2.0               // max sagitta (cm) a plate's
+ *       "plateFitToleranceCm": 2.0,              // max sagitta (cm) a plate's
  *                                              // 121cm span may bow away from
  *                                              // the target surface before
  *                                              // the tiler rejects it in
@@ -124,6 +160,11 @@
  *                                              // 0.1..20; the top of the
  *                                              // range restores the old
  *                                              // maximal-packing behaviour.
+ *       "overrides": [                          // pinned decisions (P8) — see
+ *                                              // "MANUAL TILE OVERRIDES" above.
+ *                                              // OMIT for none (the default).
+ *         { "i": 2, "j": 3, "type": "2x4", "axis": "u" }
+ *       ]
  *     },
  *     "placement": { "mode": "surface-fit",     // 'surface-fit' | 'chain'
  *                    "tree": "bfs-corner" },    // 'bfs-corner' | 'comb-v'
@@ -164,6 +205,13 @@
  *   E_RANGE    a finite but out-of-band value: sheet.cols/rows outside their
  *              integer band, gap outside 0..10, any form knob outside its
  *              V3_SPEC §6 range, or tiling.plateFitToleranceCm outside 0.1..20
+ *   E_OVERRIDE_SHAPE     tiling.overrides not an array, or an entry that is
+ *                        not an object / has a non-integer i or j / an
+ *                        invalid type / (for a '2x4') a missing or invalid
+ *                        axis — see "MANUAL TILE OVERRIDES" above
+ *   E_OVERRIDE_BOUNDS    an override (or, for a plate, its second cell) falls
+ *                        outside the sheet
+ *   E_OVERRIDE_CONFLICT  two overrides claim the same cell
  * Warnings (do not affect `valid`):
  *   W_PLATE_LENGTH   cell.plateLength ≠ 2·cell.size + gap — see PLATE-LENGTH
  *                    EXACTNESS above. Silent at the defaults.
@@ -263,7 +311,14 @@ export const DEFAULT_GROUND_TOLERANCE = 2.0
  * form), kept reachable on purpose as the permissive end of the knob rather
  * than removed.
  */
-export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0 }
+/**
+ * Legal `type` / `axis` values for a `tiling.overrides` entry — see "MANUAL
+ * TILE OVERRIDES" above. `axis` is only meaningful for a `'2x4'` entry.
+ */
+export const OVERRIDE_TYPES = ['2x2', '2x4']
+export const OVERRIDE_AXES = ['u', 'v']
+
+export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [] }
 export const DEFAULT_PLACEMENT = { tree: 'bfs-corner', mode: 'surface-fit' }
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -286,7 +341,15 @@ export const DEFAULT_CONFIG = Object.freeze({
     // omitted footprint derives the same way for any sheet — see withDefaults.
     footprint: { width: 365, depth: 487 },
   },
-  tiling: { strategy: DEFAULT_TILING.strategy, plateFitToleranceCm: DEFAULT_TILING.plateFitToleranceCm },
+  tiling: {
+    strategy: DEFAULT_TILING.strategy,
+    plateFitToleranceCm: DEFAULT_TILING.plateFitToleranceCm,
+    // A fresh array, not a reference to DEFAULT_TILING.overrides: DEFAULT_CONFIG
+    // is Object.freeze'd, but that freeze is shallow and would not stop a
+    // shared array from being mutated out from under every config that
+    // defaults from it.
+    overrides: [],
+  },
   placement: { tree: DEFAULT_PLACEMENT.tree, mode: DEFAULT_PLACEMENT.mode },
   gapTolerance: DEFAULT_GAP_TOLERANCE,
   groundTolerance: DEFAULT_GROUND_TOLERANCE,
@@ -389,6 +452,11 @@ function withDefaults(raw) {
       strategy: tilingSrc.strategy !== undefined ? tilingSrc.strategy : DEFAULT_TILING.strategy,
       plateFitToleranceCm:
         tilingSrc.plateFitToleranceCm !== undefined ? tilingSrc.plateFitToleranceCm : DEFAULT_TILING.plateFitToleranceCm,
+      // Passed through RAW (even if not an array) — same "fill missing only"
+      // contract as every other field here. validateConfig inspects this raw
+      // value directly so a malformed entry is reported, not silently
+      // dropped; normalizeConfig's own sanitizing pass is separate (below).
+      overrides: tilingSrc.overrides !== undefined ? tilingSrc.overrides : [],
     },
     placement: {
       tree: placementSrc.tree !== undefined ? placementSrc.tree : DEFAULT_PLACEMENT.tree,
@@ -399,6 +467,48 @@ function withDefaults(raw) {
     meta: { notes: '', ...(isPlainObject(src.meta) ? src.meta : {}) },
   }
   if (src.name !== undefined) out.name = src.name
+  return out
+}
+
+/**
+ * PRIVATE. normalizeConfig's half of the "MANUAL TILE OVERRIDES" contract
+ * (see the file header): silently sanitize a raw `tiling.overrides` array
+ * into one safe to hand `tiling.js` — well-formed, in bounds against the
+ * ALREADY-CLAMPED `cols`×`rows`, and cell-disjoint. `validateConfig` is the
+ * function that reports the same problems instead of fixing them; this one
+ * never reports, only fixes, exactly like every other field's normalize half.
+ *
+ * Malformed entries are dropped, not coerced into something legal — there is
+ * no sane fallback for "an override with no usable i/j/type", unlike a scalar
+ * knob that can fall back to a shipped default. A contested cell (two
+ * overrides that would both claim it) resolves first-in-array-order-wins,
+ * which is deterministic and — combined with array order being preserved
+ * from the input — makes normalizeConfig idempotent: sanitizing an already-
+ * sanitized array changes nothing, because it is already conflict-free.
+ */
+function sanitizeOverrides(raw, cols, rows) {
+  if (!Array.isArray(raw)) return []
+  const claimed = new Set()
+  const out = []
+  for (const ov of raw) {
+    if (!isPlainObject(ov)) continue
+    const i = isFiniteNumber(ov.i) ? Math.round(ov.i) : NaN
+    const j = isFiniteNumber(ov.j) ? Math.round(ov.j) : NaN
+    if (!Number.isInteger(i) || !Number.isInteger(j)) continue
+    if (ov.type !== '2x2' && ov.type !== '2x4') continue
+    const isPlate = ov.type === '2x4'
+    // `axis` is only meaningful for a plate (see file header); a square
+    // override always normalizes to 'u' by convention, matching
+    // tiling.js's makeSquareTile.
+    const axis = isPlate ? (ov.axis === 'u' || ov.axis === 'v' ? ov.axis : null) : 'u'
+    if (isPlate && axis === null) continue
+
+    const cells = isPlate ? (axis === 'u' ? [[i, j], [i + 1, j]] : [[i, j], [i, j + 1]]) : [[i, j]]
+    if (cells.some(([ci, cj]) => ci < 0 || ci >= cols || cj < 0 || cj >= rows)) continue
+    if (cells.some(([ci, cj]) => claimed.has(`${ci},${cj}`))) continue
+    for (const [ci, cj] of cells) claimed.add(`${ci},${cj}`)
+    out.push({ i, j, type: ov.type, axis })
+  }
   return out
 }
 
@@ -413,13 +523,17 @@ function withDefaults(raw) {
 export function normalizeConfig(raw) {
   const cfg = withDefaults(raw)
 
+  // Computed up front (not inline) because sanitizeOverrides below needs the
+  // FINAL, clamped sheet size to decide what "in bounds" means — an override
+  // is only ever checked against the sheet the rest of this config actually
+  // has, never the raw (possibly out-of-range) one.
+  const sheetCols = clampInt(cfg.sheet.cols, DEFAULT_SHEET.cols, SHEET_COLS_MIN, SHEET_COLS_MAX)
+  const sheetRows = clampInt(cfg.sheet.rows, DEFAULT_SHEET.rows, SHEET_ROWS_MIN, SHEET_ROWS_MAX)
+
   const out = {
     version: cfg.version !== undefined ? cfg.version : 3,
     units: cfg.units !== undefined ? cfg.units : 'cm',
-    sheet: {
-      cols: clampInt(cfg.sheet.cols, DEFAULT_SHEET.cols, SHEET_COLS_MIN, SHEET_COLS_MAX),
-      rows: clampInt(cfg.sheet.rows, DEFAULT_SHEET.rows, SHEET_ROWS_MIN, SHEET_ROWS_MAX),
-    },
+    sheet: { cols: sheetCols, rows: sheetRows },
     cell: {
       size: positiveOr(cfg.cell.size, DEFAULT_CELL.size),
       plateLength: positiveOr(cfg.cell.plateLength, DEFAULT_CELL.plateLength),
@@ -436,6 +550,7 @@ export function normalizeConfig(raw) {
         PLATE_FIT_TOLERANCE_MIN,
         PLATE_FIT_TOLERANCE_MAX,
       ),
+      overrides: sanitizeOverrides(cfg.tiling.overrides, sheetCols, sheetRows),
     },
     placement: {
       tree: PLACEMENT_TREES.includes(cfg.placement.tree) ? cfg.placement.tree : DEFAULT_PLACEMENT.tree,
@@ -608,6 +723,94 @@ export function validateConfig(config) {
         `(got ${cfg.tiling.plateFitToleranceCm})`,
       'tiling.plateFitToleranceCm',
     )
+  }
+
+  // --- tiling.overrides: pinned decisions (P8) — reported on the RAW array,
+  // never silently dropped here; see "MANUAL TILE OVERRIDES" in the file
+  // header, and sanitizeOverrides (normalizeConfig's non-reporting twin).
+  {
+    const overridesRaw = cfg.tiling.overrides
+    if (!Array.isArray(overridesRaw)) {
+      err(
+        'E_OVERRIDE_SHAPE',
+        `tiling.overrides must be an array (got ${JSON.stringify(overridesRaw)})`,
+        'tiling.overrides',
+      )
+    } else {
+      const cols = cfg.sheet.cols
+      const rows = cfg.sheet.rows
+      // Bounds only mean something once sheet.cols/rows are themselves sane —
+      // an out-of-range sheet already raises its own E_SHAPE/E_RANGE above.
+      const boundsKnown = isFiniteNumber(cols) && Number.isInteger(cols) && isFiniteNumber(rows) && Number.isInteger(rows)
+      const claimedBy = new Map()
+
+      overridesRaw.forEach((ov, idx) => {
+        const path = `tiling.overrides[${idx}]`
+        if (!isPlainObject(ov)) {
+          err('E_OVERRIDE_SHAPE', `${path} must be an object (got ${JSON.stringify(ov)})`, path)
+          return
+        }
+        const iOk = isFiniteNumber(ov.i) && Number.isInteger(ov.i)
+        const jOk = isFiniteNumber(ov.j) && Number.isInteger(ov.j)
+        if (!iOk) err('E_OVERRIDE_SHAPE', `${path}.i must be an integer (got ${JSON.stringify(ov.i)})`, `${path}.i`)
+        if (!jOk) err('E_OVERRIDE_SHAPE', `${path}.j must be an integer (got ${JSON.stringify(ov.j)})`, `${path}.j`)
+        const typeOk = ov.type === '2x2' || ov.type === '2x4'
+        if (!typeOk) {
+          err(
+            'E_OVERRIDE_SHAPE',
+            `${path}.type must be "2x2" or "2x4" (got ${JSON.stringify(ov.type)})`,
+            `${path}.type`,
+          )
+        }
+        let axisOk = true
+        if (typeOk && ov.type === '2x4') {
+          axisOk = ov.axis === 'u' || ov.axis === 'v'
+          if (!axisOk) {
+            err(
+              'E_OVERRIDE_SHAPE',
+              `${path}.axis must be "u" or "v" for a 2x4 override (got ${JSON.stringify(ov.axis)})`,
+              `${path}.axis`,
+            )
+          }
+        }
+        // A malformed entry has no cells to reason about further — bounds and
+        // conflict checks below need a real i/j/type/axis to compute them.
+        if (!iOk || !jOk || !typeOk || !axisOk) return
+
+        const cells =
+          ov.type === '2x4'
+            ? ov.axis === 'u'
+              ? [[ov.i, ov.j], [ov.i + 1, ov.j]]
+              : [[ov.i, ov.j], [ov.i, ov.j + 1]]
+            : [[ov.i, ov.j]]
+
+        if (boundsKnown) {
+          const outOfBounds = cells.some(([ci, cj]) => ci < 0 || ci >= cols || cj < 0 || cj >= rows)
+          if (outOfBounds) {
+            err(
+              'E_OVERRIDE_BOUNDS',
+              `${path} — a ${ov.type}${ov.type === '2x4' ? ` (axis "${ov.axis}")` : ''} anchored at ` +
+                `(${ov.i}, ${ov.j}) runs outside the ${cols}×${rows} sheet`,
+              path,
+            )
+            return // cells that don't exist can't also be reported as conflicting
+          }
+        }
+
+        for (const [ci, cj] of cells) {
+          const key = `${ci},${cj}`
+          if (claimedBy.has(key)) {
+            err(
+              'E_OVERRIDE_CONFLICT',
+              `${path} and tiling.overrides[${claimedBy.get(key)}] both claim cell (${ci}, ${cj})`,
+              path,
+            )
+          } else {
+            claimedBy.set(key, idx)
+          }
+        }
+      })
+    }
   }
 
   // --- tolerances: no declared band, just "positive number" ------------

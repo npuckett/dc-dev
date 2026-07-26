@@ -14,7 +14,15 @@
 import { driftHeight } from '../src/core/v3/form.js'
 import { DEFAULT_CONFIG, normalizeConfig } from '../src/core/v3/schema.js'
 import { buildTarget } from '../src/core/v3/target.js'
-import { MIN_PLATES, SAGITTA_SAMPLE_COUNT, buildFewPlatesWarning, materialToPlanApprox, solveTiling } from '../src/core/v3/tiling.js'
+import {
+  MIN_PLATES,
+  OVERRIDE_MISFIT_CODE,
+  SAGITTA_SAMPLE_COUNT,
+  buildFewPlatesWarning,
+  computeSagittaCm,
+  materialToPlanApprox,
+  solveTiling,
+} from '../src/core/v3/tiling.js'
 
 let passed = 0
 const failures = []
@@ -627,6 +635,275 @@ function independentSagittaCm(cfg, tile, target) {
     smallGridResult.warnings.some((w) => w.code === 'W_FEW_PLATES'),
     JSON.stringify(smallGridResult.warnings),
   )
+}
+
+// =============================================================================
+// 14. MANUAL OVERRIDES (P8) — the partition property still holds with
+// overrides present, across every strategy × grid size; an override is
+// actually honoured (the requested cells come back as the requested
+// type/axis, and `pinned: true`); overrides + the auto sweep/fill together
+// still cover every cell exactly once. NON-NEGOTIABLE — everything
+// downstream (adjacency, placement, the report) depends on the partition
+// property, override or not.
+// =============================================================================
+{
+  // A square, a 'u' plate, and a 'v' plate — anchored so they never overlap
+  // each other and fit inside even the smallest grid in GRID_SPREAD (4x5).
+  const overridesFixture = [
+    { i: 0, j: 0, type: '2x2', axis: 'u' },
+    { i: 1, j: 0, type: '2x4', axis: 'u' },
+    { i: 0, j: 2, type: '2x4', axis: 'v' },
+  ]
+  const overridesCfgFor = (cols, rows, strategy) => ({
+    ...structuredClone(DEFAULT_CONFIG),
+    sheet: { cols, rows },
+    tiling: { strategy, overrides: overridesFixture },
+  })
+
+  for (const [cols, rows] of GRID_SPREAD) {
+    for (const strategy of STRATEGIES) {
+      const label = `${cols}x${rows} ${strategy} +overrides`
+      const result = solveTiling(overridesCfgFor(cols, rows, strategy))
+      const expected = allCells(cols, rows)
+
+      const seen = []
+      for (const t of result.tiles) for (const [i, j] of t.cells) seen.push(`${i},${j}`)
+      const seenSet = new Set(seen)
+      check(`${label}: every cell appears exactly once (partition holds with overrides)`, seen.length === seenSet.size, `${seen.length} entries, ${seenSet.size} unique`)
+      check(`${label}: covers exactly cols×rows cells`, seen.length === cols * rows, `${seen.length} vs ${cols * rows}`)
+      check(`${label}: covered set equals the full grid (overrides + sweep + fill together)`, setsEqual(seenSet, expected))
+
+      // The overrides are actually HONOURED: the requested cells come back as
+      // the requested type/axis, tagged pinned — not merely "present somehow".
+      const sqTile = result.tiles.find((t) => t.cells.length === 1 && t.cells[0][0] === 0 && t.cells[0][1] === 0)
+      check(
+        `${label}: override square at (0,0) is honoured (type 2x2, pinned)`,
+        !!sqTile && sqTile.type === '2x2' && sqTile.pinned === true,
+        JSON.stringify(sqTile),
+      )
+      const plateU = result.tiles.find((t) => t.type === '2x4' && t.axis === 'u' && t.cells[0][0] === 1 && t.cells[0][1] === 0)
+      check(
+        `${label}: override plate (axis u) at (1,0) is honoured (pinned)`,
+        !!plateU && plateU.pinned === true,
+        JSON.stringify(plateU),
+      )
+      const plateV = result.tiles.find((t) => t.type === '2x4' && t.axis === 'v' && t.cells[0][0] === 0 && t.cells[0][1] === 2)
+      check(
+        `${label}: override plate (axis v) at (0,2) is honoured (pinned)`,
+        !!plateV && plateV.pinned === true,
+        JSON.stringify(plateV),
+      )
+
+      // Every OTHER tile — whatever the sweep/fill produced — is NOT pinned.
+      const overrideAnchors = new Set(overridesFixture.map((ov) => `${ov.i},${ov.j}`))
+      const nonOverrideTiles = result.tiles.filter((t) => !overrideAnchors.has(`${t.cells[0][0]},${t.cells[0][1]}`))
+      check(
+        `${label}: every non-override tile is pinned:false (the algorithm chose it)`,
+        nonOverrideTiles.every((t) => t.pinned === false),
+      )
+    }
+  }
+}
+
+// =============================================================================
+// 15. A deliberately bad override (a plate on a steeply curved region) IS
+// PLACED, and DOES raise W_PLATE_OVERRIDE_MISFIT with a sagitta above
+// tolerance. Both halves matter — this is the crux of the package: a manual
+// override is never refused for not fitting, only reported (tiling.js's
+// "MANUAL OVERRIDES", mirroring HANDOFF §3.6 / commit 565af13's v2 lesson).
+// The worst-case candidate is found by independent brute force over the WHOLE
+// grid, not guessed, so this is a real stress case rather than a lucky pick.
+// =============================================================================
+{
+  const steepCfg = normalizeConfig({ ...structuredClone(DEFAULT_CONFIG), form: { ...DEFAULT_CONFIG.form, amplitude: 220 } })
+  const target = buildTarget(steepCfg)
+
+  let worst = null
+  for (let j = 0; j < steepCfg.sheet.rows; j++) {
+    for (let i = 0; i < steepCfg.sheet.cols; i++) {
+      for (const axis of ['u', 'v']) {
+        if (axis === 'u' && i + 1 >= steepCfg.sheet.cols) continue
+        if (axis === 'v' && j + 1 >= steepCfg.sheet.rows) continue
+        const sagittaCm = computeSagittaCm(steepCfg, { i, j, axis }, target)
+        if (!worst || sagittaCm > worst.sagittaCm) worst = { i, j, axis, sagittaCm }
+      }
+    }
+  }
+  check('found a worst-case candidate domino on the steep (amplitude 220) form', !!worst)
+  check(
+    'the worst-case candidate genuinely exceeds the default plateFitToleranceCm (2.0cm) — a real stress case',
+    !!worst && worst.sagittaCm > steepCfg.tiling.plateFitToleranceCm,
+    JSON.stringify(worst),
+  )
+
+  const overriddenCfg = {
+    ...structuredClone(steepCfg),
+    tiling: { ...steepCfg.tiling, overrides: [{ i: worst.i, j: worst.j, type: '2x4', axis: worst.axis }] },
+  }
+  const result = solveTiling(overriddenCfg, target)
+  const tileId = `pl_${worst.i}_${worst.j}_${worst.axis}`
+  const placedTile = result.tiles.find((t) => t.id === tileId)
+
+  check(
+    'the deliberately-bad override plate IS PLACED (never refused for not fitting)',
+    !!placedTile && placedTile.type === '2x4' && placedTile.pinned === true,
+    JSON.stringify(placedTile),
+  )
+  check(
+    "the placed tile's reported sagittaCm matches the independently brute-forced worst value",
+    !!placedTile && Math.abs(placedTile.sagittaCm - worst.sagittaCm) < 1e-9,
+    `placed=${placedTile?.sagittaCm} worst=${worst.sagittaCm}`,
+  )
+
+  const misfitWarning = result.warnings.find((w) => w.code === OVERRIDE_MISFIT_CODE && w.tile === tileId)
+  check('W_PLATE_OVERRIDE_MISFIT DOES fire for the bad override', !!misfitWarning, JSON.stringify(result.warnings))
+  check(
+    'the misfit warning carries a sagittaCm strictly above its own reported toleranceCm',
+    !!misfitWarning && misfitWarning.sagittaCm > misfitWarning.toleranceCm,
+    JSON.stringify(misfitWarning),
+  )
+  check(
+    'the misfit warning names the tile and points at tiling.plateFitToleranceCm',
+    !!misfitWarning && misfitWarning.message.includes(tileId) && /plateFitToleranceCm/.test(misfitWarning.message),
+    misfitWarning?.message,
+  )
+
+  // The partition property still holds even with a badly-fitting manual plate.
+  const covered = new Set()
+  for (const t of result.tiles) for (const [i, j] of t.cells) covered.add(`${i},${j}`)
+  check(
+    'partition property holds with a misfitting override present',
+    covered.size === steepCfg.sheet.cols * steepCfg.sheet.rows,
+    String(covered.size),
+  )
+}
+
+// =============================================================================
+// 16. Determinism with overrides present — mirrors section 3, but exercising
+// the override code path specifically (place-overrides-first, then sweep).
+// =============================================================================
+{
+  const cfg = {
+    ...structuredClone(DEFAULT_CONFIG),
+    tiling: {
+      strategy: 'flat-lie',
+      overrides: [
+        { i: 0, j: 0, type: '2x4', axis: 'u' },
+        { i: 2, j: 3, type: '2x2', axis: 'u' },
+      ],
+    },
+  }
+  const r1 = JSON.stringify(solveTiling(cfg))
+  const r2 = JSON.stringify(solveTiling(cfg))
+  const r3 = JSON.stringify(solveTiling(structuredClone(cfg)))
+  check('solveTiling with overrides is deterministic (repeat call)', r1 === r2)
+  check('solveTiling with overrides is deterministic (fresh clone of the same config)', r1 === r3)
+}
+
+// =============================================================================
+// 17. An override set that pins EVERY cell leaves the strategy sweep nothing
+// to do, and the result still tiles: every cell exactly once, entirely in
+// pinned plates.
+// =============================================================================
+{
+  const cols = 4
+  const rows = 5 // the smallest grid GRID_SPREAD covers; cols is even, so a
+  // row-major domino tiling along i covers it exactly with no leftover cell.
+  const overrides = []
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i += 2) overrides.push({ i, j, type: '2x4', axis: 'u' })
+  }
+  check('the fixture actually pins every cell (4x5 = 20 cells, 10 dominoes)', overrides.length === (cols * rows) / 2, String(overrides.length))
+
+  const cfg = { ...structuredClone(DEFAULT_CONFIG), sheet: { cols, rows }, tiling: { strategy: 'flat-lie', overrides } }
+  const result = solveTiling(cfg)
+  const covered = new Set()
+  for (const t of result.tiles) for (const [i, j] of t.cells) covered.add(`${i},${j}`)
+  check('fully-pinned grid still tiles: every cell covered exactly once', covered.size === cols * rows, String(covered.size))
+  check('fully-pinned grid: every tile is a plate (the sweep had no cell left to give a square)', result.tiles.every((t) => t.type === '2x4'))
+  check('fully-pinned grid: every tile is pinned', result.tiles.every((t) => t.pinned === true))
+  check('fully-pinned grid: exactly 10 plates, none from the algorithm', result.tiles.length === 10, String(result.tiles.length))
+}
+
+// =============================================================================
+// 18. Round-trip — a config with overrides survives normalizeConfig and a
+// JSON round-trip unchanged, and solveTiling on the round-tripped config
+// still honours the overrides exactly.
+// =============================================================================
+{
+  const cfg = {
+    ...structuredClone(DEFAULT_CONFIG),
+    tiling: {
+      strategy: 'flat-lie',
+      plateFitToleranceCm: 3.5,
+      overrides: [
+        { i: 0, j: 0, type: '2x4', axis: 'u' },
+        { i: 2, j: 3, type: '2x2', axis: 'u' },
+      ],
+    },
+  }
+  const once = normalizeConfig(cfg)
+  const twice = normalizeConfig(once)
+  check('normalizeConfig with overrides is idempotent', JSON.stringify(once) === JSON.stringify(twice))
+
+  const roundTripped = JSON.parse(JSON.stringify(once))
+  check('normalizeConfig output with overrides survives a JSON round-trip unchanged', JSON.stringify(once) === JSON.stringify(roundTripped))
+  check(
+    'the overrides array itself survives the round-trip with identical content',
+    JSON.stringify(once.tiling.overrides) === JSON.stringify(roundTripped.tiling.overrides),
+    JSON.stringify(once.tiling.overrides),
+  )
+
+  const result = solveTiling(roundTripped)
+  const sqTile = result.tiles.find((t) => t.cells.length === 1 && t.cells[0][0] === 2 && t.cells[0][1] === 3)
+  check('solveTiling on the round-tripped config still honours the square override at (2,3)', !!sqTile && sqTile.pinned === true, JSON.stringify(sqTile))
+  const plateTile = result.tiles.find((t) => t.type === '2x4' && t.axis === 'u' && t.cells[0][0] === 0 && t.cells[0][1] === 0)
+  check('solveTiling on the round-tripped config still honours the plate override at (0,0)', !!plateTile && plateTile.pinned === true, JSON.stringify(plateTile))
+}
+
+// =============================================================================
+// 19. solveTiling is safe to call on RAW input carrying a garbage
+// `tiling.overrides` array — normalizeConfig's sanitizing pass (schema.js's
+// `sanitizeOverrides`) has already dropped anything malformed / out of bounds
+// / conflicting before this file ever sees it, so a garbage array must not
+// throw, and the one well-formed, non-conflicting entry must still survive.
+// =============================================================================
+{
+  const garbageCfg = {
+    ...structuredClone(DEFAULT_CONFIG),
+    tiling: {
+      strategy: 'flat-lie',
+      overrides: [
+        'not an object',
+        { i: 'nope', j: 0, type: '2x4', axis: 'u' },
+        { i: 0, j: 1, type: 'bogus' },
+        { i: 99, j: 99, type: '2x2' },
+        { i: 0, j: 0, type: '2x4', axis: 'u' }, // well-formed, first — should survive
+        { i: 0, j: 0, type: '2x2' }, // conflicts with the entry above — dropped
+      ],
+    },
+  }
+  let threw = false
+  let result
+  try {
+    result = solveTiling(garbageCfg)
+  } catch (e) {
+    threw = true
+    console.error(e)
+  }
+  check('solveTiling tolerates a garbage tiling.overrides array without throwing', !threw)
+  if (result) {
+    const covered = new Set()
+    for (const t of result.tiles) for (const [i, j] of t.cells) covered.add(`${i},${j}`)
+    const { cols, rows } = normalizeConfig(DEFAULT_CONFIG).sheet
+    check('garbage-overrides config still tiles the full grid exactly once', covered.size === cols * rows, String(covered.size))
+    const tile00 = result.tiles.find((t) => t.cells[0][0] === 0 && t.cells[0][1] === 0)
+    check(
+      'the one well-formed, first-in-order override (plate at 0,0) survived sanitizing and is honoured',
+      !!tile00 && tile00.type === '2x4' && tile00.pinned === true,
+      JSON.stringify(tile00),
+    )
+  }
 }
 
 // =============================================================================

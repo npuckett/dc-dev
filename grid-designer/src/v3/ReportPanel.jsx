@@ -19,12 +19,20 @@
  *   - per-edge (wall / window) grounding clearance — V3_SPEC.md §5 calls this
  *     out as the brief's own requirement, so it gets real space, not an
  *     afterthought;
+ *   - PINNED vs. algorithm-chosen tile counts (P8, manual overrides —
+ *     `tile.pinned`), and any `W_PLATE_OVERRIDE_MISFIT` warning in its own
+ *     styled-as-bad section, pulled OUT of the generic warnings list so a
+ *     plate the user forced into a place it does not fit cannot get lost in
+ *     it — see tiling.js's "MANUAL OVERRIDES" for why that warning exists and
+ *     why it is never a validation error (a manual override is placed and
+ *     reported, never refused);
  *   - warnings / violations, `E_UNSUPPORTED` especially (the "does it stand
  *     up" check — styled as an error, not a warning, regardless of which
  *     array it arrives in).
  */
 
 import useStoreV3, { getDerived } from './store.js'
+import { OVERRIDE_MISFIT_CODE } from '../core/v3/tiling.js'
 
 const cm = (v, d = 2) => `${v.toFixed(d)}cm`
 const deg = (v) => `${v.toFixed(1)}°`
@@ -58,6 +66,13 @@ export default function ReportPanel() {
 
   const worstDeviationBad = summary.gapToleranceCm > 0 ? summary.gapToleranceCm : 1
   const unsupported = violations.some((v) => v.code === 'E_UNSUPPORTED')
+
+  // --- P8: manual overrides — pinned vs. algorithm-chosen, and any misfit ---
+  // pulled out of the generic warnings list so it cannot be buried (see the
+  // file header). `otherWarnings` is what the generic list below renders.
+  const pinnedCount = layout.tiles.filter((t) => t.pinned).length
+  const overrideMisfits = warnings.filter((w) => w.code === OVERRIDE_MISFIT_CODE)
+  const otherWarnings = warnings.filter((w) => w.code !== OVERRIDE_MISFIT_CODE)
 
   return (
     <section className="report-panel" data-testid="report-panel">
@@ -144,12 +159,38 @@ export default function ReportPanel() {
             raw={fit.worstPlateSagittaCm}
             bad={fit.plateFitToleranceCm}
           />
+          <Metric
+            testId="report-pinned"
+            label="pinned / algorithm"
+            value={`${pinnedCount} / ${fit.tileCount - pinnedCount}`}
+          />
         </div>
         <p className="report-detail">
           angularity {fit.angularity.toFixed(2)} · {fit.facetCount} facet plane{fit.facetCount === 1 ? '' : 's'} ·
           plate fit tol {cm(fit.plateFitToleranceCm)}
         </p>
       </div>
+
+      {/* --- manual overrides that missed tolerance — pulled out of the generic
+          warnings list on purpose (P8): a plate the user forced into a place
+          it does not fit must not be buried. See tiling.js's "MANUAL
+          OVERRIDES" — it is placed regardless, this only reports the cost. */}
+      {overrideMisfits.length > 0 && (
+        <div className="report-section report-section-bad" data-testid="report-override-misfits">
+          <h4 className="report-section-title">manual overrides — misfit</h4>
+          <p className="report-detail report-bad-text">
+            {overrideMisfits.length} manually-placed plate{overrideMisfits.length === 1 ? '' : 's'} exceed
+            {overrideMisfits.length === 1 ? 's' : ''} the fit tolerance — placed anyway, as requested
+          </p>
+          <ul className="report-list">
+            {overrideMisfits.map((w, i) => (
+              <li key={i}>
+                <code>{w.tile}</code> — sagitta {cm(w.sagittaCm)} vs. tolerance {cm(w.toleranceCm)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* --- collisions — a hard buildability failure ------------------------ */}
       <div className={`report-section${collisions.length > 0 ? ' report-section-bad' : ''}`} data-testid="report-collisions">
@@ -211,9 +252,9 @@ export default function ReportPanel() {
           ))}
         </div>
       )}
-      {warnings.length > 0 && (
+      {otherWarnings.length > 0 && (
         <div className="msg-list msg-warnings" data-testid="report-warnings">
-          {warnings.map((w, i) => (
+          {otherWarnings.map((w, i) => (
             <p key={i}>
               <code>{w.code}</code> {w.message}
             </p>
