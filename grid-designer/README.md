@@ -1,20 +1,19 @@
 # grid-designer
 
-A three.js tool for **planning the configuration of Drop Ceiling V2** — the next build of the
-storefront light-panel installation. You propose whole-grid fold patterns, adjust them by hand,
-check them against the physical rules, and export the result as OBJ.
+A three.js tool for **planning the Drop Ceiling V2 installation** as a **tiled 3D surface** — a snow
+drift built from rigid ceiling-light panels. You author a drift form, a tiling algorithm decides
+which cells get a square and which get a plate, the panels are placed on it, and the tool measures
+**what the connectors have to absorb**.
 
-This is an **ideation tool for the whole grid**, not a panel-by-panel modeller. If you want to
-know why that distinction matters, see the sibling projects:
+That last part is the point. Read **[V3_SPEC.md](V3_SPEC.md)** for the model and
+**[HANDOFF.md](HANDOFF.md)** for the decision log and what is still open.
 
 | project | what it is | status |
 |---|---|---|
-| `grid-designer/` | **this** — whole-grid folded-surface planning for V2 | active |
-| `panel-designer/` | first attempt: builds a surface panel-by-panel as a single-rooted kinematic tree | abandoned; the data model can't express a grid. Some modules were copied out of it (see below) |
-| `spatial-editor/` | generic react-three-fiber scene editor, has a `world_coordinates.json` converter | unrelated, but useful prior art |
-| `IO/public-viewer/` | the live viewer for the **existing** installation (thedropceiling.com) | separate concern |
-
-For the state of play, the decision log, and open questions, read **[HANDOFF.md](HANDOFF.md)**.
+| `grid-designer/` | **this** — tiled 3D drift surface planning (schema v3) | active |
+| `panel-designer/` | first attempt: single-rooted kinematic tree | abandoned; some modules were copied out |
+| `spatial-editor/` | generic r3f scene editor | unrelated prior art |
+| `IO/public-viewer/` | live viewer for the **existing** installation | separate concern |
 
 ---
 
@@ -25,175 +24,179 @@ npm install --prefix grid-designer
 npm run dev --prefix grid-designer
 ```
 
-Serves on **port 5175** with `strictPort` — deliberately not 5173, because `panel-designer` and
-`spatial-editor` both default to that and would collide. There is a launch config at
-`.claude/launch.json` (name `grid-designer`) for the Claude Code preview pane.
+Serves on **port 5175** (`strictPort` — `panel-designer` and `spatial-editor` both want 5173).
+There is a launch config at `.claude/launch.json` named `grid-designer`.
 
 ```bash
-npm run build --prefix grid-designer     # production build
+npm run build --prefix grid-designer
 ```
 
-**Note: there is no persistence.** The working config lives in memory only, so a page reload —
-including the hot reload triggered by editing any source file — resets to the flat preset. If you
-have a design you care about, hit **Copy** in the CONFIG JSON panel or **Download JSON** first.
-This has cost real work twice; see HANDOFF.md's "next steps".
+The working config **is persisted** to `localStorage` (autosaved, debounced), plus named slots — so
+a reload, including the hot reload from editing a source file, no longer destroys your design. This
+cost real work twice under v2.
 
 ---
 
 ## The physical system
 
-Two panel types, the standard drop-in ceiling-light sizes:
+Two panel types, standard drop-in ceiling-light sizes:
 
-- **square** — 60 × 60 cm (the base grid unit)
-- **plate** — 60 × 121 cm (a "rect"), which is *exactly* two squares plus one joint: 60 + 1 + 60 = 121
+- **square** — 60 × 60 cm
+- **plate** — 60 × 121 cm
 
-That exactness is why the default joint gap is **1 cm**: a plate is a perfect drop-in replacement
-for two squares and the joint between them, with no slack to absorb. Cell pitch is therefore 61 cm.
+At a **1 cm** joint, `60 + 1 + 60 = 121` exactly, so a plate is a precise drop-in for two squares
+plus their joint. That exactness is load-bearing for the kit staying modular — and v3 has to trade
+it away to get height. See "the trade" below.
 
-Panels are joined by 3D-printed connectors that span the gap, which is the key to the whole
-geometric approach — see "why there is no origami solver" below.
+Panels are joined by 3D-printed connectors spanning the gap. Panels never share a vertex, which is
+why the geometry is tractable at all.
 
 ### World conventions
 
 - Units **centimetres**, **Y up**, X–Z are the floor axes.
-- **6 columns** along +X (`c = 0..5`), **rows recede along +Z** (`r = 0..rows-1`), rows adjustable 5–8.
-- **The window / shore is at z = 0** — row 0 is the row nearest the glass, and the primary viewing
-  position is from the window side looking in.
-- **The wall is at x = 0, beside column 0.** Column 0 is therefore the **rightmost in the 3D view**
-  and the **left edge of the plan view**. This mirror trips everyone up; the plan view says so in
-  its own hint text.
-- Panel local frame: width → local X, depth → local Z, **lit face +Y** with the front surface at
-  local y = 0 and the housing extending back to y = −3.7.
-
-### Panel profile (`src/config.js`)
-
-Overall thickness 3.7, frame flange 2.5 wide, diffuser recessed 1.0 behind the frame, back plate
-inset 4.0 on all four sides. `src/geometry/panelGeometry.js` builds this as a closed 2-manifold
-shell: a visible frame all the way around a recessed glowing diffuser on the front, and an
-enclosed inward-tapering tray on the back that holds the LEDs.
+- **The window / shore is at z = 0.** The wall is the plane **x = 0**.
+- The wall is at low x, so it is the **left** edge of the plan view and the **right** side of the 3D
+  view. This mirror trips everyone up.
+- Panel local frame: width → local X, length → local Z, lit face +Y, housing back at y = −3.7.
 
 ---
 
-## The fold model (schema v2)
+## The model (schema v3)
 
-**Folding runs along the columns only — from the window straight back.** Each of the 6 columns is
-an independent 2D chain in the Y–Z plane at a fixed x. Nothing folds along a row.
+v2 modelled the installation as 6 independent 2D column fold-chains. **v3 throws that out.** It is
+now one 3D surface tiled by rigid panels; panels pitch, roll and yaw. "Row" and "column" are retired
+words — what survives are **three coordinate systems**, and never conflating them is the single most
+important thing in the code:
 
-Each column carries:
+| space | what it is |
+|---|---|
+| **material** `(u,v)` / `(i,j)` | position on the *unrolled flat sheet*. The tiling lives here and is an exact lattice; gaps are exactly `gap` by construction. |
+| **plan** `(x,z)` | the floor. The drift form `H(x,z)` is authored here. |
+| **world** `(x,y,z)` | where the panels actually are. |
 
-- `startPitchDeg` — the pitch of its front (window) panel. The chain origin is solved so that this
-  panel always **rests on the floor** on its contact edge whatever the pitch (`frontRestY` in
-  `schema.js`), so a pitched front costs nothing in support.
-- `foldsDeg[]` — `rows − 1` **signed hinge dihedrals**, one per joint going back. Cumulative:
-  panel *r*'s pitch is `startPitchDeg + Σ folds[0..r-1]`.
-- `endSupport` — `'floor'` (default) or `'wall'`, the latter valid only on column 0.
+**The sheet is longer than its shadow.** A curved surface's plan projection is smaller than its
+developed area, so material → plan is an **arc-length unroll**. Never assume a cell's world position
+from its material index.
 
-**Joints along a row are plain gap connections.** Because neighbouring columns fold independently,
-their shared row edges drift apart in 3D. That divergence is **measured and reported**, not
-prevented — `src/core/report.js` flags every joint whose gap or skew exceeds connector tolerance.
-That is the honest output: it tells you where the connectors have to flex.
+### The pipeline
 
-### Why there is no origami solver
+```
+form.js      → an authored smooth drift H(x,z): asymmetric profiles, a sheared ridge,
+               and both graded edges (wall x=0, window z=0) meeting the ground with
+               non-zero slope straight out of the formula
+target.js    → what the panels are ASKED to be: the drift quantized into PLANAR FACETS
+               on the panel lattice, plus the arc-length unroll
+tiling.js    → a deterministic domino tiling: which cells get a 60×60 square and which
+               get a 60×121 plate, decided by whether a rigid plate physically FITS
+placement.js → rigid panel placements on the target
+report.js    → per-joint gaps, skew, dihedral, holonomy, surface fit, collisions
+collide.js   → exact 15-axis OBB SAT
+presets.js   → six drifts, each pinning one answer to the trade
+```
 
-Rigid rectangles that share vertices cannot fold in two directions at once — at a vertex with four
-90° sectors, only one crease pair can move. The naive conclusion is that you need a rigid-origami
-solver. You don't: **the physical system has a ~1 cm gap at every joint, spanned by a connector, so
-panels never share a vertex.** The slack absorbs the incompatibility.
+### Why the target is allowed to be angular
 
-So placement is a **deterministic pure function** (config → per-panel world transforms) and the
-joint report tells you what the connectors must accommodate. This is far simpler and far more
-useful than constraint-solving a fiction.
+Rigid flat panels **cannot be** a smooth drift: a 60 cm panel deviates from a curved target by
+roughly `(30²/2)·curvature` wherever you put it. Panelizing a smooth shape therefore wedges the
+joints open, drives the housings into each other, lifts the graded edges off the floor, and leaves
+nowhere flat enough to lay a rigid plate.
+
+So don't panelize a shape chosen without reference to the panels. **`form.angularity` quantizes the
+drift into planar facets aligned to the panel lattice**, with facet boundaries always on cell
+boundaries — so a crease only ever lands where there is already a physical joint to absorb it. Tiles
+sharing a facet are exactly coplanar, and their joints stay closed.
+
+`form.facetCells` sets how many cells share a plane: **1** gives a fold at every joint and hugs the
+toe (the graded edges land); **4** gives broad planes with crisp creases and closes the joints, but
+cannot hug the toe (the edges rise).
+
+### Placement modes
+
+- **`surface-fit`** (default) — every tile is fitted to the target independently, so the
+  incompatibility is shared across **all** joints. That is what the physical connectors do.
+- **`chain`** — tiles hinge off one another along a spanning tree. Every tree joint is then *exact*
+  (gap to 1e-8, zero skew) and **all** the error lands on the cycle-closing edges. Kept because it
+  is what v2 effectively did, and the contrast is instructive: at amplitude 80, tree edges measure
+  2.9e-8 cm against cycle edges at 17.5 cm.
+
+A single hinge has one degree of freedom, so a chained tile can match the target's pitch but never
+its roll. Over eight rows that error compounds and the sheet lifts off the floor. **Exact joints and
+a doubly-curved surface are not compatible** — which is why `surface-fit` is the default.
 
 ---
 
-## The rules the tool enforces
+## The trade
 
-Encoded in `src/core/schema.js` (validation) and `src/core/placement.js` (layout violations). The
-distinction matters:
+The model forces a question it cannot answer: **how much joint deviation is this installation
+willing to build?** Three facts collide.
 
-- **Validation errors block the change.** The store never commits an invalid config.
-- **Layout violations do not block.** They are loud, visible, and fixable — because blocking them
-  would make slider exploration impossible (every intermediate drag state would be rejected).
+1. **Height costs joint deviation.** Push the crest up and the joints wedge open. Geometry, not an
+   implementation limit.
+2. **The nominal gap buys height and costs modularity.** On convex curvature the lit faces open
+   while the **housings converge**, so a 1 cm joint runs panels into each other at only ~40 cm of
+   amplitude. Widening to 2 cm removes the collisions and reaches ~95 cm — but breaks
+   `2·size + gap = plateLength`, so every plate carries a real mismatch.
+3. **Faceting closes the joints and lifts the edges.**
+
+The presets are six chosen points, all collision-free except `crest`:
+
+| preset | peak | worst joint | flagged | plates | worst edge clearance |
+|---|---|---|---|---|---|
+| `shelf` | 44 cm | 3.89 cm | 11/31 | 17/25 | **2.1 cm** |
+| `closed` | 46 cm | **1.19 cm** | **0/35** | 15/27 | 8.6 cm |
+| `drift` *(default)* | 62 cm | 2.28 cm | 4/47 | 15/33 | 14.0 cm |
+| `dune` | **87 cm** | 8.31 cm | 12/53 | 13/35 | 19.3 cm |
+| `modular` | 50 cm | 8.68 cm | 6/55 | **19/29** | 10.3 cm |
+| `crest` | 105 cm | 27.24 cm | 16/53 | 9/33 | 34.7 cm |
+
+`shelf` is the brief-compliant one — the only preset where the graded edges really land (4 of 5
+tiles down on the wall edge, 4 of 4 on the window edge). `closed` has not one joint out of
+tolerance. `modular` is the only one keeping `60+1+60 = 121` exactly. `crest` reaches v2's swell
+height deliberately and is deliberately **not** buildable, because the report should be able to say
+no.
+
+---
+
+## The rules
+
+Encoded in `core/v3/schema.js` (validation) and `core/v3/placement.js` (layout violations). The
+distinction matters: **validation errors block the commit; layout violations do not.** Blocking a
+violation would reject every intermediate state of a slider drag.
 
 | rule | code | kind |
 |---|---|---|
-| **Every column's last panel must touch the floor** — one housing edge down or lying flat, never floating. "The wave returns to the water." Column 0 may be exempted by `endSupport: 'wall'` (side-bracketed). | `E_END_FLOATING` | violation |
-| A rigid plate cannot bend: a **vertical** plate requires the hinge it spans to be exactly 0° | `E_FOLD_ON_REMOVED_JOINT` | error |
-| A **horizontal** plate requires its two columns to agree in cumulative pitch *and* chain position at that row | `E_CROSSCOL_ANGLE_MISMATCH`, `W_CROSSCOL_POSITION` | error / warning |
-| **At least 4 plates, placed by one nameable pattern rule** — the 121 cm plate is half the kit, and a design using one or two reads as a grid of squares with mistakes in it | `W_FEW_RECTS` | warning |
-| No two plates may share a cell | `E_RECT_OVERLAP` | error |
-| Panels dug into the floor | `W_BELOW_FLOOR` | warning |
-| A column that stops advancing (accordion backtrack) | `W_CHAIN_BACKTRACK` | warning |
-| Structure / ranges: `version` must be 2, units cm, rows 5–8, folds ±120°, gap 0–10 cm | `E_SHAPE`, `E_RANGE` | error |
+| `version` must be exactly 3 — v1 and v2 configs are **rejected, never migrated** | `E_SHAPE` | error |
+| structure / ranges (sheet 4–8 × 5–10, amplitude 0–250, angularity 0–1, facetCells 1–4, gap 0–10, …) | `E_SHAPE`, `E_RANGE` | error |
+| `2·size + gap` should equal `plateLength` | `W_PLATE_LENGTH` | warning |
+| at least 4 plates, placed by a nameable rule | `W_FEW_PLATES` | warning |
+| the assembly's centre of mass must project inside its ground-contact hull | `E_UNSUPPORTED` | violation |
+| a wall-edge or window-edge tile is not grounded | `W_EDGE_FLOATING` | warning |
+| a grounded edge tile is within 6° of horizontal — "grounded but **not flat**" | `W_TOE_FLAT` | warning |
+| a tile's solid dips below the floor | `W_BELOW_FLOOR` | warning |
+| fewer than 3 ground contacts, so there is no support polygon to test | `W_NO_SUPPORT` | warning |
 
-`version: 2` is required — **v1 (row-accordion) configs are rejected outright**, because that model
-was wrong (see HANDOFF.md).
-
-There is **no** flat-shore rule any more. Row 0 lying flat was once mandatory; the storm presets
-deliberately pitch every front panel, so it is now just `startPitchDeg: 0`.
-
-### Auto-solvers
-
-- **Ground end / Ground all** (`src/core/ground.js`) — solves a column's last surviving hinge so the
-  end panel lands (scan + bisection, picking the root nearest the current angle, preferring to rest
-  *on* the floor over sinking into it). It returns `null` when the chain ends too high for the last
-  panel to reach, which the store surfaces as a synthetic `E_UNGROUNDABLE`: that means the *profile*
-  has to arc back down, and the solver deliberately won't mangle earlier folds to hide it. The
-  policy of *which* hinge to solve lives in the callers, not the solver.
-- **Merge** (`src/core/merge.js`) — combining two squares into a plate performs the physically
-  implied adjustment: a vertical merge flattens the hinge it spans, a horizontal merge matches the
-  second column to the clicked-first one through that row. Both land with the plate in a single
-  validated commit and report what they changed in plain language.
-
----
-
-## Presets
-
-Two families. Measured with seed 1:
-
-| preset | rows | plates | pattern rule | bbox W×H×D cm | peak | flagged/joints |
-|---|---|---|---|---|---|---|
-| `flat` | 5 | 4 | mirrored quad | 365 × 4 × 304 | 4 | 0/45 |
-| `calm` | 5 | 4 | mirrored pairs | 365 × 20 × 302 | 20 | 8/45 |
-| `wave` | 5 | 6 | crest plates | 365 × 82 × 285 | 82 | 18/43 |
-| `crash` | 5 | 6 | landing plates | 365 × 77 × 300 | 77 | 20/43 |
-| `random` | 5 | 6 | one of four seeded templates | 365 × 68 × 302 | 68 | 19/43 |
-| `swell` | 8 | 8 | doubled spine plates | 365 × 117 × **478** | 117 | 40/74 |
-| `surge` | 7 | 12 | double plates | 365 × 170 × 241 | 170 | 29/59 |
-| `wallcrash` | 6 | 6 | wall splash | 365 × 200 × 339 | 200 | 30/54 |
-
-**Calm family** (`flat`/`calm`/`wave`/`crash`/`random`) — flat front row, 5 rows.
-**Storm family** (`swell`/`surge`/`wallcrash`) — every column's front panel pitched, higher row
-resolution, plates crossing rows. `wallcrash` additionally engages the wall: column 0 is
-`endSupport: 'wall'` and ends deliberately high, water splashing up the −X wall.
-
-`random` draws one of four named templates from the seed (`mirrored-pairs`, `alternating-bands`,
-`diagonal-cascade`, `shore-rafts`) and is deterministic per seed; verified valid, grounded and
-warning-free across 200 seeds.
-
-**Preset profiles are authored around their plates, not the reverse.** A plate pins its joint flat,
-so each preset designs the plateau first and differences the hinge angles out of the pitch profile.
-Hunting for legal plate positions in a profile authored without them mostly finds none.
+**Grounding is reported, never forced.** A rigid 60 cm panel cannot hug a curved target, so the
+graded edges come within a few cm of the floor and no closer; the residual is reported per edge as a
+clearance profile. And a planar facet **cannot be grounded along two intersecting lines and still be
+tilted** — any plane containing two intersecting floor lines *is* the floor — so the wall/window
+corner is necessarily where "both edges down" and "not flat" trade against each other.
 
 ---
 
 ## The UI
 
-- **3D viewport** — orbit controls, ground grid, the blue **WINDOW / SHORE** line at z = 0, the
-  translucent **WALL** plane at x = 0, red/amber markers on flagged joints, and a dismissible
-  **measuring box** with width / peak / depth labels in cm (`bounds` toggle).
-- **Plan view** — 6 × rows map, row 0 at the bottom, wall on the left. **Click a square** to arm it;
-  every mergeable neighbour highlights (**green `+`** = free, **amber dashed `~`** = also changes
-  geometry, with the consequence in the tooltip). Click one to **combine into a plate**. Click a
-  plate to **split** it. Escape lets go. Cell tint shows cumulative pitch.
-- **Column controls** — per column: a `front` pitch slider plus one slider per hinge, a profile
-  sparkline, cumulative pitch readout, grounded/floating badge with **Ground end**, and (column 0
-  only) a **bracket to wall / stand on floor** toggle.
-- **Toolbar** — rows stepper (5–8), Ground all, Copy col 0 → all, Shift →, Flatten, bounds, Undo,
-  Redo. Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z work too.
-- **CONFIG JSON** — paste a config and Apply (normalized, validated, errors listed), or Copy the
-  current one. This is the save/load mechanism until persistence exists.
-- **Export** — OBJ (one named object per panel with baked world transforms) and JSON.
+- **3D viewport** — orbit, ground grid, the **WINDOW / SHORE** line at z = 0, the translucent
+  **WALL** at x = 0, a dismissible measuring box, and four **colour modes**: `type`, `gap`
+  (deviation per tile), `clearance` (grounding at a glance), `facet` (makes the angular target
+  legible). Plus a translucent **ghost of the target surface** and **collision highlighting**.
+- **Preset bar** — the six drifts, each showing what it trades away.
+- **Drift form** — every knob, with `angularity`, `facetCells` and `placement.mode` annotated
+  inline, because their meaning is not guessable from a label.
+- **Report** — joint deviation against tolerance, the holonomy split in `chain` mode, shape
+  residual, collisions, and per-edge grounding clearance.
+- **Plan view** — the material lattice showing squares and plates; row 0 at the bottom, wall left.
+- **CONFIG JSON** + named slots + **Export** (OBJ, one named object per panel with baked world
+  transforms; and JSON).
 
 ---
 
@@ -201,73 +204,69 @@ Hunting for legal plate positions in a profile authored without them mostly find
 
 ```
 src/
-├── config.js                 panel dimensions + profile + edge helpers  (copied from panel-designer)
-├── geometry/panelGeometry.js  the panel solid: framed diffuser front, tapered enclosed back
-├── core/                      ← HEADLESS ZONE
-│   ├── schema.js              DEFAULT_CONFIG, normalizeConfig, validateConfig, columnChain, frontRestY
-│   ├── placement.js           solveLayout (config → world transforms), panelSolidCorners, layoutBounds
-│   ├── report.js              jointReport — per-joint gap/skew/dihedral + flags
-│   ├── ground.js              solveGroundingFold, groundAllFolds
-│   ├── merge.js               mergeCandidates, mergeCells
-│   └── presets.js             the two preset families + seeded random templates
-├── store.js                   zustand: commit-through-validation, memoized derived data, undo/redo
-├── components/                Viewport, SurfaceMeshes, JointFlags, GridMap, ColumnControls,
-│                              ControlPanel, PresetBar, JsonPanel, ExportButtons
-└── utils/exporters.js         buildExportGroup (headless) + OBJ/JSON download
+├── config.js                  panel dimensions + profile          (kept from v2)
+├── geometry/panelGeometry.js  the panel solid                     (kept from v2 — do not touch)
+├── persistence.js             localStorage autosave + named slots
+├── core/v3/                   ← HEADLESS ZONE
+│   ├── form.js                the smooth drift H(x,z) + analytic gradient
+│   ├── target.js              faceting + the arc-length unroll
+│   ├── schema.js              config, normalize, validate
+│   ├── tiling.js              domino tiling; square vs plate by fit
+│   ├── placement.js           surface-fit and chain placement, grounding
+│   ├── report.js              joints, holonomy, fit, collisions
+│   ├── collide.js             15-axis OBB SAT
+│   └── presets.js             the six drifts
+├── v3/                        store + components
+└── utils/exporters.js         OBJ / JSON                          (kept from v2)
 ```
 
 ### The headless-core contract
 
-Everything in `src/core/` **must**:
-
-1. use **explicit `.js` extensions** on all relative imports — plain node ESM does not resolve
-   extensionless paths. (`panel-designer` omitted them, which is precisely why its node tests are
-   dead and its geometry never got verified. Don't repeat it.)
-2. import **only `three`'s math classes** — never a scene graph, never the DOM, never the store.
-3. be **pure and deterministic** — same config in, byte-identical output. Several tests assert this
-   by `JSON.stringify` equality across repeat calls.
+Everything in `src/core/` **must**: use **explicit `.js` extensions** on relative imports (plain
+node ESM does not resolve extensionless paths — `panel-designer` omitted them, which is exactly why
+its node tests are dead); import **only `three`'s math classes**, never a scene graph, the DOM, or
+the store; and be **pure and deterministic**, same input → byte-identical output.
 
 This is what makes the whole model testable in node without a browser, and it is the single most
-valuable convention in the project. The store is a thin commit-and-cache layer over it; the
-components are thin renderers of its output.
+valuable convention in the project.
 
 ### The store contract
 
-Every mutation runs through `commit()`: produce a candidate config, run `validateConfig`, and
-commit **only if valid** — otherwise keep the previous state and stash the errors in `lastErrors`
-for the UI. Derived data (`layout`, `report`, `violations`, `bounds`) is memoized in a `WeakMap`
-keyed on config identity, so it is computed once per change rather than per frame. UI-only state
-(`showBounds`, `armedCell`, undo history) lives outside `config` and never reaches the exporters.
+Every mutation runs through `commit()`: build a candidate, run `validateConfig`, commit **only if
+valid**, otherwise keep the previous state and stash the errors. Derived data (`layout`, `report`)
+is memoized in a `WeakMap` keyed on config identity, so it is computed once per change rather than
+per frame — `solveLayout` and `buildReport` are not cheap.
 
 ---
 
 ## Testing
 
-Plain node scripts — no test framework. Each prints a pass/fail summary and exits non-zero on
-failure.
+Plain node scripts, no framework. Each prints a pass/fail summary and exits non-zero on failure.
 
 ```bash
 cd grid-designer
-node tests/test-merge.mjs        # 103  merge candidates/coercion, sweep invariant
-node tests/test-geometry.mjs     #  50  panel solid: manifold, orientation, volume, groups
-node tests/test-validation.mjs   # 213  schema, normalization, every error/warning code
-node tests/test-presets.mjs      # 341  all presets: valid, grounded, patterns, determinism
-node tests/test-placement.mjs    # 268  chains, closed forms, bounds, rects
-node tests/test-report.mjs       # 125  joint metrics
-node tests/test-obj.mjs          #  37  OBJ export round-trip
+node tests/test-form.mjs          #   89  drift heightfield, analytic gradient
+node tests/test-v3-schema.mjs     #  219  schema, normalization, every code
+node tests/test-v3-target.mjs     #   40  unroll, faceting, coplanarity
+node tests/test-v3-tiling.mjs     # 1895  partition, strategies, plate fit
+node tests/test-v3-collide.mjs    #   76  SAT, incl. a 6-axis mutation check
+node tests/test-v3-placement.mjs  #  536  placement, grounding, both modes
+node tests/test-v3-report.mjs     #   49  joints, holonomy, collisions
+node tests/test-v3-presets.mjs    #   63  each preset delivers its claim
+node tests/test-v3-obj.mjs        #   25  OBJ round-trip
+node tests/test-geometry.mjs      #   50  the panel solid
+node tests/test-persistence.mjs   #   46  storage, version discard
 npm run build
-node tests/screenshot.mjs        # 225  Playwright; spawns its own dev server
 ```
 
-**1137 headless + 225 browser checks.** `tests/screenshot.mjs` starts and stops its own dev server
-(don't pre-start one on 5175), drives the real UI, and writes reference PNGs to
-`tests/screenshots/`. Those PNGs are committed and are the visual record of each feature.
+**3062 checks.** Three conventions worth keeping:
 
-Two testing conventions worth keeping:
-
-- **Closed-form expectations.** Chain geometry, bounds, and panel volume are checked against
-  formulas derived in the test from the constants, not against golden numbers. Sign conventions are
-  the classic bug source here and this is what catches them.
-- **Regression guards on preset output.** Preset configs are compared bit-identically against the
-  previous commit whenever one preset is being tuned, so a shared-helper change can't silently
-  reshape the others.
+- **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
+  and frame conventions are the classic bug source here and only a derivation catches them. The flat
+  form (`amplitude: 0`) is the case whose answer is known exactly, and it is the control for
+  everything else.
+- **Non-vacuous negatives.** A check that collisions are absent is worthless without a case where
+  they are present. `collide.js` carries a mutation check proving its 9 cross-product axes are
+  load-bearing.
+- **Presets re-measure their own claims**, so if the core math shifts, the assertions catch the
+  prose going stale.
