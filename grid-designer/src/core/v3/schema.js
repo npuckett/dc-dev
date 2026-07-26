@@ -108,7 +108,9 @@
  *     "form": {                                // authored drift heightfield —
  *       "amplitude": 120, "crestX": 0.62, "crestZ": 0.55, "ridgeShear": 0.18,
  *       "toeSharpX": 0.8, "toeSharpZ": 0.9,     // see src/core/v3/form.js for
- *       "footprint": { "width": 365, "depth": 430 }  // what each knob means
+ *       "footprint": { "width": 365, "depth": 487 }  // drift's plan extent;
+ *                                                   // OMIT IT to derive from
+ *                                                   // the sheet (recommended)
  *     },
  *     "tiling": {
  *       "strategy": "flat-lie",                 // 'flat-lie' | 'ridge-aligned'
@@ -123,7 +125,8 @@
  *                                              // range restores the old
  *                                              // maximal-packing behaviour.
  *     },
- *     "placement": { "tree": "bfs-corner" },    // 'bfs-corner' | 'comb-v'
+ *     "placement": { "mode": "surface-fit",     // 'surface-fit' | 'chain'
+ *                    "tree": "bfs-corner" },    // 'bfs-corner' | 'comb-v'
  *                                              // | 'comb-u' — V3_SPEC §4.3
  *     "gapTolerance": 1.5,                     // report flags joints deviating
  *                                              // this far from `gap`
@@ -201,6 +204,19 @@ export const PLATE_FIT_TOLERANCE_MAX = 20
 export const TILING_STRATEGIES = ['flat-lie', 'ridge-aligned', 'toe-bands']
 export const PLACEMENT_TREES = ['bfs-corner', 'comb-v', 'comb-u']
 
+/**
+ * How tiles are positioned.
+ *   'surface-fit' (default) — every tile is fitted to the target surface
+ *      independently, so the incompatibility is shared out across ALL joints.
+ *      This is what the physical connectors actually do, and it is the only
+ *      mode whose output still reads as the drift that was authored.
+ *   'chain' — tiles are hinged off one another along a spanning tree, making
+ *      every tree joint exactly `gap` with zero skew and dumping the entire
+ *      error onto the cycle-closing edges. Keep it for comparison: it shows
+ *      what insisting on exact joints costs, and a chain is what v2 did.
+ */
+export const PLACEMENT_MODES = ['surface-fit', 'chain']
+
 // -----------------------------------------------------------------------------
 // Defaults
 // -----------------------------------------------------------------------------
@@ -211,7 +227,18 @@ export const DEFAULT_CELL = { size: 60, plateLength: 121 }
  */
 export const DEFAULT_GAP = 1.0
 export const DEFAULT_GAP_TOLERANCE = 1.5
-export const DEFAULT_GROUND_TOLERANCE = 0.5
+/**
+ * How close a tile's solid must come to y = 0 to count as touching the floor.
+ *
+ * v2 used 0.5cm, which it could afford: a 1D column chain was solved so its end
+ * panel landed EXACTLY. v3 cannot. A rigid 60cm panel laid on a doubly-curved
+ * drift deviates from it by roughly (30**2 / 2) x curvature no matter where you
+ * put it, so the tiles along the grounded edges come to within a few cm of the
+ * floor and no closer. That residual is real, is what shims and connectors take
+ * up, and is reported per-edge rather than hidden — see `support.edges` in
+ * placement.js. 2cm is the honest threshold for a tiled shell.
+ */
+export const DEFAULT_GROUND_TOLERANCE = 2.0
 /**
  * `plateFitToleranceCm` — see tiling.js's "PLATE FIT" section: the maximum
  * sagitta (bow of the target surface away from a rigid plate's straight
@@ -227,7 +254,7 @@ export const DEFAULT_GROUND_TOLERANCE = 0.5
  * than removed.
  */
 export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0 }
-export const DEFAULT_PLACEMENT = { tree: 'bfs-corner' }
+export const DEFAULT_PLACEMENT = { tree: 'bfs-corner', mode: 'surface-fit' }
 
 export const DEFAULT_CONFIG = Object.freeze({
   version: 3,
@@ -243,10 +270,12 @@ export const DEFAULT_CONFIG = Object.freeze({
     ridgeShear: DEFAULT_FORM.ridgeShear,
     toeSharpX: DEFAULT_FORM.toeSharpX,
     toeSharpZ: DEFAULT_FORM.toeSharpZ,
-    footprint: { width: DEFAULT_FORM.footprint.width, depth: DEFAULT_FORM.footprint.depth },
+    // Matches the default 6x8 sheet exactly (6*61-1 = 365, 8*61-1 = 487); an
+    // omitted footprint derives the same way for any sheet — see withDefaults.
+    footprint: { width: 365, depth: 487 },
   },
   tiling: { strategy: DEFAULT_TILING.strategy, plateFitToleranceCm: DEFAULT_TILING.plateFitToleranceCm },
-  placement: { tree: DEFAULT_PLACEMENT.tree },
+  placement: { tree: DEFAULT_PLACEMENT.tree, mode: DEFAULT_PLACEMENT.mode },
   gapTolerance: DEFAULT_GAP_TOLERANCE,
   groundTolerance: DEFAULT_GROUND_TOLERANCE,
   meta: { preset: 'drift', tilePattern: 'flat-lie', notes: '' },
@@ -295,6 +324,26 @@ function withDefaults(raw) {
   const tilingSrc = isPlainObject(src.tiling) ? src.tiling : {}
   const placementSrc = isPlainObject(src.placement) ? src.placement : {}
 
+  // An OMITTED footprint is derived from the sheet, not taken from a constant.
+  //
+  // The drift is zero outside its footprint, so a footprint SHORTER than the
+  // sheet leaves the trailing cells on dead-flat ground with a slope
+  // discontinuity at the boundary — and the tiles straddling it cannot follow
+  // the kink. Measured: a 430cm-deep drift under a 487cm sheet drove the worst
+  // joint deviation to 9.8cm, where a matched footprint gives 2.67cm on the
+  // same form. Deriving the default keeps it self-consistent at every sheet
+  // size. An explicit footprint is still honoured — a drift that deliberately
+  // feathers out before the sheet ends is a legitimate design.
+  const dSize = cellSrc.size !== undefined ? cellSrc.size : DEFAULT_CELL.size
+  const dGap = src.gap !== undefined ? src.gap : DEFAULT_GAP
+  const dCols = sheetSrc.cols !== undefined ? sheetSrc.cols : DEFAULT_SHEET.cols
+  const dRows = sheetSrc.rows !== undefined ? sheetSrc.rows : DEFAULT_SHEET.rows
+  const dPitch = (Number(dSize) || DEFAULT_CELL.size) + (Number(dGap) || 0)
+  const derivedFootprint = {
+    width: (Number(dCols) || DEFAULT_SHEET.cols) * dPitch - (Number(dGap) || 0),
+    depth: (Number(dRows) || DEFAULT_SHEET.rows) * dPitch - (Number(dGap) || 0),
+  }
+
   const out = {
     version: src.version !== undefined ? src.version : 3,
     units: src.units !== undefined ? src.units : 'cm',
@@ -315,8 +364,8 @@ function withDefaults(raw) {
       toeSharpX: formSrc.toeSharpX !== undefined ? formSrc.toeSharpX : DEFAULT_FORM.toeSharpX,
       toeSharpZ: formSrc.toeSharpZ !== undefined ? formSrc.toeSharpZ : DEFAULT_FORM.toeSharpZ,
       footprint: {
-        width: footprintSrc.width !== undefined ? footprintSrc.width : DEFAULT_FORM.footprint.width,
-        depth: footprintSrc.depth !== undefined ? footprintSrc.depth : DEFAULT_FORM.footprint.depth,
+        width: footprintSrc.width !== undefined ? footprintSrc.width : derivedFootprint.width,
+        depth: footprintSrc.depth !== undefined ? footprintSrc.depth : derivedFootprint.depth,
       },
     },
     tiling: {
@@ -326,6 +375,7 @@ function withDefaults(raw) {
     },
     placement: {
       tree: placementSrc.tree !== undefined ? placementSrc.tree : DEFAULT_PLACEMENT.tree,
+      mode: placementSrc.mode !== undefined ? placementSrc.mode : DEFAULT_PLACEMENT.mode,
     },
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
     groundTolerance: src.groundTolerance !== undefined ? src.groundTolerance : DEFAULT_GROUND_TOLERANCE,
@@ -372,6 +422,7 @@ export function normalizeConfig(raw) {
     },
     placement: {
       tree: PLACEMENT_TREES.includes(cfg.placement.tree) ? cfg.placement.tree : DEFAULT_PLACEMENT.tree,
+      mode: PLACEMENT_MODES.includes(cfg.placement.mode) ? cfg.placement.mode : DEFAULT_PLACEMENT.mode,
     },
     gapTolerance: positiveOr(cfg.gapTolerance, DEFAULT_GAP_TOLERANCE),
     groundTolerance: positiveOr(cfg.groundTolerance, DEFAULT_GROUND_TOLERANCE),
@@ -507,6 +558,14 @@ export function validateConfig(config) {
       `placement.tree must be one of ${PLACEMENT_TREES.map((s) => `"${s}"`).join(', ')} ` +
         `(got ${JSON.stringify(cfg.placement.tree)})`,
       'placement.tree',
+    )
+  }
+  if (!PLACEMENT_MODES.includes(cfg.placement.mode)) {
+    err(
+      'E_SHAPE',
+      `placement.mode must be one of ${PLACEMENT_MODES.map((s) => `"${s}"`).join(', ')} ` +
+        `(got ${JSON.stringify(cfg.placement.mode)})`,
+      'placement.mode',
     )
   }
 

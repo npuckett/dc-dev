@@ -33,6 +33,7 @@ import {
   TOE_SHARP_MIN,
   normalizeConfig,
   validateConfig,
+  DEFAULT_GROUND_TOLERANCE,
 } from '../src/core/v3/schema.js'
 
 let passed = 0
@@ -443,7 +444,7 @@ expectValid('groundTolerance 0.1 is allowed', { ...good(), groundTolerance: 0.1 
   )
   check(
     'normalizeConfig falls back to the default groundTolerance on garbage',
-    normalizeConfig({ groundTolerance: NaN }).groundTolerance === 0.5,
+    normalizeConfig({ groundTolerance: NaN }).groundTolerance === DEFAULT_GROUND_TOLERANCE,
   )
 }
 
