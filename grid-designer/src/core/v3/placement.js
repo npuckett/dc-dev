@@ -106,7 +106,7 @@
 
 import * as THREE from 'three'
 import { normalizeConfig } from './schema.js'
-import { normalizeForm, driftHeight, driftNormal, driftGradient } from './form.js'
+import { buildTarget } from './target.js'
 import { solveTiling } from './tiling.js'
 import { PANEL_PROFILE } from '../../config.js'
 
@@ -174,13 +174,17 @@ const WORLD_Z = new THREE.Vector3(0, 0, 1)
  * clamps make unreachable but which must not produce NaN), and êv = êu × n̂ so
  * that n̂ = êv × êu holds — see the FRAMES note in the file header.
  */
-function surfaceFrame(form, x, z) {
-  const n = driftNormal(form, x, z).clone().normalize()
+function frameFromNormal(n) {
   let eu = WORLD_X.clone().addScaledVector(n, -WORLD_X.dot(n))
   if (eu.lengthSq() < AXIS_EPS) {
     eu = WORLD_Z.clone().addScaledVector(n, -WORLD_Z.dot(n))
   }
-  eu.normalize()
+  return eu.normalize()
+}
+
+function surfaceFrame(target, u, v) {
+  const n = target.frameAtMaterial(u, v).normal.clone().normalize()
+  const eu = frameFromNormal(n)
   const ev = eu.clone().cross(n).normalize()
   return { eu, ev, n }
 }
@@ -370,7 +374,7 @@ function signedAngle(a, b, axis) {
  * at the sampling site for why material and not plan coordinates, which is the
  * single most important decision in this file.
  */
-function placeChild(form, parentTile, childTile, edge, gap) {
+function placeChild(target, parentTile, childTile, edge, gap) {
   const runAxis = edge.axis
   const sepAxis = runAxis === 'u' ? 'v' : 'u'
 
@@ -425,9 +429,9 @@ function placeChild(form, parentTile, childTile, edge, gap) {
   // child's material centre is known before it is placed, so the dihedral is a
   // single closed-form solve rather than a chicken-and-egg between orientation
   // and position.
-  const target = driftNormal(form, centerOn(childTile, 'u'), centerOn(childTile, 'v'))
-    .clone().normalize()
-  const perp = target.clone().addScaledVector(axis, -target.dot(axis))
+  const aim = target.frameAtMaterial(centerOn(childTile, 'u'), centerOn(childTile, 'v'))
+    .normal.clone().normalize()
+  const perp = aim.clone().addScaledVector(axis, -aim.dot(axis))
   let theta = 0
   if (perp.lengthSq() >= AXIS_EPS) {
     perp.normalize()
@@ -441,93 +445,6 @@ function placeChild(form, parentTile, childTile, edge, gap) {
   const sepDir = sepAxis === 'u' ? eu : ev
   const center = anchor.clone().addScaledVector(sepDir, sepOffset)
   return { eu, ev, n, center, theta }
-}
-
-// -----------------------------------------------------------------------------
-// Unrolling: material → plan
-// -----------------------------------------------------------------------------
-
-/** Sub-steps per cell pitch when integrating arc length. */
-const UNROLL_SUBSTEPS = 8
-/** Passes of the coupled u/v arc-length integration. */
-const UNROLL_PASSES = 3
-
-/**
- * Build the material → plan map by ARC LENGTH.
- *
- * The sheet is longer than its shadow: a surface rising 120cm over ~200cm has a
- * ~17% stretch, so 365cm of material covers only ~310cm of floor. Treating
- * material coordinates as plan coordinates (the "naive lift") would therefore
- * pull every tile inboard and open every joint by centimetres.
- *
- * So integrate: dx/du = 1/√(1 + (∂H/∂x)²) along u, and the same along v, giving
- * the plan position whose arc-length distance from the origin equals the
- * material distance. The two integrations are coupled — x(u) depends on which z
- * you walk along, and vice versa — so they are relaxed together for a FIXED
- * number of passes, which keeps the result deterministic.
- *
- * Both grounded edges are fixed points of this map: H(0, z) = H(x, 0) = 0, so
- * along the wall line and the window line arc length equals material length and
- * u = x, v = z exactly. That is why those two edges land where the brief says
- * they should.
- */
-function buildUnroll(form, uMax, vMax) {
-  const step = Math.max(1, (uMax + vMax) / 2 / UNROLL_SUBSTEPS / 8)
-  const nu = Math.max(2, Math.ceil(uMax / step))
-  const nv = Math.max(2, Math.ceil(vMax / step))
-  const du = uMax / nu
-  const dv = vMax / nv
-  const idx = (iu, iv) => iu * (nv + 1) + iv
-
-  const xs = new Float64Array((nu + 1) * (nv + 1))
-  const zs = new Float64Array((nu + 1) * (nv + 1))
-  for (let iu = 0; iu <= nu; iu++) {
-    for (let iv = 0; iv <= nv; iv++) {
-      xs[idx(iu, iv)] = iu * du
-      zs[idx(iu, iv)] = iv * dv
-    }
-  }
-
-  for (let pass = 0; pass < UNROLL_PASSES; pass++) {
-    // March along u at each fixed material v.
-    for (let iv = 0; iv <= nv; iv++) {
-      let x = 0
-      xs[idx(0, iv)] = 0
-      for (let iu = 1; iu <= nu; iu++) {
-        const z = zs[idx(iu - 1, iv)]
-        const gx = driftGradient(form, x, z)[0]
-        x += du / Math.sqrt(1 + gx * gx)
-        xs[idx(iu, iv)] = x
-      }
-    }
-    // March along v at each fixed material u.
-    for (let iu = 0; iu <= nu; iu++) {
-      let z = 0
-      zs[idx(iu, 0)] = 0
-      for (let iv = 1; iv <= nv; iv++) {
-        const x = xs[idx(iu, iv - 1)]
-        const gz = driftGradient(form, x, z)[1]
-        z += dv / Math.sqrt(1 + gz * gz)
-        zs[idx(iu, iv)] = z
-      }
-    }
-  }
-
-  /** Bilinear sample of the map at an arbitrary material point. */
-  return function planAt(u, v) {
-    const fu = Math.min(nu, Math.max(0, u / du))
-    const fv = Math.min(nv, Math.max(0, v / dv))
-    const iu = Math.min(nu - 1, Math.floor(fu))
-    const iv = Math.min(nv - 1, Math.floor(fv))
-    const tu = fu - iu
-    const tv = fv - iv
-    const lerp2 = (arr) =>
-      arr[idx(iu, iv)] * (1 - tu) * (1 - tv) +
-      arr[idx(iu + 1, iv)] * tu * (1 - tv) +
-      arr[idx(iu, iv + 1)] * (1 - tu) * tv +
-      arr[idx(iu + 1, iv + 1)] * tu * tv
-    return { x: lerp2(xs), z: lerp2(zs) }
-  }
 }
 
 // -----------------------------------------------------------------------------
@@ -572,7 +489,7 @@ function pointInHull(pt, hull) {
  */
 export function solveLayout(config) {
   const cfg = normalizeConfig(config)
-  const form = normalizeForm(cfg.form)
+  const target = buildTarget(cfg)
   const tiling = solveTiling(cfg)
   const gap = cfg.gap
   const groundTol = cfg.groundTolerance
@@ -590,13 +507,18 @@ export function solveLayout(config) {
     // Every tile is placed independently against the target surface, so the
     // joints absorb the incompatibility instead of one edge absorbing all of
     // it. See MODES in the file header.
-    const pitch = cfg.cell.size + gap
-    const uMax = cfg.sheet.cols * pitch - gap
-    const vMax = cfg.sheet.rows * pitch - gap
-    const planAt = buildUnroll(form, uMax, vMax)
     for (const tile of tiles) {
-      const { x, z } = planAt(uCenterOf(tile), vCenterOf(tile))
-      const { eu, ev, n } = surfaceFrame(form, x, z)
+      // The TARGET, not the raw smooth form: at angularity > 0 it is quantized
+      // into planar facets on the panel lattice, so every tile sharing a facet
+      // gets the SAME plane and is therefore exactly coplanar with its
+      // neighbours — the joints between them stay at `gap` instead of wedging
+      // open, and all the folding collects onto facet boundaries, which is
+      // where the physical joints already are. See target.js.
+      const { point, normal } = target.frameAtMaterial(uCenterOf(tile), vCenterOf(tile))
+      const [x, hy, z] = point
+      const n = normal.clone().normalize()
+      const eu = frameFromNormal(n)
+      const ev = eu.clone().cross(n).normalize()
       tile.eu = rv(eu)
       tile.ev = rv(ev)
       tile.normal = rv(n)
@@ -606,7 +528,7 @@ export function solveLayout(config) {
       // rests on the floor instead of being buried 3.7cm under it. This is v2's
       // `frontRestY` (y0 = 3.7·cos θ — "the panel rests on its housing edge")
       // generalized from a 1D chain to an arbitrarily oriented tile.
-      const p = new THREE.Vector3(x, driftHeight(form, x, z), z)
+      const p = new THREE.Vector3(x, hy, z)
         .addScaledVector(n, PANEL_PROFILE.overallThickness)
       tile.position = rv(p)
     }
@@ -627,7 +549,7 @@ export function solveLayout(config) {
   } else {
   // --- root: the tile owning material cell (0,0), the wall+window corner ----
   {
-    const { eu, ev, n } = surfaceFrame(form, uCenterOf(root), vCenterOf(root))
+    const { eu, ev, n } = surfaceFrame(target, uCenterOf(root), vCenterOf(root))
     root.eu = rv(eu)
     root.ev = rv(ev)
     root.normal = rv(n)
@@ -654,7 +576,7 @@ export function solveLayout(config) {
     const tile = byId.get(id)
     const parentTile = byId.get(tree.parent.get(id))
     const edge = tiling.adjacency[tree.parentEdge.get(id)]
-    const p = placeChild(form, parentTile, tile, edge, gap)
+    const p = placeChild(target, parentTile, tile, edge, gap)
     tile.eu = rv(p.eu)
     tile.ev = rv(p.ev)
     tile.normal = rv(p.n)

@@ -270,6 +270,8 @@ export const DEFAULT_CONFIG = Object.freeze({
     ridgeShear: DEFAULT_FORM.ridgeShear,
     toeSharpX: DEFAULT_FORM.toeSharpX,
     toeSharpZ: DEFAULT_FORM.toeSharpZ,
+    angularity: DEFAULT_FORM.angularity,
+    facetCells: DEFAULT_FORM.facetCells,
     // Matches the default 6x8 sheet exactly (6*61-1 = 365, 8*61-1 = 487); an
     // omitted footprint derives the same way for any sheet — see withDefaults.
     footprint: { width: 365, depth: 487 },
@@ -363,6 +365,11 @@ function withDefaults(raw) {
       ridgeShear: formSrc.ridgeShear !== undefined ? formSrc.ridgeShear : DEFAULT_FORM.ridgeShear,
       toeSharpX: formSrc.toeSharpX !== undefined ? formSrc.toeSharpX : DEFAULT_FORM.toeSharpX,
       toeSharpZ: formSrc.toeSharpZ !== undefined ? formSrc.toeSharpZ : DEFAULT_FORM.toeSharpZ,
+      // Faceting: quantizes the smooth drift onto the panel lattice so the
+      // panels can BE the surface rather than approximate it. Consumed by
+      // target.js — see form.js for what the two knobs mean.
+      angularity: formSrc.angularity !== undefined ? formSrc.angularity : DEFAULT_FORM.angularity,
+      facetCells: formSrc.facetCells !== undefined ? formSrc.facetCells : DEFAULT_FORM.facetCells,
       footprint: {
         width: footprintSrc.width !== undefined ? footprintSrc.width : derivedFootprint.width,
         depth: footprintSrc.depth !== undefined ? footprintSrc.depth : derivedFootprint.depth,

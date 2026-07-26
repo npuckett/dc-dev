@@ -125,6 +125,26 @@ const TOE_SHARP_MAX = 1.0
  *  division by zero. Not a V3_SPEC range (footprint isn't listed in §6) — just
  *  a sanity floor. */
 const FOOTPRINT_MIN = 1
+/**
+ * Faceting knobs, consumed by `target.js` (NOT by driftHeight — the drift itself
+ * stays smooth; faceting is a quantization of it onto the panel lattice).
+ *
+ * `angularity` blends smooth → faceted. Rigid panels cannot BE a smooth
+ * surface, so a smooth target is one they can only approximate: joints wedge
+ * open, housings collide past ~40cm of amplitude, and no region stays flat
+ * enough to lay a rigid 121cm plate. A faceted target is one they can be
+ * exactly. 1 = fully faceted, 0 = the smooth drift with all of that faithfully
+ * reported.
+ *
+ * `facetCells` is how many cells share a facet plane: 1 gives every panel its
+ * own plane (a fold at every joint), larger gives broader planes with crisper
+ * creases between them. Facet boundaries always fall on cell boundaries, so a
+ * crease only ever lands where there is already a physical joint to absorb it.
+ */
+const ANGULARITY_MIN = 0
+const ANGULARITY_MAX = 1
+const FACET_CELLS_MIN = 1
+const FACET_CELLS_MAX = 4
 
 /**
  * Clamp range for tc(s), the z-axis crest parameter after ridgeShear shifts it.
@@ -143,6 +163,8 @@ export const DEFAULT_FORM = {
   ridgeShear: 0.18,
   toeSharpX: 0.8,
   toeSharpZ: 0.9,
+  angularity: 0.5,
+  facetCells: 2,
   footprint: { width: 365, depth: 430 },
 }
 
@@ -173,6 +195,8 @@ export function normalizeForm(partial) {
     ridgeShear: clamp(numberOr(src.ridgeShear, DEFAULT_FORM.ridgeShear), RIDGE_SHEAR_MIN, RIDGE_SHEAR_MAX),
     toeSharpX: clamp(numberOr(src.toeSharpX, DEFAULT_FORM.toeSharpX), TOE_SHARP_MIN, TOE_SHARP_MAX),
     toeSharpZ: clamp(numberOr(src.toeSharpZ, DEFAULT_FORM.toeSharpZ), TOE_SHARP_MIN, TOE_SHARP_MAX),
+    angularity: clamp(numberOr(src.angularity, DEFAULT_FORM.angularity), ANGULARITY_MIN, ANGULARITY_MAX),
+    facetCells: Math.round(clamp(numberOr(src.facetCells, DEFAULT_FORM.facetCells), FACET_CELLS_MIN, FACET_CELLS_MAX)),
     footprint: {
       width: Math.max(FOOTPRINT_MIN, numberOr(footprint.width, DEFAULT_FORM.footprint.width)),
       depth: Math.max(FOOTPRINT_MIN, numberOr(footprint.depth, DEFAULT_FORM.footprint.depth)),
