@@ -169,7 +169,14 @@
  *                    EXACTNESS above. Silent at the defaults.
  */
 
-import { DEFAULT_FORM, normalizeForm } from './form.js'
+import {
+  ANGULARITY_MAX,
+  ANGULARITY_MIN,
+  DEFAULT_FORM,
+  FACET_CELLS_MAX,
+  FACET_CELLS_MIN,
+  normalizeForm,
+} from './form.js'
 
 // -----------------------------------------------------------------------------
 // Ranges — V3_SPEC.md §6
@@ -192,6 +199,9 @@ export const CREST_MIN = 0.15
 export const CREST_MAX = 0.85
 export const RIDGE_SHEAR_MIN = -0.4
 export const RIDGE_SHEAR_MAX = 0.4
+// Re-exported so every consumer reads one source of truth for the ranges; the
+// values live in form.js beside the knobs they clamp.
+export { ANGULARITY_MIN, ANGULARITY_MAX, FACET_CELLS_MIN, FACET_CELLS_MAX }
 export const TOE_SHARP_MIN = 0.45
 export const TOE_SHARP_MAX = 1.0
 /**
@@ -535,6 +545,11 @@ export function validateConfig(config) {
   checkFormRange('ridgeShear', RIDGE_SHEAR_MIN, RIDGE_SHEAR_MAX, 'ridge diagonal walk rate')
   checkFormRange('toeSharpX', TOE_SHARP_MIN, TOE_SHARP_MAX, 'window-edge toe sharpness')
   checkFormRange('toeSharpZ', TOE_SHARP_MIN, TOE_SHARP_MAX, 'wall-edge toe sharpness')
+  // angularity / facetCells had clamping in normalizeConfig but no E_RANGE check,
+  // which broke this file's own "TWO KINDS OF DEFAULTING" contract: an
+  // out-of-range value was silently corrected instead of reported.
+  checkFormRange('angularity', ANGULARITY_MIN, ANGULARITY_MAX, 'smooth-to-faceted blend')
+  checkFormRange('facetCells', FACET_CELLS_MIN, FACET_CELLS_MAX, 'cells sharing one facet plane')
   if (!isFiniteNumber(form.footprint.width) || form.footprint.width <= 0) {
     err(
       'E_SHAPE',

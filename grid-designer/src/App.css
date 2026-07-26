@@ -779,3 +779,246 @@ body {
   border-color: rgba(170, 180, 200, 0.6);
   background: rgba(13, 13, 20, 0.78);
 }
+
+/* =============================================================================
+   v3 — the drift-surface UI (src/v3/*.jsx). Appended, not interleaved: every
+   rule above this point is v2's, untouched. v3 reuses v2's base look (dark
+   panels, .preset-btn, .tool-btn, .slider-row, .msg-list, .json-panel,
+   .grid-map-* idioms) and adds only what v2 has no analogue for.
+   ============================================================================= */
+
+/* the v3 control column is a hair wider than v2's 320px — the report panel's
+   metric grid needs the room */
+.control-panel-v3 {
+  flex-basis: 340px;
+  width: 340px;
+}
+
+/* --- form panel (FormPanel.jsx) -------------------------------------------- */
+.form-panel {
+  flex: 0 0 auto;
+}
+
+.form-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.form-panel-history {
+  display: flex;
+  gap: 4px;
+}
+
+.form-block {
+  padding: 7px 8px 8px;
+  margin-bottom: 6px;
+}
+
+.form-annotation {
+  margin: -2px 0 6px;
+  padding-left: 2px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #8a8aa4;
+  border-left: 2px solid #2e2e44;
+  padding-left: 6px;
+}
+
+.form-annotation b { color: #b9d3ff; font-weight: 600; }
+
+.form-select-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.form-select {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  color: #e6e6f2;
+  background: #101019;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+}
+
+/* --- viewport toolbar (DriftViewport.jsx), floats over the canvas --------- */
+.viewport-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 20px);
+  padding: 6px 8px;
+  background: rgba(20, 20, 30, 0.78);
+  border: 1px solid #2a2a3e;
+  border-radius: 6px;
+  backdrop-filter: blur(2px);
+}
+
+.viewport-toolbar-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7c7c98;
+}
+
+.color-mode-group {
+  display: flex;
+  gap: 4px;
+}
+
+/* --- tiling map (TilingMap.jsx) --------------------------------------------- */
+.tiling-map {
+  flex: 0 0 auto;
+  padding: 6px 7px 4px;
+  margin-bottom: 6px;
+  background: #16161f;
+  border: 1px solid #26263a;
+  border-radius: 4px;
+}
+
+.tiling-tint-group {
+  display: flex;
+  gap: 4px;
+}
+
+/* --- report panel (ReportPanel.jsx) ----------------------------------------- */
+.report-panel {
+  flex: 0 0 auto;
+  padding: 7px 8px 8px;
+  margin-bottom: 6px;
+  background: #16161f;
+  border: 1px solid #26263a;
+  border-radius: 4px;
+}
+
+.report-verdict {
+  margin-bottom: 7px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #7fb99a;
+  background: #16241d;
+  border: 1px solid #2c4a3a;
+  border-radius: 4px;
+}
+
+.report-verdict-bad {
+  color: #ffc0cb;
+  background: #2c1119;
+  border-color: #6d2033;
+}
+
+.report-section {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #22222f;
+}
+
+.report-section:last-of-type { border-bottom: none; }
+
+.report-section-bad {
+  padding: 6px 6px 8px;
+  background: #200d11;
+  border: 1px solid #4a1620;
+  border-radius: 4px;
+}
+
+.report-section-title {
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7c7c98;
+}
+
+.report-metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.report-metric-grid-wide {
+  grid-template-columns: 1fr 1fr;
+}
+
+.report-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: #1c1c2a;
+  border: 1px solid #2a2a3e;
+}
+
+.report-metric-label {
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  color: #7c7c98;
+}
+
+.report-metric-value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #e6e6f2;
+}
+
+.metric-ok .report-metric-value { color: #63d19b; }
+.metric-warn { background: #2a2210; border-color: #6a5520; }
+.metric-warn .report-metric-value { color: #f0d99a; }
+.metric-bad { background: #2c1119; border-color: #6d2033; }
+.metric-bad .report-metric-value { color: #ff6b81; }
+
+.report-good { color: #7fb99a; }
+.report-bad-text { color: #ff8b9c; }
+
+.report-list {
+  margin-top: 3px;
+  padding-left: 14px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #cfcfe0;
+}
+
+.report-edge-card {
+  padding: 5px 6px;
+  border-radius: 3px;
+  background: #1c1c2a;
+  border: 1px solid #2a2a3e;
+}
+
+.report-edge-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: #b9d3ff;
+  margin-bottom: 2px;
+}
+
+/* ---- v3 preset bar ------------------------------------------------------- */
+.v3-presets { padding: 10px 12px 12px; border-bottom: 1px solid #23262c; }
+.v3-presets-label {
+  font-size: 10px; letter-spacing: 0.08em; color: #6b7785;
+  margin-bottom: 6px; font-weight: 600;
+}
+.v3-presets-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.v3-presets-row .preset-btn { flex: 0 0 auto; }
+.v3-presets-row .preset-btn.is-active {
+  background: #2b5c8a; border-color: #3d7cb5; color: #eaf2fa;
+}
+.v3-preset-trade {
+  margin-top: 8px; font-size: 10.5px; line-height: 1.45; color: #8b97a5;
+}

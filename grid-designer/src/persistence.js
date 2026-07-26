@@ -56,11 +56,13 @@ export const AUTOSAVE_DELAY_MS = 300
 
 /**
  * The config `version` this build accepts. Mirrors (deliberately, independently
- * of) core/schema.js's `version !== 2` check. Bump this alongside that check
- * when the schema pivots, so a stale save is discarded on load rather than fed
- * into a store built for a different model.
+ * of) core/v3/schema.js's `version !== 3` check. Bumped from 2 to 3 for the v3
+ * drift-surface pivot (V3_SPEC.md §6 / §7): v2 (per-column fold strip) and v3
+ * (one tiled drift surface) configs describe physically different objects and
+ * do not map onto one another, so a v2 save must be DISCARDED here, never
+ * resurrected into a v3 store — same reasoning as v1→v2's bump before it.
  */
-const EXPECTED_CONFIG_VERSION = 2
+const EXPECTED_CONFIG_VERSION = 3
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 

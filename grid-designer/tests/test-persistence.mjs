@@ -94,7 +94,37 @@ function removeStorage() {
 // Fixtures
 // -----------------------------------------------------------------------------
 
+/** v3-shaped config (V3_SPEC.md §6) — the CURRENT schema this build accepts. */
 function sampleConfig(overrides = {}) {
+  return {
+    version: 3,
+    units: 'cm',
+    sheet: { cols: 6, rows: 8 },
+    cell: { size: 60, plateLength: 121 },
+    gap: 1,
+    form: {
+      amplitude: 120,
+      crestX: 0.62,
+      crestZ: 0.55,
+      ridgeShear: 0.18,
+      toeSharpX: 0.8,
+      toeSharpZ: 0.9,
+      angularity: 0.5,
+      facetCells: 2,
+      footprint: { width: 365, depth: 487 },
+    },
+    tiling: { strategy: 'flat-lie', plateFitToleranceCm: 2.0 },
+    placement: { tree: 'bfs-corner', mode: 'surface-fit' },
+    gapTolerance: 1.5,
+    groundTolerance: 2.0,
+    meta: { preset: 'drift', tilePattern: 'flat-lie', notes: '' },
+    ...overrides,
+  }
+}
+
+/** v2-shaped config (per-column fold strips) — the RETIRED schema a v3 build
+ *  must discard rather than resurrect (V3_SPEC.md §6 / §7). */
+function sampleV2Config(overrides = {}) {
   return {
     version: 2,
     units: 'cm',
@@ -191,10 +221,10 @@ function sampleConfig(overrides = {}) {
   storage.setItem(WORKING_KEY, JSON.stringify([1, 2, 3]))
   check('malformed envelope (array, not object): returns null', loadWorkingConfig() === null)
 
-  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 2 })) // no `config`
+  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 3 })) // no `config`
   check('malformed envelope (missing config): returns null', loadWorkingConfig() === null)
 
-  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 2, config: 'not an object' }))
+  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 3, config: 'not an object' }))
   check('malformed envelope (config not an object): returns null', loadWorkingConfig() === null)
 
   storage.setItem(WORKING_KEY, '')
@@ -219,23 +249,36 @@ function sampleConfig(overrides = {}) {
     loadWorkingConfig() === null,
   )
 
-  // The envelope tag matches, but the embedded config claims a different
-  // version (e.g. a v1 or future-v3 config that slipped in some other way).
+  // The envelope tag matches (3), but the embedded config claims a different
+  // version (e.g. a v1 or v2 config that slipped in some other way).
   storage.setItem(
     WORKING_KEY,
-    JSON.stringify({ schemaVersion: 2, savedAt: Date.now(), config: sampleConfig({ version: 3 }) }),
+    JSON.stringify({ schemaVersion: 3, savedAt: Date.now(), config: sampleConfig({ version: 2 }) }),
   )
   check(
     "version mismatch: embedded config's own `version` field is checked independently",
     loadWorkingConfig() === null,
-    'a v3 config must not be resurrected into a v2-only build',
+    'a v2-tagged config must not be resurrected into a v3-only build',
   )
 
   storage.setItem(
     WORKING_KEY,
-    JSON.stringify({ schemaVersion: 2, savedAt: Date.now(), config: sampleConfig({ version: 1 }) }),
+    JSON.stringify({ schemaVersion: 3, savedAt: Date.now(), config: sampleConfig({ version: 1 }) }),
   )
   check('version mismatch: a v1 config is also discarded', loadWorkingConfig() === null)
+
+  // THE ACTUAL PIVOT CASE (V3_SPEC.md §6 / §7): a real v2 config (per-column
+  // fold strips), saved by a pre-pivot build under the OLD envelope tag, must
+  // be discarded rather than loaded into a v3 store — the two models describe
+  // physically different objects and do not map onto one another.
+  storage.setItem(
+    WORKING_KEY,
+    JSON.stringify({ schemaVersion: 2, savedAt: Date.now(), config: sampleV2Config() }),
+  )
+  check(
+    'v2 pivot: a v2 envelope (schemaVersion 2) saved by a pre-pivot build is discarded, not loaded into v3',
+    loadWorkingConfig() === null,
+  )
 }
 
 // =============================================================================

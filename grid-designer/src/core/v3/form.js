@@ -141,10 +141,10 @@ const FOOTPRINT_MIN = 1
  * creases between them. Facet boundaries always fall on cell boundaries, so a
  * crease only ever lands where there is already a physical joint to absorb it.
  */
-const ANGULARITY_MIN = 0
-const ANGULARITY_MAX = 1
-const FACET_CELLS_MIN = 1
-const FACET_CELLS_MAX = 4
+export const ANGULARITY_MIN = 0
+export const ANGULARITY_MAX = 1
+export const FACET_CELLS_MIN = 1
+export const FACET_CELLS_MAX = 4
 
 /**
  * Clamp range for tc(s), the z-axis crest parameter after ridgeShear shifts it.
