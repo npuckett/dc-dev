@@ -38,7 +38,8 @@ import * as THREE from 'three'
 import { normalizeConfig } from './schema.js'
 import { buildTarget } from './target.js'
 import { solveLayout, tileOBB, jointEdgePoint } from './placement.js'
-import { findCollisions } from './collide.js'
+import { findCollisions, aabbOverlap, obbPenetration } from './collide.js'
+import { solveConnectors, connectorOBB, connectorStationFlags, CONNECTOR_LIMITS } from './connectors.js'
 
 const DEG = 180 / Math.PI
 
@@ -71,6 +72,198 @@ function edgeSegment(tile, edge, isA, samples) {
 
 /** Samples along a joint when measuring its gap profile. */
 const JOINT_SAMPLES = 5
+
+// =============================================================================
+// CONNECTORS (P11)
+// =============================================================================
+/**
+ * A connector's OBB necessarily overlaps the two panels it GRIPS — the channel
+ * closes around the rim, and the slot is a void inside the bounding box. So
+ * those two pairs are excluded by construction, and what remains is what a
+ * clash actually means here: a part fouling a THIRD panel, or two parts fouling
+ * each other. Both are reachable at a tight fold near a panel corner.
+ */
+const CONNECTOR_CLASH_MIN_DEPTH_CM = 0.05
+
+/**
+ * Group the stations into printable part types.
+ *
+ * A part is fully described by `(spanStart, spanEnd, fold, length)`, and two
+ * stations can share a part when those round into the same bin. Two
+ * canonicalizations before binning, both because the physical part allows it:
+ *
+ *   - the cross-section is MIRROR-SYMMETRIC about the gap's centre line, so
+ *     which panel is `a` and which is `b` does not distinguish two parts;
+ *   - a part can be fitted either way round along the joint, so `(2cm, 5cm)`
+ *     and `(5cm, 2cm)` are the same object rotated. Ordering the pair collapses
+ *     them.
+ *
+ * The FOLD is not canonicalized. Convex and concave are genuinely different
+ * parts — one closes the hooks, the other spreads them.
+ *
+ * This is the plate budget's question in a different currency (README, "the
+ * trade"): tight bins mean every joint gets geometry that fits it and you print
+ * a lot of unique things; loose bins mean a handful of types and some joints
+ * forced onto a neighbour's shape. The tool measures the forcing. It cannot
+ * choose the tolerance.
+ */
+function buildKit(stations, { binSpanCm, binAngleDeg }) {
+  const groups = new Map()
+
+  for (const st of stations) {
+    const lo = Math.min(st.spanStartCm, st.spanEndCm)
+    const hi = Math.max(st.spanStartCm, st.spanEndCm)
+    const bLo = Math.round(lo / binSpanCm)
+    const bHi = Math.round(hi / binSpanCm)
+    const bFold = Math.round(st.foldDeg / binAngleDeg)
+    const bLen = Math.round(st.lengthCm / 0.1)
+    const key = `${bLo}|${bHi}|${bFold}|${bLen}`
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        // The representative part IS the bin centre, not the first station that
+        // landed in it — otherwise the kit would depend on iteration order and
+        // half the group could sit further from the part than the bin allows.
+        spanStartCm: r(bLo * binSpanCm),
+        spanEndCm: r(bHi * binSpanCm),
+        foldDeg: r(bFold * binAngleDeg),
+        lengthCm: r(bLen * 0.1),
+        stations: [],
+      })
+    }
+    groups.get(key).stations.push(st)
+  }
+
+  // Sorted by count (a kit is read biggest-first), then by the bin key, so the
+  // ids are stable for a given design.
+  const ordered = [...groups.values()].sort(
+    (a, b) => b.stations.length - a.stations.length || (a.key < b.key ? -1 : 1),
+  )
+
+  return ordered.map((g, idx) => {
+    let worstSpan = 0
+    let worstFold = 0
+    for (const st of g.stations) {
+      const lo = Math.min(st.spanStartCm, st.spanEndCm)
+      const hi = Math.max(st.spanStartCm, st.spanEndCm)
+      worstSpan = Math.max(worstSpan, Math.abs(lo - g.spanStartCm), Math.abs(hi - g.spanEndCm))
+      worstFold = Math.max(worstFold, Math.abs(st.foldDeg - g.foldDeg))
+    }
+    return {
+      partId: `P${String(idx).padStart(2, '0')}`,
+      count: g.stations.length,
+      spanStartCm: g.spanStartCm,
+      spanEndCm: g.spanEndCm,
+      foldDeg: g.foldDeg,
+      lengthCm: g.lengthCm,
+      // What each joint using this part is forced to absorb by not getting its
+      // own exact geometry. Bounded by the bin half-width by construction; the
+      // number is here so the bin size can be chosen against a consequence.
+      worstSpanErrorCm: r(worstSpan),
+      worstFoldErrorDeg: r(worstFold),
+      stationIds: g.stations.map((s) => s.id),
+      joints: [...new Set(g.stations.map((s) => s.jointIndex))].sort((a, b) => a - b),
+    }
+  })
+}
+
+/**
+ * Everything about the printed parts: where they go, whether each is buildable,
+ * what fouls what, and how few distinct ones the design can be built from.
+ */
+function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
+  const C = solveConnectors(cfg, L)
+  const limits = CONNECTOR_LIMITS
+
+  const boxes = C.stations.map((st) => connectorOBB(st))
+
+  // --- clash: a part against a panel it does NOT grip, or against another part
+  const tileIndex = new Map(placedTiles.map((t, i) => [t.id, i]))
+  const clashes = []
+  C.stations.forEach((st, i) => {
+    for (let t = 0; t < tileBoxes.length; t++) {
+      if (t === tileIndex.get(st.a) || t === tileIndex.get(st.b)) continue
+      if (!aabbOverlap(boxes[i], tileBoxes[t])) continue
+      const pen = obbPenetration(boxes[i], tileBoxes[t])
+      if (pen && pen.depthCm > CONNECTOR_CLASH_MIN_DEPTH_CM) {
+        clashes.push({ station: st.id, against: placedTiles[t].id, kind: 'panel', depthCm: r(pen.depthCm) })
+      }
+    }
+  })
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (!aabbOverlap(boxes[i], boxes[j])) continue
+      const pen = obbPenetration(boxes[i], boxes[j])
+      if (pen && pen.depthCm > CONNECTOR_CLASH_MIN_DEPTH_CM) {
+        clashes.push({
+          station: C.stations[i].id,
+          against: C.stations[j].id,
+          kind: 'connector',
+          depthCm: r(pen.depthCm),
+        })
+      }
+    }
+  }
+  clashes.sort((x, y) => y.depthCm - x.depthCm || (x.station < y.station ? -1 : 1))
+  const clashedStations = new Set(clashes.map((c) => c.station))
+
+  // --- per-station flags ---------------------------------------------------
+  // Everything decidable from the station alone lives in connectors.js, so it
+  // can be tested against synthetic stations; clash is the only rule that needs
+  // the rest of the assembly and so is added here.
+  const stations = C.stations.map((st) => {
+    const flags = connectorStationFlags(st, limits)
+    if (clashedStations.has(st.id)) flags.push('W_CONNECTOR_CLASH')
+    return { ...st, flags }
+  })
+
+  // A joint held by ONE part is free to rotate about it, and with no
+  // substructure that is a real degree of freedom rather than a detail.
+  const singles = C.perJoint.filter((pj) => pj.count < 2)
+
+  const kit = buildKit(C.stations, cfg.connectors)
+
+  return {
+    stations,
+    perJoint: C.perJoint,
+    kit,
+    clashes,
+    warnings: [
+      ...C.warnings,
+      ...singles.map((pj) => ({
+        code: 'W_JOINT_SINGLE_CONNECTOR',
+        joint: pj.jointIndex,
+        a: pj.a,
+        b: pj.b,
+        message: `joint ${pj.a}–${pj.b} carries one part, so it is a hinge rather than a fixture`,
+      })),
+    ],
+    limits,
+    summary: {
+      count: stations.length,
+      jointCount: C.perJoint.length,
+      partTypes: kit.length,
+      lengthCm: cfg.connectors.lengthCm,
+      binSpanCm: cfg.connectors.binSpanCm,
+      binAngleDeg: cfg.connectors.binAngleDeg,
+      flagged: stations.filter((s) => s.flags.length > 0).length,
+      infeasible: stations.filter((s) => s.flags.includes('W_CONNECTOR_INFEASIBLE')).length,
+      clashes: clashes.length,
+      singleConnectorJoints: singles.length,
+      spanCm: stations.length
+        ? { min: r(Math.min(...stations.map((s) => s.spanMinCm))), max: r(Math.max(...stations.map((s) => s.spanMaxCm))) }
+        : { min: 0, max: 0 },
+      worstFoldDeg: r(stations.length ? Math.max(...stations.map((s) => Math.abs(s.foldDeg))) : 0),
+      worstTwistDeg: r(stations.length ? Math.max(...stations.map((s) => s.twistDeg)) : 0),
+      // The number `lengthCm` exists to keep small — how much a single part has
+      // to wedge along its own length.
+      worstSpanSpreadCm: r(stations.length ? Math.max(...stations.map((s) => s.spanSpreadCm)) : 0),
+      worstBinSpanErrorCm: r(kit.length ? Math.max(...kit.map((k) => k.worstSpanErrorCm)) : 0),
+      worstBinFoldErrorDeg: r(kit.length ? Math.max(...kit.map((k) => k.worstFoldErrorDeg)) : 0),
+    },
+  }
+}
 
 /**
  * Measure every joint, plus whole-surface fit and collisions.
@@ -186,12 +379,16 @@ export function buildReport(config, layout = null) {
 
   // --- collisions ----------------------------------------------------------
   const placed = L.tiles.filter((t) => t.position)
-  const hits = findCollisions(placed.map(tileOBB), { minDepthCm: COLLISION_MIN_DEPTH_CM })
+  const tileBoxes = placed.map(tileOBB)
+  const hits = findCollisions(tileBoxes, { minDepthCm: COLLISION_MIN_DEPTH_CM })
   const collisions = hits.map((h) => ({
     a: placed[h.i].id,
     b: placed[h.j].id,
     depthCm: r(h.depthCm),
   })).sort((x, y) => y.depthCm - x.depthCm || (x.a < y.a ? -1 : 1))
+
+  // --- connectors ----------------------------------------------------------
+  const connectors = buildConnectorReport(cfg, L, placed, tileBoxes)
 
   return {
     joints,
@@ -207,6 +404,7 @@ export function buildReport(config, layout = null) {
     holonomy,
     fit,
     collisions,
+    connectors,
     support: L.support,
     bounds: L.bounds,
     warnings: L.warnings,

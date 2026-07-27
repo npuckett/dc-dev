@@ -345,6 +345,38 @@ export const CONNECTOR_LIMITS = {
 }
 
 /**
+ * Everything wrong with one station's part that can be decided from the station
+ * alone. Clash needs the rest of the assembly, so report.js adds that.
+ *
+ * Pure and exported rather than inlined into the report because
+ * `W_CONNECTOR_INFEASIBLE` is not reachable from any real config — see the note
+ * on it below — and a rule with no test is a rule that quietly stops working.
+ *
+ *   W_CONNECTOR_INFEASIBLE  the two hooks pass through each other. GEOMETRY, and
+ *        the only hard one here. Never yet observed on a real design, and the
+ *        reason is a real property rather than luck: where the surface folds
+ *        hard the gap has already wedged open, and where the gap is tight the
+ *        surface is nearly flat. The two ways to make a part impossible do not
+ *        co-occur on a drift. Kept, and tested against a synthetic station,
+ *        because that correlation is a property of these forms and not a law.
+ *   W_CONNECTOR_PINCH   the gap is narrower than anything can be fitted into.
+ *   W_CONNECTOR_SPAN    the spine is a beam being asked to act as a strap.
+ *   W_CONNECTOR_TWIST   the part wedges too much along its own length; this is
+ *        the one `connectors.lengthCm` directly controls.
+ */
+export function connectorStationFlags(station, limits = CONNECTOR_LIMITS) {
+  const flags = []
+  const { start, end } = connectorEndProfiles(station)
+  if (profileSelfIntersects(start.points) || profileSelfIntersects(end.points)) {
+    flags.push('W_CONNECTOR_INFEASIBLE')
+  }
+  if (station.spanMinCm < limits.minSpanCm) flags.push('W_CONNECTOR_PINCH')
+  if (station.spanMaxCm > limits.maxSpanCm) flags.push('W_CONNECTOR_SPAN')
+  if (station.spanSpreadCm > limits.maxSpanSpreadCm) flags.push('W_CONNECTOR_TWIST')
+  return flags
+}
+
+/**
  * A joint too short to seat `count` parts at full length. The parts are still
  * placed — shortened to fit — because refusing to connect a joint is not an
  * option a structure-bearing part gets to take. Same contract as
