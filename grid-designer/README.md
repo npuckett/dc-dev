@@ -88,6 +88,8 @@ target.js    → what the panels are ASKED to be: the drift quantized into PLANA
                on the panel lattice, plus the arc-length unroll
 tiling.js    → a deterministic domino tiling: which cells get a 60×60 square and which
                get a 60×121 plate, decided by whether a rigid plate physically FITS
+               the TARGET (the same surface placement seats panels on), plus any
+               cells you have pinned by hand
 placement.js → rigid panel placements on the target
 report.js    → per-joint gaps, skew, dihedral, holonomy, surface fit, collisions
 collide.js   → exact 15-axis OBB SAT
@@ -109,6 +111,19 @@ sharing a facet are exactly coplanar, and their joints stay closed.
 `form.facetCells` sets how many cells share a plane: **1** gives a fold at every joint and hugs the
 toe (the graded edges land); **4** gives broad planes with crisp creases and closes the joints, but
 cannot hug the toe (the edges rise).
+
+**The tiler and the placer must measure the same surface.** `solveTiling` takes the target as an
+injected argument, and `placement.js` passes in the one it is about to seat panels on. This is not a
+performance detail — when the two disagreed (the tiler reading the smooth form while placement used
+the faceted target) the tiler was blind to faceting entirely: it placed plates where they physically
+could not fit *and* refused plates that would have fitted almost perfectly.
+
+**Consequence worth knowing.** A faceted target is locally planar by construction, so plate sagitta
+collapses toward zero almost everywhere, the fit gate stops binding, and greedy placement takes
+nearly every candidate — plate counts run 20–22 of 26 tiles and **all three tiling strategies produce
+the same tiling**, because none of them has to choose. The strategy selector therefore does little at
+default settings. Manual pinning (below) is the lever that gives the choice back; a plate budget
+would be the other, and is not built.
 
 ### Placement modes
 
@@ -142,12 +157,15 @@ The presets are six chosen points, all collision-free except `crest`:
 
 | preset | peak | worst joint | flagged | plates | worst edge clearance |
 |---|---|---|---|---|---|
-| `shelf` | 44 cm | 3.89 cm | 11/31 | 17/25 | **2.1 cm** |
-| `closed` | 46 cm | **1.19 cm** | **0/35** | 15/27 | 8.6 cm |
-| `drift` *(default)* | 62 cm | 2.28 cm | 4/47 | 15/33 | 14.0 cm |
-| `dune` | **87 cm** | 8.31 cm | 12/53 | 13/35 | 19.3 cm |
-| `modular` | 50 cm | 8.68 cm | 6/55 | **19/29** | 10.3 cm |
-| `crest` | 105 cm | 27.24 cm | 16/53 | 9/33 | 34.7 cm |
+| `shelf` | 44 cm | 4.20 cm | 14/32 | 17/25 | **2.5 cm** |
+| `closed` | 46 cm | **1.19 cm** | **0/20** | 20/22 | 8.7 cm |
+| `drift` *(default)* | 61 cm | 3.54 cm | 6/36 | 21/27 | 20.6 cm |
+| `dune` | 93 cm | 16.44 cm | 8/37 | 20/28 | 19.0 cm |
+| `modular` | 42 cm | 1.83 cm | 1/52 | **22/26** | 9.1 cm |
+| `crest` | **105 cm** | 11.54 cm | 10/27 | 19/23 | 34.5 cm |
+
+`crest` is the only one with panel interpenetration (1 pair) — that is what it
+exists to show. Every other preset is collision-free.
 
 `shelf` is the brief-compliant one — the only preset where the graded edges really land (4 of 5
 tiles down on the wall edge, 4 of 4 on the window edge). `closed` has not one joint out of
@@ -174,6 +192,8 @@ violation would reject every intermediate state of a slider drag.
 | a grounded edge tile is within 6° of horizontal — "grounded but **not flat**" | `W_TOE_FLAT` | warning |
 | a tile's solid dips below the floor | `W_BELOW_FLOOR` | warning |
 | fewer than 3 ground contacts, so there is no support polygon to test | `W_NO_SUPPORT` | warning |
+| a manual override is malformed, off-grid, or two claim the same cell | `E_OVERRIDE_SHAPE`, `E_OVERRIDE_BOUNDS`, `E_OVERRIDE_CONFLICT` | error |
+| a **hand-placed** plate bows further from the target than the fit tolerance | `W_PLATE_OVERRIDE_MISFIT` | warning |
 
 **Grounding is reported, never forced.** A rigid 60 cm panel cannot hug a curved target, so the
 graded edges come within a few cm of the floor and no closer; the residual is reported per edge as a
@@ -194,7 +214,11 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
   inline, because their meaning is not guessable from a label.
 - **Report** — joint deviation against tolerance, the holonomy split in `chain` mode, shape
   residual, collisions, and per-edge grounding clearance.
-- **Plan view** — the material lattice showing squares and plates; row 0 at the bottom, wall left.
+- **Plan view** — the material lattice showing squares and plates; row 0 at the bottom, wall
+  left. **Click a square to arm it**, mergeable neighbours highlight (green `+` when the plate
+  would fit, amber `~` when it would not, with the cost in the tooltip), click one to **combine
+  into a plate**; click a plate to **split** it. Escape disarms. Pinned tiles are marked, and the
+  report shows how many are hand-pinned versus algorithm-chosen.
 - **CONFIG JSON** + named slots + **Export** (OBJ, one named object per panel with baked world
   transforms; and JSON).
 
@@ -246,20 +270,20 @@ Plain node scripts, no framework. Each prints a pass/fail summary and exits non-
 ```bash
 cd grid-designer
 node tests/test-form.mjs          #   89  drift heightfield, analytic gradient
-node tests/test-v3-schema.mjs     #  219  schema, normalization, every code
+node tests/test-v3-schema.mjs     #  270  schema, normalization, every code
 node tests/test-v3-target.mjs     #   40  unroll, faceting, coplanarity
-node tests/test-v3-tiling.mjs     # 1895  partition, strategies, plate fit
+node tests/test-v3-tiling.mjs     # 2024  partition, strategies, plate fit, overrides
 node tests/test-v3-collide.mjs    #   76  SAT, incl. a 6-axis mutation check
 node tests/test-v3-placement.mjs  #  536  placement, grounding, both modes
 node tests/test-v3-report.mjs     #   49  joints, holonomy, collisions
-node tests/test-v3-presets.mjs    #   63  each preset delivers its claim
+node tests/test-v3-presets.mjs    #   64  each preset delivers its claim
 node tests/test-v3-obj.mjs        #   25  OBJ round-trip
 node tests/test-geometry.mjs      #   50  the panel solid
 node tests/test-persistence.mjs   #   46  storage, version discard
 npm run build
 ```
 
-**3062 checks.** Three conventions worth keeping:
+**3251 checks.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat

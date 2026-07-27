@@ -1,8 +1,22 @@
 # grid-designer v3 — the drift shell
 
-**Status:** authoritative spec for the v3 pivot. Written 2026-07-26 at the start of the pivot
-session. Read **README.md** and **HANDOFF.md** first for the v2 model this replaces; §2 of HANDOFF
-("Durable findings") still holds and is assumed throughout.
+**Status: HISTORICAL.** This is the spec as written at the START of the v3 pivot, kept because its
+reasoning is still the clearest statement of the model's intent. **It is not current in three
+places, and README.md / HANDOFF.md are authoritative where they differ:**
+
+1. **§4 makes the spanning-tree walk the placement model. It is not the default.** One hinge is one
+   degree of freedom, so a chained tile matches the target's pitch but never its roll; over eight
+   rows the sheet lifts off the floor. The default is `surface-fit`, which shares the misfit across
+   all joints — what the connectors physically do. `chain` survives as a comparison mode. See
+   HANDOFF §2.2.
+2. **The target is no longer the smooth drift.** `target.js` quantizes it into planar facets on the
+   panel lattice (`form.angularity`, `form.facetCells`), so the panels can *be* the surface instead
+   of approximating it. This is the single biggest change from this document. See HANDOFF §2.1.
+3. **§3's `materialToPlanApprox` is no longer used to decide plate fit.** The tiler reads the same
+   target `placement.js` seats panels on; when the two disagreed the tiler was blind to faceting
+   entirely. See HANDOFF §2.8.
+
+Read **README.md** for how the tool works now and **HANDOFF.md** for the decision log.
 
 ---
 

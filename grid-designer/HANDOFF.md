@@ -1,6 +1,6 @@
 # grid-designer — handoff & decision log
 
-Written 2026-07-26 at the close of the **v3 pivot** session. Read **[README.md](README.md)** first
+Written 2026-07-26, covering the **v3 pivot** session. Read **[README.md](README.md)** first
 for how the tool works and **[V3_SPEC.md](V3_SPEC.md)** for the model; this document records **why it
 is the way it is**, what was tried and rejected, and what is still open.
 
@@ -10,7 +10,7 @@ survives unchanged and is still the reason any of this is tractable:
 > Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
 > to absorb.
 
-Branch `v3-drift-tiling`. All suites green (3062 checks across 11 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3251 checks across 11 suites), build clean, app verified
 in the browser.
 
 ---
@@ -37,6 +37,9 @@ Built in order, one commit each (the messages carry the detail):
 | `928b00f` | the v3 UI (P5) |
 | `4c895bc` | drift presets, each pinning one answer to the trade (P6) |
 | `8889ba4` | remove the v2 model |
+| `27181d9` | README + HANDOFF rewritten for v3 (P7) |
+| `56f6d46` | make the tiler measure the surface the panels actually sit on |
+| `748e537` | manual square/plate control — combine and split in the plan view |
 
 ---
 
@@ -112,7 +115,51 @@ would need the four corners coplanar, which in general they are not; that residu
 the boundary that the straddling tiles cannot follow: 9.8 cm worst joint deviation against 2.67 cm
 once matched. An omitted `form.footprint` now derives from the sheet.
 
-### 2.8 Site facts (unchanged from v2, still unresolved)
+### 2.8 The tiler and the placer must measure the same surface
+
+`tiling.js` decided square-vs-plate by measuring sagitta against the SMOOTH form through
+`materialToPlanApprox`, while `placement.js` seated the panels on the FACETED target via the real
+arc-length unroll. The tiler was therefore blind to `angularity` and `facetCells` — it reported an
+identical sagitta for every faceting setting — and was wrong in **both** directions at once.
+Measured at amplitude 100, tiler claiming 1.70cm throughout:
+
+- true sagitta **5.26cm** at facetCells 2 — 2.6x over tolerance, placing plates that cannot fit
+- true sagitta **0.17cm** at facetCells 4 — refusing plates that would have fitted almost perfectly
+
+`solveTiling(config, target)` now takes the target as an argument and placement injects its own.
+Generalises to: **any two stages that reason about "the surface" must be handed the same object**,
+not each construct their own idea of it.
+
+Sagitta is measured in 3D against the chord, not in a flattened (distance, height) plane — the
+unroll makes plan spacing between samples non-uniform, so the 2D version understated the bow.
+
+### 2.9 A faceted target makes the fit gate go slack
+
+Direct consequence of §2.1 and §2.8, and it changes what the tiling strategies are for. A faceted
+target is locally planar by construction, so sagitta collapses toward zero almost everywhere, nearly
+every candidate domino passes the fit gate, and greedy placement takes them all: plate counts run
+20-22 of 26 tiles and **all three strategies produce identical tilings**, because none of them has to
+choose. That is a real property, not a bug — but it means the strategy selector does almost nothing
+at default settings.
+
+Two levers give the choice back. Manual pinning (`tiling.overrides`) is built. **A plate budget /
+inventory cap is not, and is the obvious next one** — it would make the strategies decide *which*
+plates to spend, which is the question they are actually good at.
+
+### 2.10 A forced plate must be placed, not refused
+
+v2 learned this (its §3.6) and v3 re-learned it: refusing every physically awkward merge makes the
+feature unusable, because in a designed profile almost every merge is awkward. So a manual override
+that does not fit is **placed anyway** and reported — `W_PLATE_OVERRIDE_MISFIT` with the measured
+sagitta. An override is the user overruling the algorithm on purpose; the tool's job is to state the
+consequence, not to veto.
+
+Note the v2 asymmetry does NOT port literally. "Split does not restore what the merge changed" had
+meaning in v2 because merging coerced hinge geometry. v3's surface-fit placement has no per-tile
+coercion to give back, so split instead **pins both cells as squares** — otherwise the algorithm
+simply re-creates the plate on the next solve. Same spirit, different mechanism.
+
+### 2.11 Site facts (unchanged from v2, still unresolved)
 
 - The existing installation is 12 panels in a Toronto storefront window; `IO/DROPCEILING_STORY.md` is
   the best overview.
@@ -142,6 +189,9 @@ once matched. An omitted `form.footprint` now derives from the sheet.
 
 1. **How much joint deviation is acceptable?** The tool now measures it precisely and cannot decide
    it. Every preset is a guess at the answer. **This is the top question for the user.**
+1b. **A plate budget.** With a faceted target the fit gate no longer constrains plate count (§2.9),
+   so the tiling is near-maximal and the strategies have nothing to choose between. A cap — driven by
+   real inventory — would restore that and is a small change.
 2. **Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the cost of the
    plate's exact modularity. Needs a connector-design answer.
 3. **A foldable (planar-quad) target is the real next step.** Faceting with independent planes still
@@ -184,6 +234,9 @@ once matched. An omitted `form.footprint` now derives from the sheet.
   extends flat tiled material past the drift rather than stretching the drift. Defensible, but it
   surprises people — consider a "refit footprint to sheet" action.
 - `dist/` is committed from a v2 build and is stale.
+- The 3D viewport's default camera starts low and close; orbit out to read the drift. Not tuned.
+- Changing `sheet.cols`/`rows` does not rescale `form.footprint` (see above), so a manual pin set
+  made at one sheet size will not mean the same thing at another — overrides are keyed on `(i, j)`.
 
 ---
 
@@ -212,6 +265,8 @@ Read in this order: **README.md** → **V3_SPEC.md** → this file → the doc c
 header (frames and handedness).
 
 Then run the suites to confirm the tree is green, and `npm run dev --prefix grid-designer` to look at
-it. Load the `shelf` preset to see the brief satisfied, then `crest` to see the report say no.
+it. Load the `shelf` preset to see the brief satisfied, then `crest` to see the report say no. Click
+two adjacent squares in the plan view to combine them and watch the report react.
 
-§4.1 and §4.3 are the queue.
+§4.1, §4.1b and §4.3 are the queue. The user has flagged interface tuning as the next thing they want
+to work through themselves.
