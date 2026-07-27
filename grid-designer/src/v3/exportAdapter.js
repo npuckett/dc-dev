@@ -15,7 +15,7 @@
  * @param {object} layout a v3 `solveLayout()` result
  * @returns {{ panels: Array }} shape `buildExportGroup`/`objPayload` expect
  */
-export function toExportableLayout(layout) {
+export function toExportableLayout(layout, connectors = null) {
   const panels = layout.tiles
     .filter((t) => Array.isArray(t.position)) // unreachable (disconnected-graph) tiles carry no position
     .map((t) => {
@@ -31,5 +31,5 @@ export function toExportableLayout(layout) {
         rectOrientation: t.type === '2x4' ? (t.axis === 'u' ? 'horizontal' : 'vertical') : undefined,
       }
     })
-  return { panels }
+  return { panels, connectors: connectors?.stations ?? [] }
 }

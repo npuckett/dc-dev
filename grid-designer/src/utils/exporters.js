@@ -23,6 +23,7 @@
 import * as THREE from 'three'
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { buildPanelGeometry } from '../geometry/panelGeometry.js'
+import { buildConnectorGeometry } from '../geometry/connectorGeometry.js'
 
 // -----------------------------------------------------------------------------
 // Download helpers (browser only)
@@ -134,6 +135,33 @@ export function buildExportGroup(layout) {
 
     const mesh = new THREE.Mesh(geometry)
     mesh.name = exportPanelName(panel)
+    mesh.updateMatrixWorld(true)
+    group.add(mesh)
+  }
+
+  // The 3D-printed connectors, if the caller supplied them (P13). Same
+  // bake-the-world-matrix treatment, so each part is independently correct in a
+  // format that flattens hierarchy. Omitted entirely when absent, which keeps
+  // every existing caller's output byte-identical.
+  for (const station of layout.connectors ?? []) {
+    const geometry = buildConnectorGeometry(station)
+    const matrix = new THREE.Matrix4().compose(
+      position.fromArray(station.mid),
+      quaternion.setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(
+          new THREE.Vector3(...station.frame.p),
+          new THREE.Vector3(...station.frame.q),
+          new THREE.Vector3(...station.frame.r),
+        ),
+      ),
+      scale,
+    )
+    geometry.applyMatrix4(matrix)
+    geometry.computeBoundingBox()
+    geometry.computeBoundingSphere()
+
+    const mesh = new THREE.Mesh(geometry)
+    mesh.name = `connector_${station.id}`
     mesh.updateMatrixWorld(true)
     group.add(mesh)
   }

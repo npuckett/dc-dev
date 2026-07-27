@@ -15,6 +15,10 @@ places, and README.md / HANDOFF.md are authoritative where they differ:**
 3. **§3's `materialToPlanApprox` is no longer used to decide plate fit.** The tiler reads the same
    target `placement.js` seats panels on; when the two disagreed the tiler was blind to faceting
    entirely. See HANDOFF §2.8.
+4. **§7's "open, deliberately deferred: per-panel connector design" is done** (P9–P13). The parts are
+   short, centred in the gap, and generated per joint; the tool now designs them, counts them, bins
+   them into printable types and exports an STL plate and a manifest. See README's "The connectors"
+   and HANDOFF §2.12–§2.16. What is still missing is listed in HANDOFF §5.1 — fastening above all.
 
 Read **README.md** for how the tool works now and **HANDOFF.md** for the decision log.
 

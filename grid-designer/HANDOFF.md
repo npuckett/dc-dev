@@ -10,7 +10,7 @@ survives unchanged and is still the reason any of this is tractable:
 > Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
 > to absorb.
 
-Branch `v3-drift-tiling`. All suites green (3301 checks across 11 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3730 checks across 15 suites), build clean, app verified
 in the browser.
 
 ---
@@ -40,6 +40,12 @@ Built in order, one commit each (the messages carry the detail):
 | `27181d9` | README + HANDOFF rewritten for v3 (P7) |
 | `56f6d46` | make the tiler measure the surface the panels actually sit on |
 | `748e537` | manual square/plate control — combine and split in the plan view |
+| `9b53b06` | plate budget — give the tiling strategies something to decide |
+| `461ca25` | decide where the connectors go (P9) |
+| `d4956f1` | the connector solid, gripped off the real rim (P10) |
+| `c4e32a4` | the connector kit, and what each part is forced to absorb (P11) |
+| `a2ec09a` | show the connectors and let them be tuned (P12) |
+| *this* | printable STL + manifest, and the docs (P13) |
 
 ---
 
@@ -163,7 +169,64 @@ meaning in v2 because merging coerced hinge geometry. v3's surface-fit placement
 coercion to give back, so split instead **pins both cells as squares** — otherwise the algorithm
 simply re-creates the plate on the next solve. Same spirit, different mechanism.
 
-### 2.11 Site facts (unchanged from v2, still unresolved)
+### 2.12 A short connector sees almost none of its joint's variation
+
+The finding the whole connector package rests on, and it is a measurement rather than an argument.
+Along one joint the rim-to-rim span swings by up to **12.77 cm** (`dune`). Inside a **10 cm window**
+it swings **0.02–0.15 cm on average**, worst **2.12 cm**. Measured as a three-way comparison so the
+claim cannot pass vacuously: on `dune`, a 10 cm part sees 1.81 cm, a 30 cm part 3.95 cm, the whole
+joint 12.77 cm.
+
+So a joint no rigid part can hold becomes a handful of near-constant local problems. This is §2.1
+one level down — stop asking a rigid thing to be a curved thing — applied to the hardware instead of
+the surface. It generalises: **when a rigid part cannot match a varying condition, shorten the part
+before improving the part.**
+
+### 2.13 The panel rim is a wedge, not a plate, so the grip cannot be a parallel slot
+
+v1's connector used a parallel-sided channel (9.5 mm wide, 8.5 mm deep; its 28.5 mm overall is
+exactly jaw + slot + jaw). That assumes the rim is a parallel-sided plate. Reading the profile out of
+`config.js`: below the 1.0 cm outer wall the housing **tapers inward at 0.675 per cm**, so the
+undercut is a wedge that opens with depth — 1.7 mm at 2.5 mm in, 5.7 mm at 8.5 mm. A parallel jaw of
+any useful reach cuts into the taper.
+
+Bounding the lower jaw by the taper plane itself turns the grip into a wedge engagement instead of
+an interference fit. Worth stating generally: **v1's numbers are a reference, not a spec.** They
+encode v1's geometry, and where v3's differs the numbers have to be re-derived from the hardware
+rather than carried over.
+
+### 2.14 Twist needs no term in the connector geometry
+
+Both tiles are rigid planes, so along a joint the fold is **constant** and the span varies
+**linearly**. A part is therefore a loft between two cross-sections differing only in span, and a
+twisted joint is simply one whose two ends want different spans. Recorded because the obvious
+implementation — a twist parameter rotating one end relative to the other — is both more code and
+wrong.
+
+### 2.15 The two ways to make a connector impossible do not co-occur on a drift
+
+The part's cross-section self-intersects when the two hooks, swinging under the joint as it folds,
+meet: a 0.4 cm gap holds ±14°, 1.0 cm holds ±36°, 2.5 cm holds anything. Across all six presets —
+464 stations — **not one is infeasible**, and not by luck: *where the surface folds hard the gap has
+already wedged open, and where the gap is tight the surface is nearly flat.*
+
+That correlation is a property of these forms, **not a law**, so the rule is kept and tested against
+a synthetic station instead of being deleted as unreachable. The general practice: a rule with no
+reachable test is a rule that quietly stops working, so give it a testable seam
+(`connectorStationFlags`) rather than burying it in the consumer.
+
+### 2.16 A connector's bounding box always overlaps the panels it grips
+
+The channel closes around the rim and the slot is a void *inside* the box, so an OBB test reports a
+collision for every part against both of its own panels — 224 pairs on `modular`. Those two are
+excluded by construction, and what the clash rule then detects is a part fouling a **third** panel or
+another part. The test proves the exclusion is load-bearing by removing it and watching every grip
+pair light up.
+
+Generally: **a bounding volume is the wrong primitive for a part designed to interlock.** It is
+still the right one for "does this foul something it should be nowhere near".
+
+### 2.17 Site facts (unchanged from v2, still unresolved)
 
 - The existing installation is 12 panels in a Toronto storefront window; `IO/DROPCEILING_STORY.md` is
   the best overview.
@@ -197,7 +260,15 @@ simply re-creates the plate on the next solve. Same spirit, different mechanism.
    usefulness (§2.9), but nothing in the repo records how many 60×121 plates the build actually has.
    That number would turn the budget from an exploration knob into a constraint.
 2. **Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the cost of the
-   plate's exact modularity. Needs a connector-design answer.
+   plate's exact modularity. The connector work now has something to say here: at 1 cm the parts are
+   at the tight end of the feasibility boundary (`modular`'s narrowest station is 0.60 cm, holding
+   only ±21° before the hooks meet), while 3 cm clears it with room. **A wider joint is easier to
+   connect, not just easier to fold.** Still the user's call.
+2b. **How many distinct printed parts is acceptable?** The kit answers to `binSpanCm` /
+   `binAngleDeg`, and unlike the plate budget the cost is print queue rather than hardware — the
+   user has said many unique parts is fine, so the default bins (0.5 cm / 5°) are set fine rather
+   than coarse. The number to watch is the forced fit the manifest reports, currently 0.25 cm and
+   2.5° worst.
 3. **A foldable (planar-quad) target is the real next step.** Faceting with independent planes still
    leaves residual gaps. A true PQ mesh — planar faces meeting exactly along shared edges — would let
    the surface be **as tall as you like** with joints staying near nominal, because the joints become
@@ -208,7 +279,8 @@ simply re-creates the plate on the next solve. Same spirit, different mechanism.
    cm deep.
 5. **Is the wall structurally usable for support?** v2 asked this and it is still unanswered; v3 does
    not currently use the wall for support at all.
-6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.8.
+6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.17 (this pointed at §2.8, which
+   is about the tiler and the placer sharing a surface; the site facts are §2.17).
 
 ---
 
@@ -216,10 +288,19 @@ simply re-creates the plate on the next solve. Same spirit, different mechanism.
 
 ### 5.1 Not built
 
-- **Connector design and the per-panel connection network.** Deferred deliberately — the user was
-  explicit that this comes after. v3 measures what the connectors must absorb; it does not design
-  them. `panel-designer/src/utils/exporters.js` has an `exportConnectorSpec` worth cribbing, and the
-  joint report already computes everything it needs.
+- **Connector design** is now built (P9–P13) — a first pass. What it does *not* yet do:
+  - **no fastening.** The part relies entirely on the snap fit of its two channels. No screw boss,
+    no cable tie slot, no bonded option. v1 had the same property and it held, but v1's parts sat on
+    the outside edges where they could be slid on; a mid-edge part goes on by rotation and there is
+    nothing yet that stops it rotating back off.
+  - **no structural analysis.** `CONNECTOR_LIMITS.maxSpanCm = 8` is a judgement about a
+    9.5 mm strap, not a calculation. The spine does not thicken or rib as the span grows, so a
+    15.8 cm joint gets a part that is flagged rather than redesigned.
+  - **no cable routing.** The v1 photographs show power leads running through the joints; the
+    current part ignores them entirely.
+  - **the parts are not labelled.** The manifest maps a plate position to a part id; the printed
+    object carries no marking, so 82 parts across 16 types have to be kept in order by hand. An
+    embossed id on the spine's top face is the obvious next thing.
 - **The planar-quad target** — §4.3.
 - **Prompt-driven generation.** `core/v3/schema.js`'s doc comment is written for an LLM audience for
   exactly this. Never wired up; no API calls anywhere in the tool.
@@ -238,6 +319,15 @@ simply re-creates the plate on the next solve. Same spirit, different mechanism.
   extends flat tiled material past the drift rather than stretching the drift. Defensible, but it
   surprises people — consider a "refit footprint to sheet" action.
 - `dist/` is committed from a v2 build and is stale.
+- **`tests/screenshot.mjs` is stale v2.** Its docstring still describes `endSupport`, `E_UNGROUNDABLE`
+  and the `wallcrash` preset, none of which exist in v3, and it starts its own dev server on 5175
+  (`strictPort`), so it cannot run alongside another session's. It is not in the README's suite list
+  and was not run for P9–P13. Either port it to v3 or delete it.
+- A second launch entry, **`grid-designer-alt` on 5176**, exists for exactly that port collision.
+- The viewport's `facet` colour mode still colours via `hashHue`, which maps adjacent keys to hues
+  1/360 apart. It happens to look fine because facet keys are 2D, but the connector kit hit this
+  properly (P12) and switched to a golden-ratio step on the index; `facet` would benefit from the
+  same treatment.
 - The 3D viewport's default camera starts low and close; orbit out to read the drift. Not tuned.
 - Changing `sheet.cols`/`rows` does not rescale `form.footprint` (see above), so a manual pin set
   made at one sheet size will not mean the same thing at another — overrides are keyed on `(i, j)`.
@@ -266,11 +356,15 @@ output comparison where available.
 
 Read in this order: **README.md** → **V3_SPEC.md** → this file → the doc comment at the top of
 `src/core/v3/target.js` (why the target is faceted, which is the crux) → `src/core/v3/placement.js`'s
-header (frames and handedness).
+header (frames and handedness) → `src/core/v3/connectors.js`'s header (why the parts are short and
+why the grip is not v1's slot).
 
 Then run the suites to confirm the tree is green, and `npm run dev --prefix grid-designer` to look at
 it. Load the `shelf` preset to see the brief satisfied, then `crest` to see the report say no. Click
-two adjacent squares in the plan view to combine them and watch the report react.
+two adjacent squares in the plan view to combine them and watch the report react. Turn on
+**connectors** in the viewport toolbar and drag **part length** from 10 cm to 25 cm — the worst
+wedge-per-part goes 0.45 cm → 1.13 cm, which is §2.12 happening in front of you.
 
-§4.1, §4.1b and §4.3 are the queue. The user has flagged interface tuning as the next thing they want
-to work through themselves.
+§4.1, §4.1b, §4.2/§4.2b and §4.3 are the queue, plus the connector gaps in §5.1 — fastening first,
+since nothing currently stops a mid-edge part rotating back off. The user has flagged interface
+tuning as the next thing they want to work through themselves.

@@ -91,7 +91,9 @@ tiling.js    → a deterministic domino tiling: which cells get a 60×60 square 
                the TARGET (the same surface placement seats panels on), plus any
                cells you have pinned by hand
 placement.js → rigid panel placements on the target
-report.js    → per-joint gaps, skew, dihedral, holonomy, surface fit, collisions
+connectors.js→ where the 3D-printed parts go and what each has to be shaped like
+report.js    → per-joint gaps, skew, dihedral, holonomy, surface fit, collisions,
+               and the connector kit
 collide.js   → exact 15-axis OBB SAT
 presets.js   → six drifts, each pinning one answer to the trade
 ```
@@ -188,6 +190,79 @@ no.
 
 ---
 
+## The connectors
+
+**There is no substructure.** The 3D-printed parts *are* the structure, so their count and
+placement is a stiffness decision rather than a detailing one.
+
+v1 (`3dprintFiles/`) used **one part everywhere**: a Y-junction edge clamp holding a fixed **62°**,
+sitting on the assembly's *outside* edges — 94.9 × 156.7 × 28.5 mm, slot 9.5 × 8.5 mm. It could be
+one part because every v1 joint was the same angle. v3's are all different, and worse, **a single
+joint is different along its own length.** Measured across the six presets:
+
+| | |
+|---|---|
+| station dihedral | 0 – 34.8° |
+| station skew | 0 – 11.5° |
+| rim-to-rim span | 0.60 – 15.82 cm |
+| span swing along **one whole joint** | up to **12.77 cm** |
+| span swing inside **one 10 cm window** | 0.02 – 0.15 cm mean, **2.12 cm** worst |
+
+That last pair is the design. A joint that wedges from 3 cm to 16 cm end to end cannot be held by
+any one rigid part, but **every 10 cm slice of it is very nearly a constant-span, constant-angle
+problem**. Short parts, centred in the gap, turn one intractable joint into a handful of easy ones —
+the same move as "let the target be angular", applied to the hardware instead of the surface.
+
+The price of *centred* rather than *on the outside edges*: a part at mid-edge **cannot be slid on
+from an open end**. It goes on by hooking the lower wedge under the rim and rotating the upper jaw
+down onto the flange.
+
+### Why the grip is not v1's slot
+
+v1's channel was parallel-sided. That assumes the rim is a parallel-sided plate, and reading
+`config.js` says it is not — below the 1.0 cm outer wall the housing **tapers inward at 0.675 per
+cm**, so the undercut a hook engages is a *wedge* that opens with depth: 1.7 mm of it 2.5 mm in,
+5.7 mm at 8.5 mm. A parallel jaw of any useful reach bites straight into that taper. **The lower jaw
+here is bounded above by the taper plane itself**, which makes the grip a wedge engagement rather
+than an interference fit.
+
+### Twist needs no term in the geometry
+
+Both tiles are rigid planes, so along a joint the **fold is constant** and the **span varies
+linearly**. Each part is therefore a *loft* between a start cross-section and an end one, and a
+twisted joint is simply one whose two ends want different spans.
+
+### The feasibility gate is derived, not tabulated
+
+The cross-section self-intersects when the two hooks — swinging under the joint as it folds — meet.
+Measured: a **0.4 cm** gap holds ±14°, **1.0 cm** holds ±36°, **2.5 cm** holds anything. This is the
+same fact the housings already report, seen from the connector side. Across all six presets, **464
+stations, none infeasible** — and the reason is a property rather than luck: *where the surface
+folds hard the gap has already wedged open, and where the gap is tight the surface is nearly flat.*
+
+### The kit
+
+`connectors.binSpanCm` / `binAngleDeg` decide how coarsely distinct parts merge into one printable
+type. **This is the plate budget's question in another currency** — and unlike the plate budget it
+costs nothing physical, only print queue. Part types as the bins loosen:
+
+| preset | 0.1cm/1° | 0.25cm/2.5° | **0.5cm/5°** | 1cm/10° | 2cm/15° | parts |
+|---|---|---|---|---|---|---|
+| `shelf` | 59 | 51 | 37 | 16 | 9 | 69 |
+| `closed` | 24 | 14 | **8** | 4 | 3 | 51 |
+| `drift` | 26 | 18 | 16 | 11 | 5 | 82 |
+| `dune` | 35 | 29 | 23 | 18 | 17 | 85 |
+| `modular` | 23 | 15 | **8** | 5 | 3 | 112 |
+| `crest` | 25 | 24 | 21 | 17 | 12 | 65 |
+
+At the default bins no preset has an infeasible part or a clash, and 8 types covers `closed` and
+`modular` outright.
+
+**`minPerJoint` defaults to 2 for a structural reason**: a joint held by one part is free to rotate
+about it, and with no substructure that is a real degree of freedom.
+
+---
+
 ## The rules
 
 Encoded in `core/v3/schema.js` (validation) and `core/v3/placement.js` (layout violations). The
@@ -206,6 +281,12 @@ violation would reject every intermediate state of a slider drag.
 | a tile's solid dips below the floor | `W_BELOW_FLOOR` | warning |
 | fewer than 3 ground contacts, so there is no support polygon to test | `W_NO_SUPPORT` | warning |
 | a manual override is malformed, off-grid, or two claim the same cell | `E_OVERRIDE_SHAPE`, `E_OVERRIDE_BOUNDS`, `E_OVERRIDE_CONFLICT` | error |
+| a connector's two hooks would pass through each other | `W_CONNECTOR_INFEASIBLE` | violation |
+| a connector fouls a panel it does **not** grip, or another connector | `W_CONNECTOR_CLASH` | violation |
+| the gap is too narrow to fit a part into / too wide for the spine to stay stiff | `W_CONNECTOR_PINCH`, `W_CONNECTOR_SPAN` | warning |
+| a part wedges too much along its own length — the number `lengthCm` controls | `W_CONNECTOR_TWIST` | warning |
+| a joint carries one part, so it is a hinge rather than a fixture | `W_JOINT_SINGLE_CONNECTOR` | warning |
+| a joint is too short to seat its parts at full length (shortened, not refused) | `W_CONNECTOR_CROWDED` | warning |
 | a **hand-placed** plate bows further from the target than the fit tolerance | `W_PLATE_OVERRIDE_MISFIT` | warning |
 | `tiling.maxPlates` is not `null` or a non-negative integer | `E_SHAPE` | error |
 | more plates are placed than the budget allows (only reachable by pinning) | `W_PLATE_BUDGET_EXCEEDED` | warning |
@@ -237,8 +318,21 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
   report shows how many are hand-pinned versus algorithm-chosen.
 - **Plate budget** — a "limit plates" toggle and a count, with the report reading `plates / budget`
   and turning red if pinning has pushed you over it.
-- **CONFIG JSON** + named slots + **Export** (OBJ, one named object per panel with baked world
-  transforms; and JSON).
+- **Connectors** — a viewport toggle drawing the printed parts **coloured by kit type**, so a design
+  needing four distinct parts reads instantly as four colours and one that has gone to a unique part
+  per joint reads as confetti (amber = flagged, red = cannot be built or fouls something); ticks
+  along every joint in the plan view showing where the parts sit; the kit table in the report; and
+  five knobs, split between the ones that decide the **structure** (length, spacing, count) and the
+  ones that only decide the **print queue** (the two bins).
+- **CONFIG JSON** + named slots + **Export**:
+  - **OBJ** — the assembly, one named object per panel *and per connector*, world transforms baked.
+  - **Connector STL** — one of each unique type, **in millimetres**, laid flat for printing with the
+    slot axis vertical (which is what v1 did, and for the same reasons: largest face down, the slot
+    becomes a support-free horizontal groove, no layer boundary across a jaw).
+  - **Connector manifest** — how many of each to run, where each sits on the plate, and what each is
+    forced to absorb by not getting its own exact geometry. The STL cannot say that `P00` is needed
+    46 times; this is the document that goes with it.
+  - **JSON** — the config, the single source of truth.
 
 ---
 
@@ -246,20 +340,23 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
 
 ```
 src/
-├── config.js                  panel dimensions + profile          (kept from v2)
-├── geometry/panelGeometry.js  the panel solid                     (kept from v2 — do not touch)
-├── persistence.js             localStorage autosave + named slots
-├── core/v3/                   ← HEADLESS ZONE
+├── config.js                     panel dimensions + profile       (kept from v2)
+├── geometry/panelGeometry.js     the panel solid                  (kept from v2 — do not touch)
+├── geometry/connectorGeometry.js the connector solid — lofts the profile
+├── persistence.js                localStorage autosave + named slots
+├── core/v3/                      ← HEADLESS ZONE
 │   ├── form.js                the smooth drift H(x,z) + analytic gradient
 │   ├── target.js              faceting + the arc-length unroll
 │   ├── schema.js              config, normalize, validate
 │   ├── tiling.js              domino tiling; square vs plate by fit
 │   ├── placement.js           surface-fit and chain placement, grounding
-│   ├── report.js              joints, holonomy, fit, collisions
+│   ├── connectors.js          station placement, the part cross-section, limits
+│   ├── report.js              joints, holonomy, fit, collisions, the connector kit
 │   ├── collide.js             15-axis OBB SAT
 │   └── presets.js             the six drifts
 ├── v3/                        store + components
-└── utils/exporters.js         OBJ / JSON                          (kept from v2)
+├── utils/exporters.js         OBJ / JSON                          (kept from v2)
+└── utils/connectorExport.js   printable STL plate + manifest (MILLIMETRES)
 ```
 
 ### The headless-core contract
@@ -292,16 +389,20 @@ node tests/test-v3-schema.mjs     #  290  schema, normalization, every code
 node tests/test-v3-target.mjs     #   40  unroll, faceting, coplanarity
 node tests/test-v3-tiling.mjs     # 2054  partition, strategies, plate fit, overrides, budget
 node tests/test-v3-collide.mjs    #   76  SAT, incl. a 6-axis mutation check
-node tests/test-v3-placement.mjs  #  536  placement, grounding, both modes
+node tests/test-v3-placement.mjs  #  518  placement, grounding, both modes
 node tests/test-v3-report.mjs     #   49  joints, holonomy, collisions
 node tests/test-v3-presets.mjs    #   64  each preset delivers its claim
 node tests/test-v3-obj.mjs        #   25  OBJ round-trip
 node tests/test-geometry.mjs      #   50  the panel solid
 node tests/test-persistence.mjs   #   46  storage, version discard
+node tests/test-v3-connectors.mjs         #  140  stations, frames, the fold sign, schema
+node tests/test-v3-connector-geometry.mjs #   64  the profile, the solid, the grip
+node tests/test-v3-connector-report.mjs   #  166  flags, the kit partition, clashes
+node tests/test-v3-connector-export.mjs   #   59  plate, STL bytes, manifest, assembly OBJ
 npm run build
 ```
 
-**3301 checks.** Three conventions worth keeping:
+**3730 checks.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat
