@@ -10,7 +10,7 @@ survives unchanged and is still the reason any of this is tractable:
 > Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
 > to absorb.
 
-Branch `v3-drift-tiling`. All suites green (3251 checks across 11 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3301 checks across 11 suites), build clean, app verified
 in the browser.
 
 ---
@@ -142,9 +142,13 @@ every candidate domino passes the fit gate, and greedy placement takes them all:
 choose. That is a real property, not a bug — but it means the strategy selector does almost nothing
 at default settings.
 
-Two levers give the choice back. Manual pinning (`tiling.overrides`) is built. **A plate budget /
-inventory cap is not, and is the obvious next one** — it would make the strategies decide *which*
-plates to spend, which is the question they are actually good at.
+Two levers give the choice back, and both are now built: manual pinning (`tiling.overrides`) and a
+plate budget (`tiling.maxPlates`, `null` = unlimited). The budget binds AFTER the strategy has
+ranked the survivors, which is the whole point — the strategy decides *which* plates to spend.
+Measured on a faceted 6×8 sheet, all three strategies produce different tilings at every budget and
+each spends it exactly. Pinned plates count against the budget, since a plate placed by hand is
+still a plate you have to buy; pins over budget are all placed and raise
+`W_PLATE_BUDGET_EXCEEDED`.
 
 ### 2.10 A forced plate must be placed, not refused
 
@@ -189,9 +193,9 @@ simply re-creates the plate on the next solve. Same spirit, different mechanism.
 
 1. **How much joint deviation is acceptable?** The tool now measures it precisely and cannot decide
    it. Every preset is a guess at the answer. **This is the top question for the user.**
-1b. **A plate budget.** With a faceted target the fit gate no longer constrains plate count (§2.9),
-   so the tiling is near-maximal and the strategies have nothing to choose between. A cap — driven by
-   real inventory — would restore that and is a small change.
+1b. **What IS the plate inventory?** `tiling.maxPlates` now exists and restores the strategies to
+   usefulness (§2.9), but nothing in the repo records how many 60×121 plates the build actually has.
+   That number would turn the budget from an exploration knob into a constraint.
 2. **Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the cost of the
    plate's exact modularity. Needs a connector-design answer.
 3. **A foldable (planar-quad) target is the real next step.** Faceting with independent planes still

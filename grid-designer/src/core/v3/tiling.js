@@ -181,9 +181,11 @@
  */
 
 import { buildTarget } from './target.js'
-import { normalizeConfig } from './schema.js'
+import { MIN_PLATES, normalizeConfig } from './schema.js'
 
-export const MIN_PLATES = 4
+// Re-exported: the constant lives in schema.js so validateConfig can warn on a
+// plate budget set below it without importing this file (which would be a cycle).
+export { MIN_PLATES }
 
 /**
  * Code for the non-blocking warning a manually-overridden plate raises when
@@ -593,6 +595,12 @@ export function solveTiling(config, injectedTarget = null) {
   let plateCount = 0
   const overrideWarnings = []
 
+  // The plate budget. `null` means unlimited. Pinned plates spend it too — a
+  // plate placed by hand is still a plate you have to buy — so the cap is
+  // checked against the running total, not just against the algorithm's own
+  // placements. See schema.js's DEFAULT_TILING doc for why this exists.
+  const maxPlates = cfg.tiling.maxPlates
+
   // --- 0. MANUAL OVERRIDES — hard commitments, placed BEFORE the scored
   //        sweep. See the file header's "MANUAL OVERRIDES" section: an
   //        override always wins over the algorithm, and — critically — a
@@ -676,11 +684,31 @@ export function solveTiling(config, injectedTarget = null) {
   })
 
   for (const cand of eligible) {
+    // THE BUDGET BINDS HERE, after ranking. That ordering is the whole point:
+    // the strategy has already sorted the survivors, so a budget spends itself
+    // on the candidates that strategy rates highest. Filtering before the sort
+    // would let cell order decide instead of the strategy.
+    if (maxPlates !== null && plateCount >= maxPlates) break
     const cells = cand.axis === 'u' ? [[cand.i, cand.j], [cand.i + 1, cand.j]] : [[cand.i, cand.j], [cand.i, cand.j + 1]]
     if (cells.some(([i, j]) => covered.has(cellKey(i, j)))) continue
     for (const [i, j] of cells) covered.add(cellKey(i, j))
     tiles.push(makePlateTile(cfg, cand))
     plateCount++
+  }
+
+  // Pins alone can exceed the budget. They are still all placed — the override
+  // contract reports rather than refuses, everywhere — but say so.
+  const budgetWarnings = []
+  if (maxPlates !== null && plateCount > maxPlates) {
+    budgetWarnings.push({
+      code: 'W_PLATE_BUDGET_EXCEEDED',
+      plateCount,
+      maxPlates,
+      message:
+        `${plateCount} plates are placed but the budget is ${maxPlates} — the excess is all ` +
+        'manually pinned, and pinned plates are placed rather than refused. Unpin some, or raise ' +
+        'tiling.maxPlates.',
+    })
   }
 
   // --- 4. Fill the remainder with squares — this also catches cells whose
@@ -711,7 +739,7 @@ export function solveTiling(config, injectedTarget = null) {
   //        real, and the message says why (points at the tolerance knob).
   //        Override misfit warnings (P8, "MANUAL OVERRIDES") are collected
   //        first, so they read before the aggregate plate-count warning.
-  const warnings = [...overrideWarnings]
+  const warnings = [...overrideWarnings, ...budgetWarnings]
   const fewPlatesWarning = buildFewPlatesWarning(plateCount, strategy, cols, rows, tolerance)
   if (fewPlatesWarning) warnings.push(fewPlatesWarning)
 

@@ -71,6 +71,9 @@ export default function ReportPanel() {
   // pulled out of the generic warnings list so it cannot be buried (see the
   // file header). `otherWarnings` is what the generic list below renders.
   const pinnedCount = layout.tiles.filter((t) => t.pinned).length
+  // null = unlimited. Shown as "used / budget" so a build against a real plate
+  // inventory can be read at a glance.
+  const budget = config?.tiling?.maxPlates ?? null
   const overrideMisfits = warnings.filter((w) => w.code === OVERRIDE_MISFIT_CODE)
   const otherWarnings = warnings.filter((w) => w.code !== OVERRIDE_MISFIT_CODE)
 
@@ -151,7 +154,13 @@ export default function ReportPanel() {
         <div className="report-metric-grid">
           <Metric testId="report-sigma" label="shape residual σ" value={cm(fit.shapeResidualSigmaCm)} />
           <Metric testId="report-tiles" label="tiles" value={`${fit.tileCount}`} />
-          <Metric testId="report-plates" label="plates" value={`${fit.plateCount}`} />
+          <Metric
+            testId="report-plates"
+            label={budget === null ? 'plates' : 'plates / budget'}
+            value={budget === null ? `${fit.plateCount}` : `${fit.plateCount} / ${budget}`}
+            raw={fit.plateCount}
+            bad={budget === null ? undefined : budget + 1}
+          />
           <Metric
             testId="report-sagitta"
             label="worst plate sagitta"

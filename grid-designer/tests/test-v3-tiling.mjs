@@ -910,6 +910,102 @@ function independentSagittaCm(cfg, tile, target) {
 // Summary
 // =============================================================================
 console.log('')
+// =============================================================================
+// 13. PLATE BUDGET (tiling.maxPlates) — the lever that makes the strategies
+// choose again.
+//
+// Context: a FACETED target is locally planar, so sagitta collapses toward zero,
+// nearly every candidate passes the fit gate, and greedy placement takes them
+// all. The gate stops constraining plate count, and the strategies stop having
+// anything to decide. A budget restores the decision — they now choose WHICH
+// plates to spend, which is the question they are good at.
+//
+// Pinned plates spend the budget too: a plate placed by hand is still a plate
+// you have to buy.
+// =============================================================================
+{
+  const facetedCfg = (strategy, maxPlates, overrides = []) => normalizeConfig({
+    ...structuredClone(DEFAULT_CONFIG),
+    sheet: { cols: 6, rows: 8 },
+    gap: 3,
+    tiling: { ...DEFAULT_CONFIG.tiling, strategy, maxPlates, overrides },
+    form: {
+      ...DEFAULT_CONFIG.form,
+      amplitude: 60, angularity: 1, facetCells: 4, toeSharpX: 1, toeSharpZ: 1,
+    },
+  })
+  const plateCount = (t) => t.tiles.filter((x) => x.type === '2x4').length
+  const partitionOk = (t, cells) => {
+    const seen = new Set()
+    for (const tile of t.tiles) for (const [i, j] of tile.cells) {
+      if (seen.has(`${i},${j}`)) return false
+      seen.add(`${i},${j}`)
+    }
+    return seen.size === cells
+  }
+
+  // --- the cap actually binds, and never breaks the partition ---------------
+  for (const budget of [0, 1, 4, 8, 14, 20]) {
+    const t = solveTiling(facetedCfg('flat-lie', budget))
+    check(`maxPlates ${budget}: plate count does not exceed the budget`,
+      plateCount(t) <= budget, `placed ${plateCount(t)}`)
+    check(`maxPlates ${budget}: still a true partition`, partitionOk(t, 48))
+  }
+  check('maxPlates 0 places no plates at all', plateCount(solveTiling(facetedCfg('flat-lie', 0))) === 0)
+  check('maxPlates 0 still raises W_FEW_PLATES',
+    solveTiling(facetedCfg('flat-lie', 0)).warnings.some((w) => w.code === 'W_FEW_PLATES'))
+
+  // --- null is unlimited, and is the default --------------------------------
+  const unlimited = plateCount(solveTiling(facetedCfg('flat-lie', null)))
+  check('maxPlates null is unlimited (more plates than any finite budget tested)',
+    unlimited > 20, `${unlimited} plates`)
+  check('maxPlates defaults to null', normalizeConfig(structuredClone(DEFAULT_CONFIG)).tiling.maxPlates === null)
+
+  // --- THE POINT: a budget makes the strategies diverge ---------------------
+  for (const budget of [4, 8, 14]) {
+    const outs = STRATEGIES.map((st) => JSON.stringify(solveTiling(facetedCfg(st, budget)).tiles))
+    check(`maxPlates ${budget}: all three strategies produce different tilings`,
+      new Set(outs).size === 3, `${new Set(outs).size} distinct of 3`)
+    const counts = STRATEGIES.map((st) => plateCount(solveTiling(facetedCfg(st, budget))))
+    check(`maxPlates ${budget}: every strategy spends the whole budget`,
+      counts.every((n) => n === budget), JSON.stringify(counts))
+  }
+
+  // --- pinned plates spend the budget ---------------------------------------
+  {
+    const pins = [
+      { i: 0, j: 0, type: '2x4', axis: 'u' },
+      { i: 2, j: 0, type: '2x4', axis: 'u' },
+      { i: 0, j: 2, type: '2x4', axis: 'u' },
+    ]
+    const t = solveTiling(facetedCfg('flat-lie', 3, pins))
+    check('3 pins + budget 3: exactly 3 plates', plateCount(t) === 3, `${plateCount(t)}`)
+    check('3 pins + budget 3: the algorithm adds none — the pins spent it',
+      t.tiles.filter((x) => x.type === '2x4' && x.pinned).length === 3)
+  }
+
+  // --- pins OVER budget are still placed, and reported ----------------------
+  {
+    const pins = [
+      { i: 0, j: 0, type: '2x4', axis: 'u' },
+      { i: 2, j: 0, type: '2x4', axis: 'u' },
+      { i: 4, j: 0, type: '2x4', axis: 'u' },
+    ]
+    const t = solveTiling(facetedCfg('flat-lie', 1, pins))
+    check('pins over budget are all PLACED, not refused', plateCount(t) === 3, `${plateCount(t)}`)
+    check('pins over budget raise W_PLATE_BUDGET_EXCEEDED',
+      t.warnings.some((w) => w.code === 'W_PLATE_BUDGET_EXCEEDED'))
+    check('pins over budget: still a true partition', partitionOk(t, 48))
+  }
+
+  // --- determinism -----------------------------------------------------------
+  for (const budget of [null, 5, 12]) {
+    const c = facetedCfg('flat-lie', budget)
+    check(`maxPlates ${budget}: deterministic`,
+      JSON.stringify(solveTiling(c)) === JSON.stringify(solveTiling(c)))
+  }
+}
+
 console.log(`test-v3-tiling: ${passed} checks passed, ${failures.length} failed`)
 if (failures.length > 0) {
   console.error('')

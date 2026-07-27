@@ -314,6 +314,20 @@ const useStoreV3 = create((set, get) => {
         if (!TILING_STRATEGIES.includes(strategy)) return
         draft.tiling.strategy = strategy
       }),
+    /**
+     * The plate budget. `null` means unlimited. Pinned plates spend it too — a
+     * plate placed by hand is still a plate you have to buy — so a budget below
+     * the current pin count is legal, places every pin anyway, and reports
+     * W_PLATE_BUDGET_EXCEEDED rather than refusing.
+     */
+    setMaxPlates: (n) =>
+      commit((draft) => {
+        if (!draft.tiling) return
+        draft.tiling.maxPlates = n === null || n === undefined
+          ? null
+          : Math.max(0, Math.round(numOr(n, 0)))
+      }),
+
     setPlateFitTolerance: (n) =>
       commit((draft) => {
         if (!draft.tiling) return

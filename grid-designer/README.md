@@ -120,10 +120,8 @@ could not fit *and* refused plates that would have fitted almost perfectly.
 
 **Consequence worth knowing.** A faceted target is locally planar by construction, so plate sagitta
 collapses toward zero almost everywhere, the fit gate stops binding, and greedy placement takes
-nearly every candidate — plate counts run 20–22 of 26 tiles and **all three tiling strategies produce
-the same tiling**, because none of them has to choose. The strategy selector therefore does little at
-default settings. Manual pinning (below) is the lever that gives the choice back; a plate budget
-would be the other, and is not built.
+nearly every candidate — plate counts run 20–22 of 26 tiles, and the strategies stop having anything
+to decide. Two levers give the choice back: **`tiling.maxPlates`** (below) and manual pinning.
 
 ### Placement modes
 
@@ -152,6 +150,21 @@ willing to build?** Three facts collide.
    amplitude. Widening to 2 cm removes the collisions and reaches ~95 cm — but breaks
    `2·size + gap = plateLength`, so every plate carries a real mismatch.
 3. **Faceting closes the joints and lifts the edges.**
+
+### The plate budget
+
+**`tiling.maxPlates`** caps how many 60×121 plates the build may spend — `null` (the default) is
+unlimited. It exists because the fit gate no longer constrains plate count once the target is
+faceted, so without a cap the tiler simply takes nearly every plate that fits and the strategy
+selector does nothing. A budget makes the strategies choose **which** plates to spend, which is the
+question they are good at: measured on a faceted 6×8 sheet, all three produce *different* tilings at
+every budget, each spending it exactly.
+
+It is also the honest constraint — plates are half the panel kit and there are only so many of them.
+
+**Pinned plates count against it**, because a plate placed by hand is still a plate you have to buy.
+If the pins alone exceed the budget every one is still placed — the override contract reports rather
+than refuses — and `W_PLATE_BUDGET_EXCEEDED` says so.
 
 The presets are six chosen points, all collision-free except `crest`:
 
@@ -194,6 +207,9 @@ violation would reject every intermediate state of a slider drag.
 | fewer than 3 ground contacts, so there is no support polygon to test | `W_NO_SUPPORT` | warning |
 | a manual override is malformed, off-grid, or two claim the same cell | `E_OVERRIDE_SHAPE`, `E_OVERRIDE_BOUNDS`, `E_OVERRIDE_CONFLICT` | error |
 | a **hand-placed** plate bows further from the target than the fit tolerance | `W_PLATE_OVERRIDE_MISFIT` | warning |
+| `tiling.maxPlates` is not `null` or a non-negative integer | `E_SHAPE` | error |
+| more plates are placed than the budget allows (only reachable by pinning) | `W_PLATE_BUDGET_EXCEEDED` | warning |
+| the plate budget is set below `MIN_PLATES` | `W_BUDGET_BELOW_MIN` | warning |
 
 **Grounding is reported, never forced.** A rigid 60 cm panel cannot hug a curved target, so the
 graded edges come within a few cm of the floor and no closer; the residual is reported per edge as a
@@ -219,6 +235,8 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
   would fit, amber `~` when it would not, with the cost in the tooltip), click one to **combine
   into a plate**; click a plate to **split** it. Escape disarms. Pinned tiles are marked, and the
   report shows how many are hand-pinned versus algorithm-chosen.
+- **Plate budget** — a "limit plates" toggle and a count, with the report reading `plates / budget`
+  and turning red if pinning has pushed you over it.
 - **CONFIG JSON** + named slots + **Export** (OBJ, one named object per panel with baked world
   transforms; and JSON).
 
@@ -270,9 +288,9 @@ Plain node scripts, no framework. Each prints a pass/fail summary and exits non-
 ```bash
 cd grid-designer
 node tests/test-form.mjs          #   89  drift heightfield, analytic gradient
-node tests/test-v3-schema.mjs     #  270  schema, normalization, every code
+node tests/test-v3-schema.mjs     #  290  schema, normalization, every code
 node tests/test-v3-target.mjs     #   40  unroll, faceting, coplanarity
-node tests/test-v3-tiling.mjs     # 2024  partition, strategies, plate fit, overrides
+node tests/test-v3-tiling.mjs     # 2054  partition, strategies, plate fit, overrides, budget
 node tests/test-v3-collide.mjs    #   76  SAT, incl. a 6-axis mutation check
 node tests/test-v3-placement.mjs  #  536  placement, grounding, both modes
 node tests/test-v3-report.mjs     #   49  joints, holonomy, collisions
@@ -283,7 +301,7 @@ node tests/test-persistence.mjs   #   46  storage, version discard
 npm run build
 ```
 
-**3251 checks.** Three conventions worth keeping:
+**3301 checks.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat

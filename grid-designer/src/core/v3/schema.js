@@ -318,7 +318,41 @@ export const DEFAULT_GROUND_TOLERANCE = 2.0
 export const OVERRIDE_TYPES = ['2x2', '2x4']
 export const OVERRIDE_AXES = ['u', 'v']
 
-export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [] }
+/**
+ * `maxPlates` — how many 60x121 plates the build is allowed to spend.
+ *
+ * `null` means unlimited, and is the default so existing configs are unchanged.
+ *
+ * This exists because the fit gate stopped constraining anything. A FACETED
+ * target is locally planar by construction, so plate sagitta collapses toward
+ * zero almost everywhere, nearly every candidate domino passes the gate, and
+ * greedy placement takes them all — plate counts run 20-22 of 26 tiles and all
+ * three tiling strategies produce the SAME tiling, because none of them ever has
+ * to choose. A budget makes them choose again: the strategies decide WHICH
+ * plates to spend, which is the question they are actually good at.
+ *
+ * It is also the honest constraint. Plates are half the panel kit and there are
+ * only so many of them; "how many plates do we own" is a real number, not a
+ * modelling knob.
+ *
+ * PINNED PLATES COUNT AGAINST IT. A plate placed by hand is still a plate you
+ * have to buy, so an override spends budget like anything else. If the pins
+ * alone exceed the budget they are still all placed — consistent with the rest
+ * of the override contract, which reports rather than refuses — and
+ * `W_PLATE_BUDGET_EXCEEDED` says so.
+ */
+/**
+ * Minimum plates for a design to read as a system rather than as a grid of
+ * squares with a couple of mistakes in it (v2's MIN_RECTS, carried over).
+ *
+ * Defined HERE rather than in tiling.js because validateConfig needs it to warn
+ * on a budget set below it, and tiling.js already imports from this file —
+ * putting it the other way round would be a cycle. tiling.js re-exports it, so
+ * its public surface is unchanged and there is still one source of truth.
+ */
+export const MIN_PLATES = 4
+
+export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [], maxPlates: null }
 export const DEFAULT_PLACEMENT = { tree: 'bfs-corner', mode: 'surface-fit' }
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -344,6 +378,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   tiling: {
     strategy: DEFAULT_TILING.strategy,
     plateFitToleranceCm: DEFAULT_TILING.plateFitToleranceCm,
+    maxPlates: DEFAULT_TILING.maxPlates,
     // A fresh array, not a reference to DEFAULT_TILING.overrides: DEFAULT_CONFIG
     // is Object.freeze'd, but that freeze is shallow and would not stop a
     // shared array from being mutated out from under every config that
@@ -452,6 +487,7 @@ function withDefaults(raw) {
       strategy: tilingSrc.strategy !== undefined ? tilingSrc.strategy : DEFAULT_TILING.strategy,
       plateFitToleranceCm:
         tilingSrc.plateFitToleranceCm !== undefined ? tilingSrc.plateFitToleranceCm : DEFAULT_TILING.plateFitToleranceCm,
+      maxPlates: tilingSrc.maxPlates !== undefined ? tilingSrc.maxPlates : DEFAULT_TILING.maxPlates,
       // Passed through RAW (even if not an array) — same "fill missing only"
       // contract as every other field here. validateConfig inspects this raw
       // value directly so a malformed entry is reported, not silently
@@ -551,6 +587,11 @@ export function normalizeConfig(raw) {
         PLATE_FIT_TOLERANCE_MAX,
       ),
       overrides: sanitizeOverrides(cfg.tiling.overrides, sheetCols, sheetRows),
+      // null (unlimited) survives as null; anything else becomes a non-negative
+      // integer, because it is a count of physical plates.
+      maxPlates: cfg.tiling.maxPlates === null || cfg.tiling.maxPlates === undefined
+        ? null
+        : Math.max(0, Math.round(numberOr(cfg.tiling.maxPlates, 0))),
     },
     placement: {
       tree: PLACEMENT_TREES.includes(cfg.placement.tree) ? cfg.placement.tree : DEFAULT_PLACEMENT.tree,
@@ -704,6 +745,29 @@ export function validateConfig(config) {
         `(got ${JSON.stringify(cfg.placement.mode)})`,
       'placement.mode',
     )
+  }
+
+  // --- tiling.maxPlates: null (unlimited) or a non-negative integer ---------
+  {
+    const mp = cfg.tiling.maxPlates
+    if (mp !== null && mp !== undefined) {
+      if (!isFiniteNumber(mp) || mp < 0 || !Number.isInteger(mp)) {
+        err(
+          'E_SHAPE',
+          'tiling.maxPlates must be null (unlimited) or a non-negative integer — it is a count ' +
+            `of physical 60x121 plates (got ${JSON.stringify(mp)})`,
+          'tiling.maxPlates',
+        )
+      } else if (mp < MIN_PLATES) {
+        warn(
+          'W_BUDGET_BELOW_MIN',
+          `tiling.maxPlates is ${mp}, below MIN_PLATES (${MIN_PLATES}) — a design using fewer than ` +
+            `${MIN_PLATES} plates reads as a grid of squares with a couple of mistakes in it, ` +
+            'rather than as a system',
+          'tiling.maxPlates',
+        )
+      }
+    }
   }
 
   // --- tiling.plateFitToleranceCm: 0.1..20cm — see tiling.js's "PLATE FIT" -

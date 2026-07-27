@@ -90,6 +90,7 @@ export default function FormPanel() {
   const setSheetRows = useStoreV3((s) => s.setSheetRows)
   const setTilingStrategy = useStoreV3((s) => s.setTilingStrategy)
   const setPlateFitTolerance = useStoreV3((s) => s.setPlateFitTolerance)
+  const setMaxPlates = useStoreV3((s) => s.setMaxPlates)
   const setPlacementMode = useStoreV3((s) => s.setPlacementMode)
   const setPlacementTree = useStoreV3((s) => s.setPlacementTree)
   const setGap = useStoreV3((s) => s.setGap)
@@ -271,6 +272,33 @@ export default function FormPanel() {
           onChange={(v) => setPlateFitTolerance(v)}
           format={(v) => `${cm1(v)}cm`}
         />
+
+        <label className="form-check-row">
+          <input
+            type="checkbox"
+            checked={tiling.maxPlates !== null}
+            onChange={(e) => setMaxPlates(e.target.checked ? 12 : null)}
+          />
+          <span className="slider-label">limit plates</span>
+        </label>
+        {tiling.maxPlates !== null && (
+          <SliderRow
+            testId="form-max-plates"
+            label="plate budget"
+            value={tiling.maxPlates}
+            min={0}
+            max={Math.floor((sheet.cols * sheet.rows) / 2)}
+            step={1}
+            onChange={(v) => setMaxPlates(v)}
+            format={int0}
+          />
+        )}
+        <p className="form-hint">
+          how many 60×121 plates the build may spend. A faceted target lets plates fit almost
+          everywhere, so without a budget the tiler takes nearly all of them and the strategy above
+          has nothing left to choose. A budget makes it choose <em>which</em> plates to spend.
+          Hand-pinned plates count against it.
+        </p>
       </div>
 
       <div className="col-profile form-block">

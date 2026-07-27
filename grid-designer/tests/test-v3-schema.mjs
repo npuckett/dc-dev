@@ -11,6 +11,7 @@
 
 import {
   AMPLITUDE_MAX,
+  MIN_PLATES,
   AMPLITUDE_MIN,
   CREST_MAX,
   CREST_MIN,
@@ -846,6 +847,48 @@ check(
 // Summary
 // =============================================================================
 console.log('')
+// =============================================================================
+// tiling.maxPlates — the plate budget. null = unlimited; otherwise a count of
+// physical 60x121 plates, so it must be a non-negative integer.
+// =============================================================================
+{
+  expectValid('maxPlates null is unlimited and valid', { ...good(), tiling: { ...good().tiling, maxPlates: null } })
+  expectValid('maxPlates 0 is valid (all squares)', { ...good(), tiling: { ...good().tiling, maxPlates: 0 } })
+  expectValid('maxPlates 12 is valid', { ...good(), tiling: { ...good().tiling, maxPlates: 12 } })
+
+  expectError('E_SHAPE maxPlates negative', { ...good(), tiling: { ...good().tiling, maxPlates: -2 } }, 'E_SHAPE')
+  expectError('E_SHAPE maxPlates non-integer', { ...good(), tiling: { ...good().tiling, maxPlates: 2.7 } }, 'E_SHAPE')
+  expectError('E_SHAPE maxPlates NaN', { ...good(), tiling: { ...good().tiling, maxPlates: NaN } }, 'E_SHAPE')
+  expectError('E_SHAPE maxPlates string', { ...good(), tiling: { ...good().tiling, maxPlates: '8' } }, 'E_SHAPE')
+
+  // A budget below MIN_PLATES is legal but worth saying out loud — fewer than
+  // four plates reads as squares with mistakes in them, not as a system.
+  const lowRes = validateConfig({ ...good(), tiling: { ...good().tiling, maxPlates: 2 } })
+  check('maxPlates below MIN_PLATES stays VALID', lowRes.valid)
+  check(
+    'maxPlates below MIN_PLATES warns W_BUDGET_BELOW_MIN',
+    lowRes.warnings.some((w) => w.code === 'W_BUDGET_BELOW_MIN'),
+    JSON.stringify(lowRes.warnings.map((w) => w.code)),
+  )
+  check(
+    'maxPlates at MIN_PLATES does not warn',
+    !validateConfig({ ...good(), tiling: { ...good().tiling, maxPlates: MIN_PLATES } })
+      .warnings.some((w) => w.code === 'W_BUDGET_BELOW_MIN'),
+  )
+
+  // normalizeConfig: null survives as null, everything else becomes a count.
+  check('normalizeConfig preserves null', normalizeConfig({ tiling: { maxPlates: null } }).tiling.maxPlates === null)
+  check('normalizeConfig defaults to null', normalizeConfig({}).tiling.maxPlates === null)
+  check('normalizeConfig rounds a fractional budget', normalizeConfig({ tiling: { maxPlates: 6.4 } }).tiling.maxPlates === 6)
+  check('normalizeConfig floors a negative budget at 0', normalizeConfig({ tiling: { maxPlates: -5 } }).tiling.maxPlates === 0)
+  check('normalizeConfig is idempotent on maxPlates',
+    normalizeConfig(normalizeConfig({ tiling: { maxPlates: 6.4 } })).tiling.maxPlates === 6)
+  // Round-trips through JSON unchanged.
+  const rt = normalizeConfig({ ...good(), tiling: { ...good().tiling, maxPlates: 9 } })
+  check('maxPlates survives a JSON round-trip',
+    JSON.stringify(normalizeConfig(JSON.parse(JSON.stringify(rt)))) === JSON.stringify(rt))
+}
+
 console.log(`test-v3-schema: ${passed} checks passed, ${failures.length} failed`)
 if (failures.length > 0) {
   console.error('')
