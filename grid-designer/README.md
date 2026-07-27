@@ -8,6 +8,21 @@ which cells get a square and which get a plate, the panels are placed on it, and
 That last part is the point. Read **[V3_SPEC.md](V3_SPEC.md)** for the model and
 **[HANDOFF.md](HANDOFF.md)** for the decision log and what is still open.
 
+> ### ⚠ This approach is being left behind
+>
+> Everything here works and is tested. What is being retired is the **workflow** — author a drift
+> surface, tile it with rigid panels, measure the damage. Built out to connectors, fasteners and a
+> relaxation solver, it turned out that **the tool is very good at saying no and has no way to say
+> yes**: every lever that is not the form itself measured as useless or actively harmful.
+>
+> The next direction builds from the **panel and connector geometry** instead — a form composed of
+> joints already inside the connectors' feasible envelope is buildable by construction, with no
+> reconciliation step.
+>
+> **[HANDOFF.md §0](HANDOFF.md)** has the verdict and the evidence; **§5.3** is the inventory of what
+> carries over (most of this repo — the measured panel, the connector, the collision machinery and
+> the whole test convention). Read those two before building on this.
+
 | project | what it is | status |
 |---|---|---|
 | `grid-designer/` | **this** — tiled 3D drift surface planning (schema v3) | active |

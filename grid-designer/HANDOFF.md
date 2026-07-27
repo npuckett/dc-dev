@@ -1,17 +1,59 @@
 # grid-designer — handoff & decision log
 
-Written 2026-07-26, covering the **v3 pivot** session. Read **[README.md](README.md)** first
-for how the tool works and **[V3_SPEC.md](V3_SPEC.md)** for the model; this document records **why it
-is the way it is**, what was tried and rejected, and what is still open.
+Written 2026-07-26/27, covering the **v3 pivot** and the connector work that followed. Read
+**[README.md](README.md)** for how the tool works and **[V3_SPEC.md](V3_SPEC.md)** for the model;
+this document records **why it is the way it is**, what was tried and rejected, and what is open.
 
-The v2 handoff's "durable findings" section is superseded by §2 here, but its central insight
-survives unchanged and is still the reason any of this is tractable:
-
-> Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
-> to absorb.
-
-Branch `v3-drift-tiling`. All suites green (3886 checks across 16 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3901 checks across 16 suites), build clean, app verified
 in the browser.
+
+---
+
+## 0. STATUS — the surface-fit direction is retired
+
+**Everything in this repository works and is tested. The approach it embodies is being left
+behind.** Read this section before anything else; the rest of the document is the evidence.
+
+### The verdict
+
+v3's workflow is: **author a drift surface → tile it with rigid panels → measure the damage.** After
+building it out to connectors, fasteners, collision detection and a relaxation solver, the honest
+summary is:
+
+> **The tool became very good at saying no, and never acquired a way to say yes.**
+
+On a typical authored drift (99 cm over a 374 cm footprint, a 2.9 cm joint) it reports: worst joint
+deviation 19 cm against a 1.5 cm tolerance, 58 of 60 joints flagged, 5 panel collisions, graded edges
+27 cm off the floor, 32 of 60 joints wider than any connector can span, and 0 plates placeable. Every
+one of those numbers is correct. None of them comes with a route to a design that works.
+
+### Every lever that is not the form measured as useless or harmful
+
+This is the finding that justifies the pivot, and it was arrived at by measurement, not taste:
+
+| lever | result |
+|---|---|
+| redesign the connector | it fouls a panel only **3–6° before the panels collide with each other**; no connector dimension moves that boundary (§2.20) |
+| relax placements to widen tight joints | **works** — 25 joints → 0 on `modular` for 0.3 cm of movement. This is the one thing that worked. |
+| relax placements toward the nominal gap | collisions 5 → 15, shape residual 0.30 → 5.07 cm (§2.24) |
+| relax placements to close over-wide joints | diverges: 204 cm of movement, deviation 19 → 154 cm, residual 0.30 → 28.53 cm (§2.24) |
+| relax placements to ground the floating edges | no improvement; pulls panels off the target (§2.24) |
+| push colliding panels apart | 40 → 35 collisions for **4× the shape error**; nothing at all at worst (§2.25) |
+| change the form | deviation 19.07 → 3.61 cm, collisions 5 → 0, floating 27.3 → 14.5 cm |
+
+The last row is the only lever with real authority, and the tool has no way to use it. It can grade a
+form; it cannot propose one.
+
+### Why that is structural, not a missing feature
+
+A rigid 60 cm panel deviates from a curved target by roughly `(30²/2)·curvature` **wherever you put
+it** (§2.1). Panelizing a surface chosen without reference to the panels therefore produces joints
+wedged open, housings interpenetrating and edges off the floor — all at once, and none of it fixable
+downstream. Faceting (§2.1) was the right response and bought a great deal, but it treats the
+symptom: the surface is still authored first and reconciled afterwards.
+
+**The next direction inverts that** — build from what the panels and their connectors can actually
+do, and let the form be whatever that composes into. §5.3 is an inventory of what carries over.
 
 ---
 
@@ -330,7 +372,63 @@ measurement.** Its test keeps the failure path reachable by starving it of itera
 relying on a preset that happens to be hard, so it cannot start passing vacuously if the presets
 improve.
 
-### 2.23 Site facts (unchanged from v2, still unresolved)
+### 2.24 Placement can widen a joint. It cannot narrow one, flatten one, or ground one.
+
+The relaxation's scope, established by trying everything and measuring:
+
+| asked to | result |
+|---|---|
+| widen joints below the fastener minimum | **works.** `modular` 25 outside → 0, for 0.3 cm of movement |
+| bring folds under the panel limit | works, when it binds |
+| pull gaps toward the NOMINAL gap | collisions 5 → 15, residual 0.30 → 5.07 cm |
+| close joints wider than a connector spans | diverges — 204 cm of movement, deviation 19 → 154 cm, residual 0.30 → 28.53 cm |
+| ground the floating graded edges | no improvement; pulls panels off the target |
+
+The pattern: **a joint that is too NARROW is a placement error, and a joint that is too WIDE is
+holonomy.** A tight joint means two panels happen to sit close; nudging them apart costs nothing
+elsewhere. A wide joint is wide because the surface curves away underneath it, and closing it means
+taking the panels off the surface — the deficit reappears as deviation, collisions, or both.
+
+Same for grounding: at `angularity 0.22, facetCells 3` the *target itself* lifts the toe, so
+grounding the panels means leaving the target. It is a form problem, not a placement one.
+
+So the relaxation corrects the floor and **reports** the ceiling, and every unresolved joint carries
+`fixable` saying which kind it is. Generalises to: **before adding a corrective force, check whether
+the quantity it targets is a free variable or a consequence.**
+
+### 2.25 An obvious-looking correction is worth measuring before shipping
+
+Pushing interpenetrating panels apart is the most natural thing to add to a relaxation and it does
+not work here, because the collisions on a steep drift are **housings converging under a fold**, not
+panels in the wrong place. Translating them apart moves them off the surface without touching the
+cause:
+
+    amp 140 / gap 1cm   collisions 40 → 35, shape residual 0.30 → 1.20cm
+    amp 200 / gap 2cm   collisions 43 → 43, shape residual 0.47 → 1.46cm
+
+Shipped, but **off by default, with those numbers in the schema next to the flag**. Three separate
+proposals in this project measured worse than doing nothing (this, the nominal-gap spring, the
+grounding spring). The cost of measuring first is minutes; the cost of shipping one is a tool that
+quietly makes designs worse.
+
+### 2.26 A one-sided envelope, and a one-point measurement
+
+Two bugs in the same check, both of which made the relaxation report success while doing nothing:
+
+1. **The envelope had a floor and no ceiling.** It asked `gap ≥ 1.0 cm` and nothing else, so a joint
+   21.6 cm open passed while the connector's own `maxSpanCm` said 8 cm. The limit existed as a flag;
+   the envelope never consulted it.
+2. **The gap was measured at the joint MIDPOINT.** Midpoint gaps ran 2.64–5.44 cm on a study whose
+   joints opened to **21.97 cm at their ends** — so even after the ceiling existed it saw nothing.
+
+Together: 0 joints reported outside where 32 of 60 were. The connector code had already learned this
+— `spanMinCm`/`spanMaxCm` exist on every station for exactly this reason — and the relaxation, written
+later, did not reuse it.
+
+**A joint is a wedge, not a number.** Any check on it has to be sampled along its length, and any
+range needs both ends.
+
+### 2.27 Site facts (unchanged from v2, still unresolved)
 
 - The existing installation is 12 panels in a Toronto storefront window; `IO/DROPCEILING_STORY.md` is
   the best overview.
@@ -358,13 +456,21 @@ improve.
 
 ## 4. Open questions
 
-1. **How much joint deviation is acceptable?** The tool now measures it precisely and cannot decide
-   it. Every preset is a guess at the answer. **This is the top question for the user.**
-1b. **What IS the plate inventory?** `tiling.maxPlates` now exists and restores the strategies to
+**Re-read §0 first.** Questions 1, 3 and 4 below were framed inside the surface-fit approach and
+several are dissolved rather than answered by the pivot — a form built from feasible joints does not
+have a "how much joint deviation will we accept" question, because the answer is "none, by
+construction". The ones that survive are about the PHYSICAL system and are marked **[carries over]**.
+
+
+1. ~~**How much joint deviation is acceptable?**~~ **Dissolved by the pivot.** It was the top
+   question only because the approach produced deviation and then asked you to tolerate it. Building
+   from feasible joints removes the question. What survives is the connector's own envelope, which is
+   measured, not chosen: gap 1.0–8 cm, fold below where the panels' back corners meet.
+1b. **[carries over] What IS the plate inventory?** `tiling.maxPlates` now exists and restores the strategies to
    usefulness (§2.9), but nothing in the repo records how many 60×121 plates the build actually has.
    That number would turn the budget from an exploration knob into a constraint.
-2. **Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the cost of the
-   plate's exact modularity. The connector work has three things to say now, all pushing the same
+2. **[carries over] Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the
+   cost of the plate's exact modularity. The connector work has three things to say now, all pushing the same
    way: the fastener needs **1.00 cm of gap** and the check bites at depth, not at the face; the
    fold a joint can take is `2·asin(gap / 2·outerWallDepth)`-ish, so gap buys fold directly; and
    `modular`'s narrowest station is 0.60 cm, which the relaxation has to shove open. **A wider joint
@@ -381,23 +487,23 @@ improve.
    the folds. On a rectangular lattice that forces the additive family (§3, ruled out), so it needs
    the fold lines' **plan positions** to move — a real optimization, and the highest-value remaining
    work.
-4. **How deep can the installation be?** Still unrecorded anywhere in the repo. Presets run 433–501
+4. **[carries over] How deep can the installation be?** Still unrecorded anywhere in the repo. Presets run 433–501
    cm deep.
-5. **Is the wall structurally usable for support?** v2 asked this and it is still unanswered; v3 does
+5. **[carries over] Is the wall structurally usable for support?** v2 asked this and it is still unanswered; v3 does
    not currently use the wall for support at all.
-6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.23 (this pointed at §2.8, which
-   is about the tiler and the placer sharing a surface; the site facts are §2.23).
-6b. **Is bearing on the power supply housing acceptable?** The supply sits on the flange the back
+6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.27 (this pointed at §2.8, which
+   is about the tiler and the placer sharing a surface; the site facts are §2.27).
+6b. **[carries over] Is bearing on the power supply housing acceptable?** The supply sits on the flange the back
    half grips, flush to within 1mm. A relief clears the interference, but the lip then bears on a
    driver housing rather than on the panel frame. The tool reports it per station
    (`W_BEARS_ON_POWER_SUPPLY`, 12–50 parts per preset) and cannot decide it. If the answer is no,
    `supplyMode: 'block'` is the honest model and 6–25 joints per preset lose their connector.
 
-6c. **Which way does each panel face?** The powered edge is currently a global convention. Panel
+6c. **[carries over] Which way does each panel face?** The powered edge is currently a global convention. Panel
    orientation is a real design freedom — it decides which joints are affected and where cables run
    — and nothing in the tool models it.
 
-7. **What does the locking screw bite into?** The plan is a threaded area on the connector so it can
+7. **[carries over] What does the locking screw bite into?** The plan is a threaded area on the connector so it can
    be locked to the panel with a screw, printed or metal (§5.1). The *geometry* is settled — §2.17
    says the jaw can carry up to an M8 boss for free — but the fastening target is not, and it is not
    a question the tool can answer:
@@ -472,6 +578,61 @@ improve.
 
 ---
 
+### 5.3 WHAT THE NEXT DIRECTION INHERITS
+
+The pivot is away from *author a surface, then reconcile it*. Most of this repository is not that,
+and carries over unchanged. Sorted by how much is worth keeping.
+
+#### Keep — measured facts about the physical system
+
+These cost real effort to establish and do not depend on how a form is arrived at.
+
+- **`src/config.js` — the panel.** Nine caliper-measurable parameters from `updatedPanelGeo/`, with
+  `panelSectionRings()` as the single source of truth for the section, and `POWER_SUPPLY`. Every
+  downstream consumer derives rather than restates (§2.19). **This is the most valuable file in the
+  repo for a new direction** and should be the thing the new model is built on top of.
+- **`src/geometry/panelGeometry.js`** — the solid and the supply box, swept from that section.
+- **`src/core/v3/connectors.js`** — the two-piece bolted clamp, its section, and the **joint
+  feasibility envelope**: gap ≥ 1.0 cm for the fastener (checked at depth), gap ≤ 8 cm for the part,
+  fold ≤ where the panels' own back corners meet. A form built from joints inside that envelope is
+  buildable **by construction** — which is precisely what the new direction should exploit.
+- **`polygonsOverlap` / `panelSectionAt`** — exact section-level collision for swept solids (§2.21).
+- **`collide.js`** — 15-axis OBB SAT, mutation-tested. Model-agnostic.
+- **The connector kit, export and manifest** — binning, STL plate, part manifest. Independent of how
+  the joints came to be.
+
+#### Keep — machinery
+
+- The **headless-core contract** (§6), the determinism rules, and the whole testing convention:
+  plain node scripts, closed-form expectations, known-answer controls, non-vacuous negatives.
+- **`persistence.js`**, the store contract, the viewport/plan-view shell.
+
+#### Retire with the approach
+
+- **`form.js` as the driver.** The parametric drift is a fine authoring tool; it is the wrong
+  *input* to a panel layout. Keep it as a target to compare against, not as the thing panels are
+  fitted to.
+- **`target.js`'s faceting.** It exists to make an authored surface reachable by rigid panels. If the
+  form is built from reachable joints, there is nothing to quantize.
+- **`placement.js`'s `surface-fit` / `chain`.** Both answer "where do panels go on this surface".
+- **`relax.js`.** It exists to drag a fitted layout back toward feasibility. Building inside the
+  envelope from the start makes it unnecessary. Its lessons (§2.24–§2.26) outlive it.
+- **The six presets.** They are six points in the surface-fit trade.
+
+#### The idea the new direction is probably reaching for
+
+Already recorded as §4.3 and still the highest-value unbuilt thing: **build the surface out of joints
+that are known-good instead of measuring how bad an authored surface is.** Every joint has a feasible
+band, the connector work has now quantified it exactly, and a form composed of feasible folds is
+buildable without any reconciliation step.
+
+The trap that makes this non-trivial is recorded in §3: on a rectangular lattice, all-quads-planar
+forces `h(i,j) = f(i) + g(j)`, and that family **cannot** be zero along two intersecting edges and
+still be a mound — so it is incompatible with the brief's two grounded edges. Getting past it needs
+the fold lines' **plan positions** to move, which is a real optimisation and the thing worth building.
+
+---
+
 ## 6. Working practice
 
 Ran as **Opus 5 orchestrating, Sonnet 5 coding**: each work package delegated with a precise spec,
@@ -492,21 +653,26 @@ output comparison where available.
 
 ## 7. Picking this up in a new thread
 
-Read in this order: **README.md** → **V3_SPEC.md** → this file → the doc comment at the top of
-`src/core/v3/target.js` (why the target is faceted, which is the crux) → `src/core/v3/placement.js`'s
-header (frames and handedness) → `src/config.js`'s header (the measured panel section, and why it is
-parameters rather than a shape) → `src/core/v3/connectors.js`'s header (the two-piece clamp) →
-`src/core/v3/relax.js`'s header (why relaxation is the only lever left).
+**Start with §0.** It says what was built, what it proved, and why the direction is being left. Then
+**§5.3**, which is the inventory of what carries over — most of the repository does.
 
-Then run the suites to confirm the tree is green, and `npm run dev --prefix grid-designer` to look at
-it. Load the `shelf` preset to see the brief satisfied, then `crest` to see the report say no. Click
-two adjacent squares in the plan view to combine them and watch the report react. Turn on
-**connectors** in the viewport toolbar and drag **part length** from 10 cm to 25 cm — the worst
-wedge-per-part goes 0.45 cm → 1.13 cm, which is §2.12 happening in front of you. Then load
-`modular` and tick **relax**: 25 joints outside the fastener envelope go to 0 for 0.3 cm of
-movement.
+If you are continuing the NEW direction, the reading order is:
 
-§4.2 is now the highest-leverage question left — the joint width decides fastener fit, fold capacity
-and how hard the relaxation has to work, all at once. Then §4.6b (bearing on the supply housing) and
-§4.6c (panel orientation), both of which the tool measures and cannot decide. §4.1b, §4.3 and the
-connector gaps in §5.1 follow.
+1. **§0** — the verdict and the evidence for it.
+2. **`src/config.js`'s header** — the measured panel, and why it is parameters rather than a shape.
+   This is the foundation the new model should sit on.
+3. **`src/core/v3/connectors.js`'s header** — the two-piece clamp and, more importantly, the joint
+   feasibility envelope. A form composed of joints inside it is buildable by construction.
+4. **§2.24–§2.26** — what a placement solver can and cannot do, so the next one is not asked to do
+   the impossible again.
+5. **§3 and §5.3's last paragraph** — the planar-quad trap, which is the thing standing between here
+   and a form built out of known-good folds.
+
+If you are maintaining what exists: `npm run dev --prefix grid-designer` (port 5175, or the
+`grid-designer-fresh` launch entry on 5177), run the 16 suites, load `shelf` to see the brief
+satisfied and `crest` to see the report say no. Turn on **connectors** in the viewport toolbar; tick
+**relax** on `modular` to watch 25 joints come inside the envelope for 0.3 cm of movement.
+
+**Verify the numbers, not the narrative** — and prefer structural proof over output comparison. That
+practice caught every one of the errors recorded here, including three of my own proposals that
+measured worse than doing nothing.

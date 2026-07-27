@@ -1,8 +1,12 @@
 # grid-designer v3 — the drift shell
 
-**Status: HISTORICAL.** This is the spec as written at the START of the v3 pivot, kept because its
-reasoning is still the clearest statement of the model's intent. **It is not current in three
-places, and README.md / HANDOFF.md are authoritative where they differ:**
+**Status: HISTORICAL, AND THE APPROACH IT SPECIFIES IS RETIRED.** See HANDOFF.md §0 — the
+surface-fit workflow this document defines is being left behind in favour of building from the panel
+and connector geometry directly. It is kept because its reasoning is the clearest statement of what
+was tried and why.
+
+It was already out of date in five places before that, and README.md / HANDOFF.md are authoritative
+where they differ:
 
 1. **§4 makes the spanning-tree walk the placement model. It is not the default.** One hinge is one
    degree of freedom, so a chained tile matches the target's pitch but never its roll; over eight
