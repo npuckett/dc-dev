@@ -1022,3 +1022,355 @@ body {
 .v3-preset-trade {
   margin-top: 8px; font-size: 10.5px; line-height: 1.45; color: #8b97a5;
 }
+
+/* =========================================================================
+   v4 — the folded ribbon (src/v4/*)
+   Additive only: every class above is still what the v3 UI renders against,
+   and the two share the shell, the buttons, the sliders and the report metric
+   grid. What is new here is the per-unit table and the numeric tables, neither
+   of which v3 had anything like.
+   ========================================================================= */
+
+/* two classes v3 used but never defined — they inherit nothing, so they are
+   given the small-print treatment the surrounding annotations already have */
+.form-hint {
+  margin: 2px 0 4px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #7c7c98;
+}
+.form-hint b { color: #b9d3ff; font-weight: 600; }
+.form-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  cursor: pointer;
+}
+
+/* the block carrying the two knobs the design is actually driven by */
+.form-block-primary {
+  background: #191926;
+  border-color: #33334c;
+}
+
+.stepper-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+.stepper-slider { flex: 1 1 auto; min-width: 0; accent-color: #6fa9e8; }
+
+.num-input {
+  flex: 0 0 52px;
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 4px;
+  text-align: right;
+  color: #e6e6f2;
+  background: #101019;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+}
+
+/* the strip's pattern, written out — `_/-\_/-\_` */
+.glyph-readout {
+  margin: 4px 0 7px;
+  padding: 5px 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  letter-spacing: 0.22em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  color: #b9d3ff;
+  background: #101019;
+  border: 1px solid #2a2a3e;
+  border-radius: 3px;
+}
+
+/* a limit stated where the knob that moves against it is */
+.limit-block { margin: 5px 0 2px; }
+.limit-line {
+  margin: 3px 0;
+  padding-left: 6px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #7fb99a;
+  border-left: 2px solid #2c4a3a;
+}
+.limit-line-over {
+  color: #ffb27f;
+  border-left-color: #6a4520;
+}
+
+/* --- units table (UnitsPanel.jsx) ---------------------------------------- */
+.units-panel {
+  flex: 0 0 auto;
+  padding: 7px 8px 8px;
+  margin-bottom: 6px;
+  background: #16161f;
+  border: 1px solid #26263a;
+  border-radius: 4px;
+}
+.units-strip + .units-strip { margin-top: 8px; }
+.units-strip-title {
+  margin: 4px 0 3px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #7c7c98;
+}
+
+.unit-row {
+  display: grid;
+  grid-template-columns: 26px 14px 1fr 36px 22px 60px;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 3px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  cursor: default;
+}
+.unit-row + .unit-row { margin-top: 1px; }
+.unit-row-head {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6a6a86;
+  border-bottom: 1px solid #22222f;
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+}
+.unit-row-hover { background: #22223a; }
+.unit-row-selected { background: #1d3348; }
+.unit-row-absent { opacity: 0.42; }
+.unit-row-mismatch { box-shadow: inset 2px 0 0 #ff6b81; }
+
+.unit-num {
+  font-variant-numeric: tabular-nums;
+  color: #cfcfe0;
+}
+.unit-anchor {
+  margin-left: 2px;
+  font-size: 9px;
+  color: #8fb9ff;
+}
+.unit-glyph {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #b9d3ff;
+}
+.unit-role {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  color: #a8a8c0;
+}
+.unit-tilt {
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: #7c7c98;
+}
+.unit-col-label {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: #6a6a86;
+}
+
+.unit-btn {
+  font: inherit;
+  font-size: 9.5px;
+  padding: 2px 0;
+  color: #cfcfe0;
+  background: #1c1c2a;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.unit-btn:hover { background: #26263a; border-color: #3d3d5a; }
+.unit-btn-on { background: #3a2450; border-color: #6a3f8c; color: #e6c9ff; }
+.unit-btn-off { background: #23232e; border-color: #3a3a50; color: #8a8aa4; }
+
+.unit-select {
+  font: inherit;
+  font-size: 9.5px;
+  padding: 1px 2px;
+  min-width: 0;
+  color: #cfcfe0;
+  background: #101019;
+  border: 1px solid #2e2e44;
+  border-radius: 3px;
+}
+
+/* --- numeric tables (MetricsPanel.jsx, ReportPanel.jsx) ------------------- */
+.metrics-panel {
+  flex: 0 0 auto;
+  padding: 7px 8px 8px;
+  margin-bottom: 6px;
+  background: #16161f;
+  border: 1px solid #26263a;
+  border-radius: 4px;
+}
+.metrics-panel .report-metric-grid { margin-bottom: 8px; }
+
+/* a wide table must scroll inside its own box rather than widen the column */
+.metrics-scroll { overflow-x: auto; }
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: #cfcfe0;
+}
+.metrics-table th {
+  padding: 2px 3px;
+  text-align: right;
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  color: #6a6a86;
+  border-bottom: 1px solid #22222f;
+  white-space: nowrap;
+}
+.metrics-table td {
+  padding: 2px 3px;
+  text-align: right;
+  white-space: nowrap;
+}
+.metrics-table th:first-child,
+.metrics-table td:first-child { text-align: left; }
+.metrics-table tbody tr + tr td { border-top: 1px solid #1c1c28; }
+.metrics-row-absent { opacity: 0.42; }
+.metrics-row-hover { background: #22223a; }
+.metrics-row-bad { background: #2c1119; }
+.metrics-fall { color: #ffb27f; }
+.metrics-table-units td:nth-child(2) { text-align: center; }
+
+.joint-convex { color: #ffb27f; }
+.joint-concave { color: #8fb9ff; }
+.joint-flags { cursor: help; }
+
+/* --- warnings grouped by code (ReportPanel.jsx) --------------------------- */
+.warning-group + .warning-group {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid #3a2f1a;
+}
+.warning-detail {
+  margin-top: 2px;
+  padding-left: 8px;
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: #a49878;
+}
+
+/* ==========================================================================
+   v4 — the plan-view lattice editor (LatticeMap.jsx)
+
+   Cells on even indices, ramps on the odd ones between them, corner holes at
+   odd/odd. The holes are drawn as genuine blanks rather than skipped, because
+   nothing IS there: four ramps meet at a lattice corner without touching.
+   ========================================================================== */
+.lattice-map .lm-grid {
+  display: grid;
+  gap: 2px;
+  justify-content: center;
+  margin: 8px 0 10px;
+}
+
+.lm-cell,
+.lm-ramp,
+.lm-hole {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  color: #10121a;
+}
+
+.lm-cell { cursor: pointer; transition: filter 0.12s, outline-color 0.12s; }
+.lm-cell:hover { filter: brightness(1.25); }
+
+.lm-ground { background: #fbf4e4; }
+.lm-high   { background: #8fb9ff; }
+
+/* Off is a slot, not a panel — outlined and dark, so a ragged edge reads as
+   deliberate rather than as a rendering hole. */
+.lm-cell.lm-off {
+  background: transparent;
+  border: 1px dashed #3a4055;
+  color: #5c6478;
+}
+.lm-cell.lm-off:hover { border-color: #6f7a95; color: #98a3bb; }
+
+/* A flip has no geometric footprint, so it needs a colour: the panel is still
+   exactly where it was, facing the other way. */
+.lm-cell.lm-flipped { background: #b06de0; color: #f4e9ff; }
+
+.lm-ramp {
+  cursor: pointer;
+  background: #2b3140;
+  color: #8fd9a8;
+  font-size: 13px;
+}
+.lm-ramp:hover { background: #3a4256; }
+.lm-ramp.lm-off { background: transparent; color: #454c60; border: 1px dashed #333a4c; }
+.lm-ramp.lm-orphan { background: transparent; color: transparent; cursor: default; border: none; }
+
+.lm-hole { background: transparent; }
+
+/* Hover ties the grid to the 3D view, both ways. */
+.lm-cell.lm-hot,
+.lm-ramp.lm-hot { outline: 2px solid #ffd479; outline-offset: 1px; }
+
+.lattice-map .grid-map-hint code {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  padding: 0 3px;
+}
+
+/* A cantilevered ramp is a real panel held at one end — dimmer, not absent. */
+.lm-ramp.lm-hanging { background: #232836; color: #6f8f7c; }
+.lm-legend-hanging { color: #6f8f7c; }
+
+/* The room's obstacles, labelled like the wall — they are room, not design. */
+.obstacle-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #9aa5bd;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 6px #0d0d14;
+}
+.obstacle-label-hit { color: #ff8a8a; font-weight: 600; }
+
+/* A panel running through an obstacle — the plan grid's loudest state. */
+.lm-cell.lm-obstacle,
+.lm-ramp.lm-obstacle {
+  outline: 2px solid #ff4d4d;
+  outline-offset: -2px;
+}
+
+.obstacle-fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 6px 0 4px; }
+.obstacle-field { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #7b869c; }
+.obstacle-field input {
+  width: 100%; min-width: 0; background: #16181f; border: 1px solid #2b3140;
+  border-radius: 3px; color: #d7dde9; font-size: 11px; padding: 3px 4px;
+}
+.form-annotation.obstacle-hit { color: #ff9a9a; }
+
+/* The growth ring: outside the rectangle, so fainter than a slot inside it. */
+.lm-cell.lm-ring {
+  border-style: dotted;
+  border-color: #2c3244;
+  color: #3f4759;
+}
+.lm-cell.lm-ring:hover { border-color: #5fd08a; color: #5fd08a; border-style: solid; }
