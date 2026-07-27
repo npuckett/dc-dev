@@ -51,6 +51,7 @@ import { Canvas } from '@react-three/fiber'
 import { Grid, Html, OrbitControls } from '@react-three/drei'
 import useStoreV3, { getDerived } from './store.js'
 import { buildPanelGeometry } from '../geometry/panelGeometry.js'
+import { buildConnectorGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { tileOBB } from '../core/v3/placement.js'
 import { buildTarget } from '../core/v3/target.js'
 import { normalizeForm, sampleDriftMesh } from '../core/v3/form.js'
@@ -278,6 +279,83 @@ function DriftSurface() {
 }
 
 // -----------------------------------------------------------------------------
+// The printed connectors (P12), toggleable
+//
+// Coloured BY KIT PART TYPE, which is the whole point of showing them: a design
+// needing four distinct printed parts reads instantly as four colours, and one
+// that has gone to a unique part per joint reads as confetti. That is the same
+// judgement the `facet` mode supports for the target surface.
+//
+// A flagged part goes amber and a clashing one red, on the same reasoning as
+// the panel collision highlight: a part that cannot be built or that fouls
+// something is a hard failure, not a note.
+// -----------------------------------------------------------------------------
+const CONNECTOR_FLAG_COLOR = '#ffb020'
+const CONNECTOR_CLASH_COLOR = '#ff2d2d'
+
+function ConnectorParts() {
+  const config = useStoreV3((s) => s.config)
+  const showConnectors = useStoreV3((s) => s.showConnectors)
+  const { report } = getDerived(config)
+  const conn = report.connectors
+
+  // Keyed on the connector report's identity, which is memoized per config —
+  // so the meshes are rebuilt only when the design actually changes, not on
+  // every unrelated store update. Each part is a distinct solid, so unlike the
+  // panels there is no per-type geometry to share.
+  const parts = useMemo(() => {
+    if (!showConnectors) return []
+    const partOf = new Map()
+    for (const p of conn.kit) for (const sid of p.stationIds) partOf.set(sid, p.partId)
+    // Golden-ratio hue rotation on the kit INDEX, not `hashHue` on the partId.
+    // Part ids are sequential ('P00', 'P01', …) and hashHue's rolling hash maps
+    // neighbours to hues 1/360 apart — every part came out the same pink.
+    // Stepping by φ⁻¹ spreads any number of types as far apart as they can go,
+    // which is the entire reason for colouring by type.
+    const hexOf = new Map()
+    conn.kit.forEach((p, i) => {
+      hexOf.set(p.partId, `#${new THREE.Color().setHSL((i * 0.6180339887) % 1, 0.62, 0.58).getHexString()}`)
+    })
+    return conn.stations.map((st) => {
+      const { position, quaternion } = connectorTransform(st)
+      const clash = st.flags.includes('W_CONNECTOR_CLASH') || st.flags.includes('W_CONNECTOR_INFEASIBLE')
+      const flagged = st.flags.length > 0
+      return {
+        id: st.id,
+        geometry: buildConnectorGeometry(st),
+        position,
+        quaternion,
+        color: clash ? CONNECTOR_CLASH_COLOR : flagged ? CONNECTOR_FLAG_COLOR : hexOf.get(partOf.get(st.id)) ?? '#d0d0d8',
+        emphasis: clash || flagged,
+      }
+    })
+  }, [conn, showConnectors])
+
+  // BufferGeometry is not garbage collected — it holds GPU buffers — so every
+  // rebuild has to dispose the set it replaced. panelGeometry gets away without
+  // this because it caches two geometries forever; here there is one per part.
+  useEffect(() => () => parts.forEach((p) => p.geometry.dispose()), [parts])
+
+  if (!showConnectors) return null
+
+  return (
+    <group>
+      {parts.map((p) => (
+        <mesh key={p.id} geometry={p.geometry} position={p.position} quaternion={p.quaternion}>
+          <meshStandardMaterial
+            color={p.color}
+            emissive={p.color}
+            emissiveIntensity={p.emphasis ? 0.55 : 0.22}
+            roughness={0.55}
+            metalness={0.1}
+          />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// -----------------------------------------------------------------------------
 // Ghost of the target surface (form.js `sampleDriftMesh`), toggleable
 // -----------------------------------------------------------------------------
 const GHOST_RES = 56
@@ -470,6 +548,7 @@ function Scene() {
       <Wall />
       <GhostSurface />
       <DriftSurface />
+      <ConnectorParts />
       <MeasuringBox />
 
       <OrbitControls
@@ -495,6 +574,8 @@ function ViewportToolbar() {
   const toggleGhost = useStoreV3((s) => s.toggleGhost)
   const showBounds = useStoreV3((s) => s.showBounds)
   const toggleBounds = useStoreV3((s) => s.toggleBounds)
+  const showConnectors = useStoreV3((s) => s.showConnectors)
+  const toggleConnectors = useStoreV3((s) => s.toggleConnectors)
 
   return (
     <div className="viewport-toolbar" data-testid="viewport-toolbar">
@@ -521,6 +602,15 @@ function ViewportToolbar() {
         onClick={() => toggleGhost()}
       >
         ghost surface
+      </button>
+      <button
+        type="button"
+        className={`tool-btn${showConnectors ? ' tool-btn-on' : ''}`}
+        data-testid="toggle-connectors"
+        title="the 3D-printed parts, coloured by kit type — a design needing four distinct parts reads as four colours; amber is flagged, red cannot be built or fouls something"
+        onClick={() => toggleConnectors()}
+      >
+        connectors
       </button>
       <button
         type="button"

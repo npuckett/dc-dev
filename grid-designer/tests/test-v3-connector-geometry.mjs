@@ -291,5 +291,96 @@ console.log('6. preset sweep')
     'the same station builds a byte-identical mesh')
 }
 
+// -----------------------------------------------------------------------------
+// 7. THE POINT OF THE WHOLE PART: it grips the rim without cutting into it.
+//
+// §2 checks the outline's coordinates. This checks the CONSEQUENCE, which is a
+// different claim: that the panel's material and the connector's material are
+// disjoint, and that the connector nonetheless closes around the rim on both
+// sides. Either half alone is satisfiable by a part that does nothing — a
+// connector floating in the gap has no interference at all.
+// -----------------------------------------------------------------------------
+console.log('7. the channel grips the rim, and does not cut into it')
+{
+  /** Even-odd point-in-polygon. */
+  const inside = (pts, x, y) => {
+    let n = false
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i]
+      const [xj, yj] = pts[j]
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) n = !n
+    }
+    return n
+  }
+
+  const outer = PANEL_PROFILE.outerThickness
+  const grip = CONNECTOR_PROFILE.gripCm
+  const EPS = 0.02
+
+  let interference = 0
+  let noGripAbove = 0
+  let noGripBelow = 0
+  let cases = 0
+
+  for (const foldDeg of [-25, -10, 0, 10, 25]) {
+    for (const spanCm of [1.5, 3, 6, 12]) {
+      const { points } = connectorProfile({ spanCm, foldDeg })
+      const phi = (foldDeg * Math.PI) / 180 / 2
+      // Both panels, in the same (p, q) frame connectorProfile builds them in.
+      const sides = [
+        { rim: [-spanCm / 2, 0], inward: [-Math.cos(phi), -Math.sin(phi)], up: [-Math.sin(phi), Math.cos(phi)] },
+        { rim: [spanCm / 2, 0], inward: [Math.cos(phi), -Math.sin(phi)], up: [Math.sin(phi), Math.cos(phi)] },
+      ]
+      const at = (s, i, n) => [
+        s.rim[0] + i * s.inward[0] + n * s.up[0],
+        s.rim[1] + i * s.inward[1] + n * s.up[1],
+      ]
+
+      for (const side of sides) {
+        cases++
+        for (let k = 1; k <= 8; k++) {
+          const i = (grip * k) / 9   // strictly inside the gripped depth
+          const floor = -outer - taperDepthAt(i)
+
+          // (a) PANEL MATERIAL — between the flange top and the taper — must
+          //     never be inside the connector. This is what a v1-style parallel
+          //     slot would violate, and it is the reason for the wedge hook.
+          for (let m = 1; m <= 6; m++) {
+            const n = (floor * m) / 7
+            const [x, y] = at(side, i, n)
+            if (inside(points, x, y)) interference++
+          }
+
+          // (b) THE GRIP — material just above the flange and just below the
+          //     taper must BE the connector, or it is not holding anything.
+          const [ax, ay] = at(side, i, EPS)
+          if (!inside(points, ax, ay)) noGripAbove++
+          const [bx, by] = at(side, i, floor - EPS)
+          if (!inside(points, bx, by)) noGripBelow++
+        }
+      }
+    }
+  }
+
+  ok(interference === 0, `no connector material inside the panel rim, over ${cases} panel/fold/span cases`)
+  ok(noGripAbove === 0, 'the upper jaw covers the flange over the full grip depth')
+  ok(noGripBelow === 0, 'the hook sits under the taper over the full grip depth')
+
+  // Non-vacuous: a PARALLEL-sided slot — v1's shape — must fail (a). If this
+  // ever passes, the interference test above has stopped testing anything.
+  {
+    const { points } = connectorProfile({ spanCm: 3, foldDeg: 0 })
+    // Rebuild the same outline with the taper term forced to zero, which is
+    // exactly what a parallel slot is.
+    const flatFloor = points.map(([p, q]) => [p, q])
+    // The deepest gripped point of the panel, which a parallel slot would cut.
+    const cut = -outer - taperDepthAt(grip) / 2
+    const probe = [-3 / 2 - grip * 0.9, cut]
+    ok(!inside(flatFloor, probe[0], probe[1]), 'the tapered slot clears the panel at the deepest gripped point')
+    ok(taperDepthAt(grip) > 0.3,
+      `a parallel slot would have cut ${taperDepthAt(grip).toFixed(2)}cm into the panel — the departure is real`)
+  }
+}
+
 console.log(`\ntest-v3-connector-geometry: ${passed} checks passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

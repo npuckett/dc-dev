@@ -75,6 +75,8 @@ const ARMED = '#ffd479'
 const FREE = '#5fd08a'
 /** A combine whose plate would bow past tiling.plateFitToleranceCm — placed anyway, flagged. */
 const MISFIT = '#ffa94d'
+/** Where a 3D-printed connector sits, drawn along its joint (P12). */
+const CONNECTOR_TICK = '#c9a2ff'
 /** Guards the `sagittaCm <= tolerance` comparison against float noise (mirrors tiling.js's SAGITTA_EPS). */
 const OVERRIDE_FIT_EPS = 1e-9
 
@@ -105,6 +107,7 @@ export default function TilingMap() {
   const splitTileAt = useStoreV3((s) => s.splitTileAt)
   const clearOverrides = useStoreV3((s) => s.clearOverrides)
   const lastActionNotice = useStoreV3((s) => s.lastActionNotice)
+  const showConnectors = useStoreV3((s) => s.showConnectors)
   const { layout, report } = getDerived(config)
   const [tintMode, setTintMode] = useState('height')
 
@@ -160,6 +163,42 @@ export default function TilingMap() {
   const height = PAD_T + rows * CELL + (rows - 1) * GAP + PAD_B
   const x = (i) => PAD_L + i * PITCH
   const y = (j) => PAD_T + (rows - 1 - j) * PITCH
+
+  // --- material centimetres → plan-view pixels (P12, connector stations) ----
+  // Anchored at the sheet's two extreme edges, so it is EXACT at u = 0 and at
+  // the far edge and off by only the gap-versus-GAP proportion in between (the
+  // drawing's 3px gap is not to the same scale as the config's 1–3cm one).
+  // That is fine for a tick and wrong for anything that has to align to a cell
+  // boundary — do not reuse this to place a rect.
+  const pitchCm = normCfg.cell.size + normCfg.gap
+  const uSpanCm = (cols - 1) * pitchCm + normCfg.cell.size
+  const vSpanCm = (rows - 1) * pitchCm + normCfg.cell.size
+  const uSpanPx = (cols - 1) * PITCH + CELL
+  const vSpanPx = (rows - 1) * PITCH + CELL
+  const mx = (u) => PAD_L + (u / uSpanCm) * uSpanPx
+  // +v runs away from the window, which is UP the plan view, so the axis flips.
+  const my = (v) => PAD_T + vSpanPx - (v / vSpanCm) * vSpanPx
+
+  // Where each printed part sits, as a stroke lying along its joint. Reading
+  // the distribution is the point: it shows at a glance which joints are
+  // carrying two parts and which are crowded, which is a structural question
+  // (these parts ARE the structure) rather than a cosmetic one.
+  const connectorTicks = useMemo(() => {
+    if (!showConnectors) return []
+    return report.connectors.stations.map((st) => {
+      const halfCm = st.lengthCm / 2
+      const alongU = st.axis === 'u'
+      // The joint's own position on the other axis, from the adjacency record —
+      // midway between the two tiles' boundaries, i.e. the middle of the gap.
+      const edge = layout.adjacency[st.jointIndex]
+      const sepCm = (edge.edge.a + edge.edge.b) / 2
+      const a = alongU
+        ? { x1: mx(st.s - halfCm), y1: my(sepCm), x2: mx(st.s + halfCm), y2: my(sepCm) }
+        : { x1: mx(sepCm), y1: my(st.s - halfCm), x2: mx(sepCm), y2: my(st.s + halfCm) }
+      const bad = st.flags.includes('W_CONNECTOR_CLASH') || st.flags.includes('W_CONNECTOR_INFEASIBLE')
+      return { id: st.id, ...a, color: bad ? COLLISION : st.flags.length > 0 ? MISFIT : CONNECTOR_TICK }
+    })
+  }, [report, layout, showConnectors, cols, rows, pitchCm])
 
   const ownerOf = useMemo(() => {
     const m = new Map()
@@ -335,6 +374,27 @@ export default function TilingMap() {
               </g>
             )
           })}
+
+          {/* the printed parts, lying along their joints (P12). Above the
+              tiles so the distribution reads, below the interaction layer so
+              they never intercept a click meant for a cell. */}
+          {connectorTicks.length > 0 && (
+            <g style={{ pointerEvents: 'none' }} data-testid="tilingmap-connectors">
+              {connectorTicks.map((t) => (
+                <line
+                  key={t.id}
+                  x1={t.x1}
+                  y1={t.y1}
+                  x2={t.x2}
+                  y2={t.y2}
+                  stroke={t.color}
+                  strokeWidth={2.4}
+                  strokeLinecap="round"
+                  opacity={0.95}
+                />
+              ))}
+            </g>
+          )}
 
           {hovered && (
             <rect

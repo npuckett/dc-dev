@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "grid-designer"],
       "port": 5175
+    },
+    {
+      "name": "grid-designer-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "grid-designer", "--", "--port", "5176", "--strictPort"],
+      "port": 5176
     }
   ]
 }

@@ -62,7 +62,7 @@ function Metric({ label, value, testId, raw, bad, warn }) {
 export default function ReportPanel() {
   const config = useStoreV3((s) => s.config)
   const { report, layout } = getDerived(config)
-  const { summary, holonomy, fit, collisions, support, warnings, violations } = report
+  const { summary, holonomy, fit, collisions, connectors: conn, support, warnings, violations } = report
 
   const worstDeviationBad = summary.gapToleranceCm > 0 ? summary.gapToleranceCm : 1
   const unsupported = violations.some((v) => v.code === 'E_UNSUPPORTED')
@@ -84,14 +84,21 @@ export default function ReportPanel() {
       </header>
 
       {/* --- headline verdict — impossible to miss ------------------------- */}
-      <div className={`report-verdict${collisions.length > 0 || unsupported ? ' report-verdict-bad' : ''}`} data-testid="report-verdict">
+      <div
+        className={`report-verdict${collisions.length > 0 || unsupported || conn.summary.infeasible > 0 ? ' report-verdict-bad' : ''}`}
+        data-testid="report-verdict"
+      >
         {collisions.length > 0
           ? `${collisions.length} panel collision${collisions.length === 1 ? '' : 's'} — not buildable as drawn`
           : unsupported
             ? 'assembly is unsupported — it tips over'
-            : summary.worst > worstDeviationBad
-              ? `worst joint deviation ${cm(summary.worst)} exceeds tolerance ${cm(summary.gapToleranceCm)}`
-              : 'no collisions · joints within tolerance'}
+            // A part that cannot exist is the same class of failure as two
+            // panels occupying the same space, so it is said at the same volume.
+            : conn.summary.infeasible > 0
+              ? `${conn.summary.infeasible} connector${conn.summary.infeasible === 1 ? '' : 's'} cannot be built — the gap is too narrow for the fold`
+              : summary.worst > worstDeviationBad
+                ? `worst joint deviation ${cm(summary.worst)} exceeds tolerance ${cm(summary.gapToleranceCm)}`
+                : `no collisions · joints within tolerance · ${conn.summary.partTypes} connector type${conn.summary.partTypes === 1 ? '' : 's'}`}
       </div>
 
       {/* --- joints --------------------------------------------------------- */}
@@ -222,6 +229,79 @@ export default function ReportPanel() {
             </ul>
           </>
         )}
+      </div>
+
+      {/* --- connectors: the printed kit (P11) -------------------------------
+          The counterpart to the plate budget. `partTypes` is the number of
+          distinct things that have to come off a printer, and it is set by the
+          bin knobs, not by the design — so the two are shown together, and the
+          worst forced deviation says what the coarser bins cost. */}
+      <div
+        className={`report-section${conn.summary.clashes > 0 || conn.summary.infeasible > 0 ? ' report-section-bad' : ''}`}
+        data-testid="report-connectors"
+      >
+        <h4 className="report-section-title">connectors</h4>
+        <div className="report-metric-grid">
+          <Metric testId="report-conn-count" label="parts" value={`${conn.summary.count}`} />
+          <Metric testId="report-conn-types" label="unique types" value={`${conn.summary.partTypes}`} />
+          <Metric
+            testId="report-conn-span"
+            label="gap span"
+            value={`${conn.summary.spanCm.min.toFixed(1)}–${conn.summary.spanCm.max.toFixed(1)}cm`}
+            raw={conn.summary.spanCm.max}
+            bad={conn.limits.maxSpanCm}
+          />
+          <Metric testId="report-conn-fold" label="worst fold" value={deg(conn.summary.worstFoldDeg)} />
+          <Metric
+            testId="report-conn-spread"
+            label="worst wedge / part"
+            value={cm(conn.summary.worstSpanSpreadCm)}
+            raw={conn.summary.worstSpanSpreadCm}
+            bad={conn.limits.maxSpanSpreadCm}
+          />
+          <Metric
+            testId="report-conn-flagged"
+            label="flagged"
+            value={`${conn.summary.flagged} / ${conn.summary.count}`}
+            raw={conn.summary.flagged}
+            warn={1}
+          />
+        </div>
+        <p className="report-detail">
+          {conn.summary.lengthCm}cm parts, centred in the gap · bins {conn.summary.binSpanCm}cm /{' '}
+          {conn.summary.binAngleDeg}° · worst forced fit {cm(conn.summary.worstBinSpanErrorCm)} and{' '}
+          {deg(conn.summary.worstBinFoldErrorDeg)}
+        </p>
+
+        {conn.summary.clashes > 0 && (
+          <p className="report-detail report-bad-text" data-testid="report-conn-clashes">
+            {conn.summary.clashes} part clash{conn.summary.clashes === 1 ? '' : 'es'} — deepest{' '}
+            {cm(conn.clashes[0].depthCm)} (<code>{conn.clashes[0].station}</code> ↔{' '}
+            <code>{conn.clashes[0].against}</code>)
+          </p>
+        )}
+        {conn.summary.infeasible > 0 && (
+          <p className="report-detail report-bad-text" data-testid="report-conn-infeasible">
+            {conn.summary.infeasible} part{conn.summary.infeasible === 1 ? '' : 's'} cannot be built — the gap
+            is too narrow for the fold, so the two hooks would pass through each other
+          </p>
+        )}
+
+        {/* The kit itself. Truncated because a tight bin can produce one type
+            per part, and that IS the answer sometimes — the count above is the
+            headline, this is the detail. */}
+        <ul className="report-list" data-testid="report-conn-kit">
+          {conn.kit.slice(0, 8).map((part) => (
+            <li key={part.partId}>
+              <code>{part.partId}</code> ×{part.count} — gap{' '}
+              {part.spanStartCm === part.spanEndCm
+                ? cm(part.spanStartCm, 1)
+                : `${part.spanStartCm.toFixed(1)}→${part.spanEndCm.toFixed(1)}cm`}
+              , fold {deg(part.foldDeg)}
+            </li>
+          ))}
+          {conn.kit.length > 8 && <li>… and {conn.kit.length - 8} more types</li>}
+        </ul>
       </div>
 
       {/* --- grounding: per-edge clearance, the brief's own requirement ------ */}

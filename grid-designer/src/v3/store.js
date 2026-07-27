@@ -77,6 +77,16 @@ import {
   TOE_SHARP_MAX,
   PLATE_FIT_TOLERANCE_MIN,
   PLATE_FIT_TOLERANCE_MAX,
+  CONNECTOR_LENGTH_MIN,
+  CONNECTOR_LENGTH_MAX,
+  CONNECTOR_SPACING_MIN,
+  CONNECTOR_SPACING_MAX,
+  CONNECTOR_MIN_PER_JOINT_MIN,
+  CONNECTOR_MIN_PER_JOINT_MAX,
+  CONNECTOR_BIN_SPAN_MIN,
+  CONNECTOR_BIN_SPAN_MAX,
+  CONNECTOR_BIN_ANGLE_MIN,
+  CONNECTOR_BIN_ANGLE_MAX,
   TILING_STRATEGIES,
   PLACEMENT_TREES,
   PLACEMENT_MODES,
@@ -248,6 +258,12 @@ const useStoreV3 = create((set, get) => {
     showBounds: true,
     /** Draw the translucent ghost of the target drift surface? */
     showGhost: true,
+    /**
+     * Draw the 3D-printed connectors? Default ON — they are the structure (there
+     * is no substructure), so a view without them is a view of something that
+     * would fall over.
+     */
+    showConnectors: true,
     /** Colour mode for the 3D viewport: 'type' | 'gap' | 'clearance' | 'facet'. */
     colorMode: 'type',
     /** Tile id under the pointer in the viewport or the tiling map, or null. */
@@ -336,6 +352,41 @@ const useStoreV3 = create((set, get) => {
           PLATE_FIT_TOLERANCE_MIN,
           PLATE_FIT_TOLERANCE_MAX,
         )
+      }),
+
+    // --- actions: connectors (P12) ------------------------------------------
+    // One setter for the whole block rather than five: they are read together
+    // (part count, part types, forced fit are all functions of all of them) and
+    // nothing here needs a per-knob commit. Clamped to the schema ranges on the
+    // way in, as every other setter does, so a slider drag never commits an
+    // invalid config and the store's "commit only if valid" contract holds.
+    setConnectors: (patch) =>
+      commit((draft) => {
+        if (!draft.connectors) return
+        const c = draft.connectors
+        if (patch.lengthCm !== undefined) {
+          c.lengthCm = clamp(numOr(patch.lengthCm, c.lengthCm), CONNECTOR_LENGTH_MIN, CONNECTOR_LENGTH_MAX)
+        }
+        if (patch.spacingCm !== undefined) {
+          c.spacingCm = clamp(numOr(patch.spacingCm, c.spacingCm), CONNECTOR_SPACING_MIN, CONNECTOR_SPACING_MAX)
+        }
+        if (patch.minPerJoint !== undefined) {
+          c.minPerJoint = clamp(
+            Math.round(numOr(patch.minPerJoint, c.minPerJoint)),
+            CONNECTOR_MIN_PER_JOINT_MIN,
+            CONNECTOR_MIN_PER_JOINT_MAX,
+          )
+        }
+        if (patch.binSpanCm !== undefined) {
+          c.binSpanCm = clamp(numOr(patch.binSpanCm, c.binSpanCm), CONNECTOR_BIN_SPAN_MIN, CONNECTOR_BIN_SPAN_MAX)
+        }
+        if (patch.binAngleDeg !== undefined) {
+          c.binAngleDeg = clamp(
+            numOr(patch.binAngleDeg, c.binAngleDeg),
+            CONNECTOR_BIN_ANGLE_MIN,
+            CONNECTOR_BIN_ANGLE_MAX,
+          )
+        }
       }),
 
     // --- actions: manual tile overrides (P8) + plan-view arming --------------
@@ -584,6 +635,8 @@ const useStoreV3 = create((set, get) => {
     // --- actions: UI-only (never touch `config`, never fail validation) -----
     toggleBounds: (on) => set((s) => ({ showBounds: on === undefined ? !s.showBounds : Boolean(on) })),
     toggleGhost: (on) => set((s) => ({ showGhost: on === undefined ? !s.showGhost : Boolean(on) })),
+    toggleConnectors: (on) =>
+      set((s) => ({ showConnectors: on === undefined ? !s.showConnectors : Boolean(on) })),
     setColorMode: (mode) => set({ colorMode: mode }),
     setHoveredTile: (id) => set({ hoveredTileId: id ?? null }),
   }

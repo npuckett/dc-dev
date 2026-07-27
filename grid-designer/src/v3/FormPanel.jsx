@@ -36,6 +36,16 @@ import {
   TOE_SHARP_MAX,
   PLATE_FIT_TOLERANCE_MIN,
   PLATE_FIT_TOLERANCE_MAX,
+  CONNECTOR_LENGTH_MIN,
+  CONNECTOR_LENGTH_MAX,
+  CONNECTOR_SPACING_MIN,
+  CONNECTOR_SPACING_MAX,
+  CONNECTOR_MIN_PER_JOINT_MIN,
+  CONNECTOR_MIN_PER_JOINT_MAX,
+  CONNECTOR_BIN_SPAN_MIN,
+  CONNECTOR_BIN_SPAN_MAX,
+  CONNECTOR_BIN_ANGLE_MIN,
+  CONNECTOR_BIN_ANGLE_MAX,
   TILING_STRATEGIES,
   PLACEMENT_TREES,
   PLACEMENT_MODES,
@@ -94,13 +104,14 @@ export default function FormPanel() {
   const setPlacementMode = useStoreV3((s) => s.setPlacementMode)
   const setPlacementTree = useStoreV3((s) => s.setPlacementTree)
   const setGap = useStoreV3((s) => s.setGap)
+  const setConnectors = useStoreV3((s) => s.setConnectors)
   const undo = useStoreV3((s) => s.undo)
   const redo = useStoreV3((s) => s.redo)
   const canUndo = useStoreV3((s) => s.canUndo)
   const canRedo = useStoreV3((s) => s.canRedo)
   const resetConfig = useStoreV3((s) => s.resetConfig)
 
-  const { form, sheet, tiling, placement, gap } = config
+  const { form, sheet, tiling, placement, gap, connectors } = config
   const { report } = getDerived(config)
 
   return (
@@ -342,6 +353,86 @@ export default function FormPanel() {
             <p className="form-annotation">{TREE_HINTS[placement.tree]}</p>
           </>
         )}
+      </div>
+
+      {/* --- connectors (P12) -------------------------------------------------
+          Two knobs that decide different things, kept apart on purpose:
+          length/spacing/count are about the STRUCTURE (these parts are the
+          structure — there is no substructure), while the bins are about the
+          PRINT QUEUE and change nothing physical about the assembly. */}
+      <div className="col-profile form-block">
+        <SliderRow
+          testId="form-connector-length"
+          label="part length"
+          value={connectors.lengthCm}
+          min={CONNECTOR_LENGTH_MIN}
+          max={CONNECTOR_LENGTH_MAX}
+          step={0.5}
+          onChange={(v) => setConnectors({ lengthCm: v })}
+          format={(v) => `${cm1(v)}cm`}
+        />
+        <p className="form-annotation">
+          how far one part runs along the joint. A joint's gap varies hugely end to end — up to
+          12.8cm on <b>dune</b> — but barely at all inside a 10cm window, so short parts turn one
+          impossible joint into a handful of easy ones. Longer grips more; shorter fits better.
+        </p>
+
+        <SliderRow
+          testId="form-connector-spacing"
+          label="max unsupported"
+          value={connectors.spacingCm}
+          min={CONNECTOR_SPACING_MIN}
+          max={CONNECTOR_SPACING_MAX}
+          step={5}
+          onChange={(v) => setConnectors({ spacingCm: v })}
+          format={(v) => `${cm1(v)}cm`}
+        />
+        <SliderRow
+          testId="form-connector-min-per-joint"
+          label="min per joint"
+          value={connectors.minPerJoint}
+          min={CONNECTOR_MIN_PER_JOINT_MIN}
+          max={CONNECTOR_MIN_PER_JOINT_MAX}
+          step={1}
+          onChange={(v) => setConnectors({ minPerJoint: v })}
+          format={int0}
+        />
+        <p className="form-annotation">
+          {connectors.minPerJoint === 1
+            ? 'one part on a joint is a HINGE — it is free to rotate about it, and there is no substructure to stop it'
+            : `${report.connectors.summary.count} parts over ${report.connectors.summary.jointCount} joints`}
+        </p>
+
+        <SliderRow
+          testId="form-connector-bin-span"
+          label="span bin"
+          value={connectors.binSpanCm}
+          min={CONNECTOR_BIN_SPAN_MIN}
+          max={CONNECTOR_BIN_SPAN_MAX}
+          step={0.05}
+          onChange={(v) => setConnectors({ binSpanCm: v })}
+          format={(v) => `${v.toFixed(2)}cm`}
+        />
+        <SliderRow
+          testId="form-connector-bin-angle"
+          label="angle bin"
+          value={connectors.binAngleDeg}
+          min={CONNECTOR_BIN_ANGLE_MIN}
+          max={CONNECTOR_BIN_ANGLE_MAX}
+          step={0.5}
+          onChange={(v) => setConnectors({ binAngleDeg: v })}
+          format={(v) => `${v.toFixed(1)}°`}
+        />
+        <p className="form-hint">
+          how coarsely distinct parts merge into one printable type — the plate budget's question in
+          another currency. Tight bins give every joint geometry that fits it and a long print
+          queue; loose bins give a handful of types and force some joints onto a neighbour's shape.
+          Currently <b>{report.connectors.summary.partTypes}</b> type
+          {report.connectors.summary.partTypes === 1 ? '' : 's'} for{' '}
+          <b>{report.connectors.summary.count}</b> parts, worst forced fit{' '}
+          {report.connectors.summary.worstBinSpanErrorCm.toFixed(2)}cm and{' '}
+          {report.connectors.summary.worstBinFoldErrorDeg.toFixed(1)}°.
+        </p>
       </div>
 
       {report.warnings.length > 0 && (
