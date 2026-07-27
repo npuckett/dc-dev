@@ -258,6 +258,90 @@ export function tileOBB(tile) {
 }
 
 // -----------------------------------------------------------------------------
+// Joint edge geometry — shared, because two modules measure the same line
+// -----------------------------------------------------------------------------
+/**
+ * Which material coordinate a point at parameter `s` along a joint's shared
+ * edge has, on one side of it.
+ *
+ * An adjacency record (tiling.js `axisAdjacency`) carries `axis` — the material
+ * direction the shared boundary RUNS along — and `edge: { a, b, from, to }`,
+ * where `a`/`b` are the two tiles' boundary coordinates on the OTHER axis and
+ * `from`/`to` bracket the overlap along the run axis. So a point on tile A's
+ * side at run-parameter `s` sits at material `(s, edge.a)` when the joint runs
+ * along u, and at `(edge.a, s)` when it runs along v.
+ *
+ * @param {object} edge an adjacency record
+ * @param {boolean} isA true for the `edge.a` tile, false for `edge.b`
+ * @param {number} s material coordinate along `edge.axis`, in [edge.from, edge.to]
+ * @returns {{ u: number, v: number }}
+ */
+export function jointEdgeMaterial(edge, isA, s) {
+  const boundary = isA ? edge.edge.a : edge.edge.b
+  return edge.axis === 'u' ? { u: s, v: boundary } : { u: boundary, v: s }
+}
+
+/**
+ * The world point at run-parameter `s` along a joint's shared edge, on `tile`'s
+ * side of it, ON THE LIT FACE.
+ *
+ * Exact by construction: a tile is rigid and planar, so any material point maps
+ * to world as `centre + (u − uCentre)·êu + (v − vCentre)·êv` (see FRAMES in the
+ * file header). No sampling, no interpolation.
+ *
+ * Extracted from report.js, where it was private, once connectors.js needed the
+ * same line. Two modules that measure the same physical edge must not each own a
+ * copy of the mapping — that is the general form of the bug in HANDOFF §2.8,
+ * where the tiler and the placer each built their own idea of "the surface".
+ *
+ * The two terms are summed SEPARATION-FIRST, RUN-SECOND to match report.js's
+ * original ordering exactly; float addition is not associative and the report
+ * rounds at 1e-9, so preserving the order keeps its output byte-identical.
+ */
+export function jointEdgePoint(tile, edge, isA, s) {
+  const runAxis = edge.axis
+  const sepAxis = runAxis === 'u' ? 'v' : 'u'
+  const uc = tile.uv.u0 + tile.uv.uLen / 2
+  const vc = tile.uv.v0 + tile.uv.vLen / 2
+  const sepCentre = sepAxis === 'u' ? uc : vc
+  const runCentre = runAxis === 'u' ? uc : vc
+  const sepBoundary = isA ? edge.edge.a : edge.edge.b
+  const eSep = sepAxis === 'u' ? tile.eu : tile.ev
+  const eRun = runAxis === 'u' ? tile.eu : tile.ev
+  const dSep = sepBoundary - sepCentre
+  const dRun = s - runCentre
+  return new THREE.Vector3(
+    tile.position[0] + dSep * eSep[0] + dRun * eRun[0],
+    tile.position[1] + dSep * eSep[1] + dRun * eRun[1],
+    tile.position[2] + dSep * eSep[2] + dRun * eRun[2],
+  )
+}
+
+/**
+ * The in-plane unit vector at a joint pointing from the shared edge INTO
+ * `tile` — which way the panel material lies from its own rim.
+ *
+ * A connector clipping that rim needs it to know which way to reach. It is the
+ * separation-axis basis vector, signed so it points at the tile's centre; the
+ * sign flips depending on which side of the joint the tile sits, which is
+ * exactly the distinction `isA` carries.
+ */
+export function jointEdgeInward(tile, edge, isA) {
+  const sepAxis = edge.axis === 'u' ? 'v' : 'u'
+  const centre = sepAxis === 'u'
+    ? tile.uv.u0 + tile.uv.uLen / 2
+    : tile.uv.v0 + tile.uv.vLen / 2
+  const boundary = isA ? edge.edge.a : edge.edge.b
+  const eSep = new THREE.Vector3(...(sepAxis === 'u' ? tile.eu : tile.ev))
+  return centre >= boundary ? eSep : eSep.negate()
+}
+
+/** The unit vector a joint's shared edge runs along, in `tile`'s world frame. */
+export function jointEdgeRun(tile, edge) {
+  return new THREE.Vector3(...(edge.axis === 'u' ? tile.eu : tile.ev))
+}
+
+// -----------------------------------------------------------------------------
 // Spanning tree
 // -----------------------------------------------------------------------------
 

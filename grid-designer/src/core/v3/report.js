@@ -37,7 +37,7 @@
 import * as THREE from 'three'
 import { normalizeConfig } from './schema.js'
 import { buildTarget } from './target.js'
-import { solveLayout, tileOBB } from './placement.js'
+import { solveLayout, tileOBB, jointEdgePoint } from './placement.js'
 import { findCollisions } from './collide.js'
 
 const DEG = 180 / Math.PI
@@ -54,28 +54,17 @@ function r(v) {
 
 /**
  * The world-space segment where a tile's shared material edge lies, on its lit
- * face. Exact: a tile is rigid and planar, spanning `uLen` along êu and `vLen`
- * along êv, so any material point maps to world by construction.
+ * face, sampled `samples` times end to end.
+ *
+ * The per-point mapping now lives in placement.js as `jointEdgePoint` — moved
+ * there when connectors.js needed the same line, so the two cannot drift apart.
  */
 function edgeSegment(tile, edge, isA, samples) {
-  const runAxis = edge.axis
-  const sepAxis = runAxis === 'u' ? 'v' : 'u'
-  const sepBoundary = isA ? edge.edge.a : edge.edge.b
-  const uc = tile.uv.u0 + tile.uv.uLen / 2
-  const vc = tile.uv.v0 + tile.uv.vLen / 2
-  const sepCenter = sepAxis === 'u' ? uc : vc
-  const runCenter = runAxis === 'u' ? uc : vc
-  const eSep = sepAxis === 'u' ? tile.eu : tile.ev
-  const eRun = runAxis === 'u' ? tile.eu : tile.ev
   const out = []
   for (let k = 0; k < samples; k++) {
     const f = samples === 1 ? 0.5 : k / (samples - 1)
     const s = edge.edge.from + f * (edge.edge.to - edge.edge.from)
-    out.push(new THREE.Vector3(
-      tile.position[0] + (sepBoundary - sepCenter) * eSep[0] + (s - runCenter) * eRun[0],
-      tile.position[1] + (sepBoundary - sepCenter) * eSep[1] + (s - runCenter) * eRun[1],
-      tile.position[2] + (sepBoundary - sepCenter) * eSep[2] + (s - runCenter) * eRun[2],
-    ))
+    out.push(jointEdgePoint(tile, edge, isA, s))
   }
   return out
 }

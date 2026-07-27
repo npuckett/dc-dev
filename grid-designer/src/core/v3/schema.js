@@ -352,6 +352,82 @@ export const OVERRIDE_AXES = ['u', 'v']
  */
 export const MIN_PLATES = 4
 
+// -----------------------------------------------------------------------------
+// CONNECTORS (P9) — the 3D-printed parts that hold the panels to each other.
+//
+// There is NO SUBSTRUCTURE: these parts ARE the structure, so their count and
+// spacing is a stiffness decision, not a detailing one.
+//
+// v1 used a single fixed part — a Y-junction edge clamp at a fixed 62°, sitting
+// on the OUTSIDE edges of the assembly (3dprintFiles/, 94.9 × 156.7 × 28.5 mm).
+// It could be one part because every v1 joint was the same angle. v3's joints
+// are all different: measured across the six presets, station dihedral runs
+// 0–34.8°, skew 0–11.5°, and the rim-to-rim span 0.60–15.82 cm.
+//
+// WHY SHORT PARTS, CENTRED IN THE GAP. The span varies enormously ALONG a single
+// joint — up to 12.77 cm end to end on `dune`. Inside a 10 cm window it varies by
+// 0.02–0.15 cm on average (worst 2.12 cm). So a short, locally-fitted connector
+// turns one intractable wedge into a handful of near-constant local problems.
+// That measurement is the entire justification for `lengthCm`, and it is the
+// same move as HANDOFF §2.1: stop asking one rigid thing to be a curved thing.
+//
+// Consequence of "centred" rather than "on the outside edges": a part at
+// mid-edge CANNOT be slid on from an open end. It has to snap over the rim.
+// -----------------------------------------------------------------------------
+
+/**
+ * `connectors.lengthCm` — how far one part runs ALONG the joint.
+ *
+ * The knob that buys the linearization above. Longer grips more rim and is
+ * stiffer; shorter sees less of the joint's variation and so fits it better.
+ * Below ~4 cm there is not enough rim engagement for a snap fit to hold; above
+ * ~30 cm the part is re-acquiring the variation it exists to avoid.
+ */
+export const CONNECTOR_LENGTH_MIN = 4
+export const CONNECTOR_LENGTH_MAX = 30
+
+/**
+ * `connectors.spacingCm` — the most unsupported joint allowed between two
+ * consecutive parts. Station count per joint is
+ * `max(minPerJoint, ceil(materialLength / spacingCm))`, so the default 50 gives
+ * 2 parts on a 60 cm edge and 3 on a 121 cm plate edge.
+ */
+export const CONNECTOR_SPACING_MIN = 10
+export const CONNECTOR_SPACING_MAX = 200
+
+/**
+ * `connectors.minPerJoint` — the floor on parts per joint, regardless of length.
+ *
+ * Default 2, and the reason is structural rather than aesthetic: ONE connector
+ * on a joint is a hinge, not a fixture. With no substructure to stiffen it, a
+ * singly-connected joint is free to rotate about the part. Two make it rigid.
+ */
+export const CONNECTOR_MIN_PER_JOINT_MIN = 1
+export const CONNECTOR_MIN_PER_JOINT_MAX = 6
+
+/**
+ * `connectors.binSpanCm` / `connectors.binAngleDeg` — how coarsely distinct
+ * parts are merged into one printable type (consumed by report.js, P11).
+ *
+ * This is the plate-budget question again in a different currency: tight bins
+ * mean every joint gets a part that fits it exactly and you print ~40 unique
+ * things; loose bins mean a handful of types and some joints forced onto a
+ * neighbour's geometry. The tool measures the forcing; it cannot choose the
+ * tolerance.
+ */
+export const CONNECTOR_BIN_SPAN_MIN = 0.05
+export const CONNECTOR_BIN_SPAN_MAX = 5
+export const CONNECTOR_BIN_ANGLE_MIN = 0.5
+export const CONNECTOR_BIN_ANGLE_MAX = 30
+
+export const DEFAULT_CONNECTORS = {
+  lengthCm: 10,
+  spacingCm: 50,
+  minPerJoint: 2,
+  binSpanCm: 0.5,
+  binAngleDeg: 5,
+}
+
 export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [], maxPlates: null }
 export const DEFAULT_PLACEMENT = { tree: 'bfs-corner', mode: 'surface-fit' }
 
@@ -386,6 +462,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     overrides: [],
   },
   placement: { tree: DEFAULT_PLACEMENT.tree, mode: DEFAULT_PLACEMENT.mode },
+  connectors: { ...DEFAULT_CONNECTORS },
   gapTolerance: DEFAULT_GAP_TOLERANCE,
   groundTolerance: DEFAULT_GROUND_TOLERANCE,
   meta: { preset: 'drift', tilePattern: 'flat-lie', notes: '' },
@@ -433,6 +510,7 @@ function withDefaults(raw) {
   const footprintSrc = isPlainObject(formSrc.footprint) ? formSrc.footprint : {}
   const tilingSrc = isPlainObject(src.tiling) ? src.tiling : {}
   const placementSrc = isPlainObject(src.placement) ? src.placement : {}
+  const connectorsSrc = isPlainObject(src.connectors) ? src.connectors : {}
 
   // An OMITTED footprint is derived from the sheet, not taken from a constant.
   //
@@ -497,6 +575,19 @@ function withDefaults(raw) {
     placement: {
       tree: placementSrc.tree !== undefined ? placementSrc.tree : DEFAULT_PLACEMENT.tree,
       mode: placementSrc.mode !== undefined ? placementSrc.mode : DEFAULT_PLACEMENT.mode,
+    },
+    // Additive block (P9). Every key defaults, so a config written before
+    // connectors existed — including every saved localStorage slot — still
+    // fills in and validates unchanged. `version` stays 3 for the same reason:
+    // this adds a measurement, it does not reinterpret any existing field.
+    connectors: {
+      lengthCm: connectorsSrc.lengthCm !== undefined ? connectorsSrc.lengthCm : DEFAULT_CONNECTORS.lengthCm,
+      spacingCm: connectorsSrc.spacingCm !== undefined ? connectorsSrc.spacingCm : DEFAULT_CONNECTORS.spacingCm,
+      minPerJoint:
+        connectorsSrc.minPerJoint !== undefined ? connectorsSrc.minPerJoint : DEFAULT_CONNECTORS.minPerJoint,
+      binSpanCm: connectorsSrc.binSpanCm !== undefined ? connectorsSrc.binSpanCm : DEFAULT_CONNECTORS.binSpanCm,
+      binAngleDeg:
+        connectorsSrc.binAngleDeg !== undefined ? connectorsSrc.binAngleDeg : DEFAULT_CONNECTORS.binAngleDeg,
     },
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
     groundTolerance: src.groundTolerance !== undefined ? src.groundTolerance : DEFAULT_GROUND_TOLERANCE,
@@ -596,6 +687,35 @@ export function normalizeConfig(raw) {
     placement: {
       tree: PLACEMENT_TREES.includes(cfg.placement.tree) ? cfg.placement.tree : DEFAULT_PLACEMENT.tree,
       mode: PLACEMENT_MODES.includes(cfg.placement.mode) ? cfg.placement.mode : DEFAULT_PLACEMENT.mode,
+    },
+    connectors: {
+      lengthCm: clamp(
+        numberOr(cfg.connectors.lengthCm, DEFAULT_CONNECTORS.lengthCm),
+        CONNECTOR_LENGTH_MIN,
+        CONNECTOR_LENGTH_MAX,
+      ),
+      spacingCm: clamp(
+        numberOr(cfg.connectors.spacingCm, DEFAULT_CONNECTORS.spacingCm),
+        CONNECTOR_SPACING_MIN,
+        CONNECTOR_SPACING_MAX,
+      ),
+      // A count of physical parts, so an integer.
+      minPerJoint: clampInt(
+        cfg.connectors.minPerJoint,
+        DEFAULT_CONNECTORS.minPerJoint,
+        CONNECTOR_MIN_PER_JOINT_MIN,
+        CONNECTOR_MIN_PER_JOINT_MAX,
+      ),
+      binSpanCm: clamp(
+        numberOr(cfg.connectors.binSpanCm, DEFAULT_CONNECTORS.binSpanCm),
+        CONNECTOR_BIN_SPAN_MIN,
+        CONNECTOR_BIN_SPAN_MAX,
+      ),
+      binAngleDeg: clamp(
+        numberOr(cfg.connectors.binAngleDeg, DEFAULT_CONNECTORS.binAngleDeg),
+        CONNECTOR_BIN_ANGLE_MIN,
+        CONNECTOR_BIN_ANGLE_MAX,
+      ),
     },
     gapTolerance: positiveOr(cfg.gapTolerance, DEFAULT_GAP_TOLERANCE),
     groundTolerance: positiveOr(cfg.groundTolerance, DEFAULT_GROUND_TOLERANCE),
@@ -874,6 +994,56 @@ export function validateConfig(config) {
           }
         }
       })
+    }
+  }
+
+  // --- connectors (P9): mirrors the ranges above, checked on the RAW input --
+  // Same "TWO KINDS OF DEFAULTING" contract as every other knob: normalizeConfig
+  // clamps silently, this reports. `minPerJoint` additionally has to be a whole
+  // number — it counts parts you print.
+  {
+    const conn = cfg.connectors
+    const checkConnRange = (key, lo, hi, label) => {
+      const v = conn[key]
+      if (!isFiniteNumber(v)) {
+        err('E_SHAPE', `connectors.${key} must be a number (got ${JSON.stringify(v)})`, `connectors.${key}`)
+        return false
+      }
+      if (v < lo || v > hi) {
+        err('E_RANGE', `connectors.${key} (${label}) must be in ${lo}..${hi} (got ${v})`, `connectors.${key}`)
+        return false
+      }
+      return true
+    }
+    checkConnRange('lengthCm', CONNECTOR_LENGTH_MIN, CONNECTOR_LENGTH_MAX, 'part length along the joint, cm')
+    checkConnRange('spacingCm', CONNECTOR_SPACING_MIN, CONNECTOR_SPACING_MAX, 'max unsupported joint between parts, cm')
+    checkConnRange('binSpanCm', CONNECTOR_BIN_SPAN_MIN, CONNECTOR_BIN_SPAN_MAX, 'part-type span bin, cm')
+    checkConnRange('binAngleDeg', CONNECTOR_BIN_ANGLE_MIN, CONNECTOR_BIN_ANGLE_MAX, 'part-type angle bin, degrees')
+    if (
+      checkConnRange(
+        'minPerJoint',
+        CONNECTOR_MIN_PER_JOINT_MIN,
+        CONNECTOR_MIN_PER_JOINT_MAX,
+        'parts per joint floor',
+      ) && !Number.isInteger(conn.minPerJoint)
+    ) {
+      err(
+        'E_SHAPE',
+        `connectors.minPerJoint must be an integer — it is a count of physical parts ` +
+          `(got ${JSON.stringify(conn.minPerJoint)})`,
+        'connectors.minPerJoint',
+      )
+    }
+    // Not an error: one connector on a joint is a hinge rather than a fixture,
+    // and with no substructure that matters. But a single-connector build is a
+    // legitimate thing to want to look at, so it is surfaced, not blocked.
+    if (conn.minPerJoint === 1) {
+      warn(
+        'W_SINGLE_CONNECTOR_JOINTS',
+        'connectors.minPerJoint is 1 — a joint held by one part is free to rotate about it. ' +
+          'With no substructure, two per joint is what makes a joint rigid',
+        'connectors.minPerJoint',
+      )
     }
   }
 
