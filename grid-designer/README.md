@@ -515,7 +515,16 @@ model in `src/v4/`. The v3 panels are still on disk and no longer mounted.
   actually stops you spelled out in words. Then the front bar's own separate limit, the joint table
   (span, fold, convex/concave, stations, flags), collisions and warnings.
 - **CONFIG JSON** + named slots + **Export**:
-  - **OBJ** — the assembly, one named object per panel *and per connector*, world transforms baked.
+  - **OBJ** — the assembly, world transforms baked, **grouped for assigning materials**:
+    - `diffuser_NNN_<id>` — **one object per panel.** The lit faces are kept individual precisely so
+      each can be given its own brightness. Zero-padded so they sort in build order.
+    - `frame` — every panel's housing, merged. One material.
+    - `connectors` — every printed part, back halves and front bars, merged.
+    - `power_supplies` — every driver box, merged. Absent entirely under `powerEdge: none`.
+
+    The diffuser/frame cut is not a new decision: `panelGeometry.js` already emits the solid as two
+    material groups and the viewport has always drawn it as two materials. Every object carries a
+    named `usemtl`, so the grouping survives import.
   - **Connector STL** — one of each unique type, both families, **in millimetres**, laid flat for
     printing (largest face down, no layer boundary across a gripping face).
   - **Connector manifest** — how many of each to run, where each sits on the plate, and what each is
@@ -588,6 +597,7 @@ node tests/test-v4-lattice.mjs    #  939  the checkerboard, pitch, closure, hand
 node tests/test-v4-connectors.mjs #  189  stations, the fold sign, the flip mismatch
 node tests/test-v4-report.mjs     #  272  the envelope boundary, the front bar, corners, metrics
 node tests/test-v4-obstacles.mjs  #   37  the column: extents, hits, clearance, report-not-veto
+node tests/test-v4-obj.mjs        #   27  the OBJ grouping, and that the split loses no triangle
 
 # --- v3, retired but still green ------------------------------------------
 node tests/test-form.mjs          #   89  drift heightfield, analytic gradient
@@ -609,7 +619,7 @@ node tests/test-v3-relax.mjs              #   71  determinism, placements-only, 
 npm run build
 ```
 
-**5567 checks across 21 suites.** Three conventions worth keeping:
+**5594 checks across 22 suites.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat

@@ -5,7 +5,7 @@ pivot away from both**. Read **[README.md](README.md)** for how the tool works a
 **[V4_SPEC.md](V4_SPEC.md)** for the current model; this document records **why it is the way it
 is**, what was tried and rejected, and what is open.
 
-Branch `v3-drift-tiling`. All suites green (5567 checks across 21 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (5594 checks across 22 suites), build clean, app verified
 in the browser.
 
 > ## STATUS, 2026-07-27 — v4 is the model; §0 below is now history
@@ -1003,7 +1003,35 @@ but here that bias is the safe direction: a false "this fouls the column" costs 
 At the shipped 3 × 5 the column is 88 cm clear. It first bites at **4 columns** (2 panels), and 5
 columns puts 3 through it.
 
-### 9.10 Open
+### 9.10 The OBJ is grouped for rendering, not for inspection
+
+The old exporter emitted one object per panel and one per connector — the right shape for checking
+geometry, the wrong shape for lighting a scene. `src/v4/objExport.js` emits instead:
+
+| object | what |
+|---|---|
+| `diffuser_NNN_<id>` | **one per panel**, so each lit face can take its own brightness |
+| `frame` | every panel's housing, merged |
+| `connectors` | every printed part, both pieces, merged |
+| `power_supplies` | every driver box, merged |
+
+The diffuser/frame cut costs nothing to maintain because it was already drawn: `panelGeometry.js`
+emits the solid as `DIFFUSER_MATERIAL_INDEX` / `HOUSING_MATERIAL_INDEX` groups and the viewport has
+always rendered them as two materials. This module cuts along that line, so a change to the measured
+section flows through with nothing to update here.
+
+Two things worth keeping:
+
+- **The split is checked by triangle count, not by eye.** 2 + 42 = 44, the whole panel solid,
+  asserted per panel. Losing or duplicating a triangle when cutting a geometry by material group is
+  invisible in a render and is exactly how this goes wrong.
+- **Sub-geometries are re-indexed, not dereferenced.** Dereferencing would have been three lines
+  shorter and roughly tripled the file.
+
+`src/utils/exporters.js` is untouched — it is shared with the retired v3 UI and its suite pins its
+output, so this is a parallel builder rather than a flag on that one.
+
+### 9.11 Open
 
 1. **The corner section test** (§9.5) — the one real gap.
 2. **The front bar's concave section** (§8.4) — still the open hardware question, and the network

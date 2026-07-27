@@ -22,15 +22,16 @@
  */
 
 import useStoreV4, { getDerived } from './store.js'
-import { exportConfigJSON, exportOBJ } from '../utils/exporters.js'
+import { downloadText, exportConfigJSON, timestamp } from '../utils/exporters.js'
 import { exportConnectorPlateSTL, exportConnectorManifest } from '../utils/connectorExport.js'
-import { getConnectorKit, toExportableLayout } from './exportAdapter.js'
+import { getConnectorKit } from './exportAdapter.js'
+import { objPayloadV4 } from './objExport.js'
 
 export default function ExportButtons() {
   const config = useStoreV4((s) => s.config)
   const { chain, connectors } = getDerived(config)
   const kit = getConnectorKit(config, chain, connectors)
-  const exportable = toExportableLayout(chain, kit.stations)
+  const panelCount = chain.panels.filter((p) => p.present).length
   // The two connector exporters read `report.connectors.*`, so they are handed a
   // v3-shaped report whose `connectors` block IS the assembled kit. Nothing in
   // them needs to know which model produced it.
@@ -43,8 +44,17 @@ export default function ExportButtons() {
         type="button"
         className="preset-btn"
         data-testid="export-obj"
-        title={`bake ${exportable.panels.length} panels and ${summary.count} connectors into a Wavefront OBJ (one named object each)`}
-        onClick={() => exportOBJ(exportable)}
+        title={
+          `${panelCount} diffusers as individual objects, ready for per-panel brightness, plus ` +
+          `three merged groups: frame, connectors (${summary.count} parts) and power supplies`
+        }
+        onClick={() =>
+          downloadText(
+            objPayloadV4(config, chain, connectors),
+            `drop-ceiling_${timestamp()}.obj`,
+            'model/obj',
+          )
+        }
       >
         Export OBJ
       </button>
