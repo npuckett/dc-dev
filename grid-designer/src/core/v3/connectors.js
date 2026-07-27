@@ -144,6 +144,15 @@ export const CONNECTOR_PROFILE = {
   shimCm: 0.075,
   /** Least bearing the front bar may keep on a bezel before it is not holding. */
   frontMinLipCm: 0.4,
+  /**
+   * The lip a per-station bar is sized to give. The UNIVERSAL bar is retired for
+   * now (it could not be made to work across the extremes), so every station
+   * gets a bar cut to its own gap: width = gap + 2·frontLipCm. `solveFrontBars`
+   * still exists and still bins them, so the kit reports how few distinct WIDTHS
+   * the design needs — the sharing is now a reporting fact rather than a
+   * constraint the geometry has to satisfy.
+   */
+  frontLipCm: 1.0,
   /** The bar's own thickness. */
   frontThicknessCm: 0.4,
   /** Where the two pieces part. Must lie inside the outer wall — see below. */
@@ -179,6 +188,12 @@ export function flangeDepthAt(i, panel = PANEL_PROFILE) {
 export function splitPlaneRange(panel = PANEL_PROFILE) {
   const p = { ...PANEL_PROFILE, ...panel }
   return [p.bezelDrop, p.outerWallDepth]
+}
+
+/** The width of the bar for a station of this gap: its own lip, both sides. */
+export function frontBarWidthFor(gapCm, profile = CONNECTOR_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  return gapCm + 2 * c.frontLipCm
 }
 
 /** The band of gaps one front bar of width `barWidthCm` can serve. */
@@ -438,6 +453,102 @@ export function profileSelfIntersects(points) {
 }
 
 /**
+ * THE PANEL'S OWN SECTION on one side of a joint, in the joint's (p, q) frame —
+ * the same frame the connector profiles are built in, so the two can be tested
+ * against each other directly.
+ *
+ * `farCm` is how far inboard to carry it. It only has to reach past anything the
+ * connector could touch, which is the flange and the taper behind it.
+ */
+export function panelSectionAt(sign, spanCm, foldDeg, panel = PANEL_PROFILE, farCm = 8) {
+  const p = { ...PANEL_PROFILE, ...panel }
+  const phi = (foldDeg * Math.PI) / 180 / 2
+  const cs = Math.cos(phi)
+  const sn = Math.sin(phi)
+  const rim = [(sign * spanCm) / 2, 0]
+  const inw = [sign * cs, -sn]
+  const dp = [-sign * sn, -cs]
+  const at = (i, d) => [rim[0] + i * inw[0] + d * dp[0], rim[1] + i * inw[1] + d * dp[1]]
+  return [
+    at(0, p.bezelDrop),
+    at(p.bezelWidth, 0),
+    at(farCm, 0),
+    at(farCm, p.overallThickness),
+    at(p.flangeWidth + p.taperWidth, p.overallThickness),
+    at(p.flangeWidth, flangeDepthAt(p.flangeWidth, p)),
+    at(0, p.outerWallDepth),
+  ]
+}
+
+const pointInPolygon = (poly, x, y) => {
+  let n = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) n = !n
+  }
+  return n
+}
+
+/**
+ * Do two simple polygons overlap? Proper edge crossings, plus containment either
+ * way round for the case where one sits entirely inside the other.
+ *
+ * WHY THIS AND NOT THE OBB TEST. Both the panel and the connector are SWEPT
+ * SOLIDS along the joint, so a section test is exact for them where a bounding
+ * box is not even close: a connector's box always encloses the panel rim it
+ * wraps, which is why the OBB check had to exclude the two panels it grips and
+ * could therefore never see a part biting into its own panel. This can.
+ */
+export function polygonsOverlap(A, B) {
+  for (let i = 0; i < A.length; i++) {
+    const a1 = A[i]
+    const a2 = A[(i + 1) % A.length]
+    for (let j = 0; j < B.length; j++) {
+      const b1 = B[j]
+      const b2 = B[(j + 1) % B.length]
+      const d1 = sideOf(b1, b2, a1)
+      const d2 = sideOf(b1, b2, a2)
+      const d3 = sideOf(a1, a2, b1)
+      const d4 = sideOf(a1, a2, b2)
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true
+    }
+  }
+  if (A.some(([x, y]) => pointInPolygon(B, x, y))) return true
+  if (B.some(([x, y]) => pointInPolygon(A, x, y))) return true
+  return false
+}
+
+/**
+ * Does either piece of a station's connector bite into either panel?
+ *
+ * Checked at BOTH ends of the loft, because the span differs there and a part
+ * can clear at one end and foul at the other. Returns which pieces foul.
+ *
+ * MEASURED HEADROOM: the connector fouls only 3–6° of fold before the two
+ * PANELS collide with each other anyway — 15° vs 19° at a 0.4cm gap, 45° vs 49°
+ * at 1cm. So the part is already within a few degrees of the hard geometric
+ * limit, and no redesign of it buys meaningful range in that corner.
+ */
+export function sectionFouling(station, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE) {
+  const out = { backHalf: false, frontBar: false, panelsCollide: false }
+  for (const span of [station.spanStartCm, station.spanEndCm]) {
+    const sides = [
+      panelSectionAt(-1, span, station.foldDeg, panel),
+      panelSectionAt(1, span, station.foldDeg, panel),
+    ]
+    if (polygonsOverlap(sides[0], sides[1])) out.panelsCollide = true
+    const back = backHalfProfile({ spanCm: span, foldDeg: station.foldDeg, profile, panel }).points
+    if (sides.some((sec) => polygonsOverlap(sec, back))) out.backHalf = true
+    if (station.barWidthCm) {
+      const bar = frontBarProfile(station.barWidthCm, profile).points
+      if (sides.some((sec) => polygonsOverlap(sec, bar))) out.frontBar = true
+    }
+  }
+  return out
+}
+
+/**
  * Printability limits. Unlike the self-intersection gate above these are
  * JUDGEMENT, not geometry, so they live as data and are stated as such:
  *
@@ -501,6 +612,13 @@ export function connectorStationFlags(station, limits = CONNECTOR_LIMITS, profil
   // The panel's power supply sits on the flange this half grips, so the lip
   // bears on the SUPPLY HOUSING rather than the panel frame.
   if (station.bearsOnPowerSupply) flags.push('W_BEARS_ON_POWER_SUPPLY')
+
+  // SECTION-LEVEL fouling — exact for these swept solids, and able to see a part
+  // biting into a panel it grips, which the OBB test structurally cannot.
+  const foul = sectionFouling(station, profile)
+  if (foul.backHalf) flags.push('W_BACK_HALF_FOULS_PANEL')
+  if (foul.frontBar) flags.push('W_FRONT_BAR_FOULS_PANEL')
+  if (foul.panelsCollide) flags.push('W_PANELS_COLLIDE_AT_JOINT')
   return flags
 }
 

@@ -104,6 +104,9 @@ export default function FormPanel() {
   const setPlacementMode = useStoreV3((s) => s.setPlacementMode)
   const setPlacementTree = useStoreV3((s) => s.setPlacementTree)
   const setGap = useStoreV3((s) => s.setGap)
+  const setFootprint = useStoreV3((s) => s.setFootprint)
+  const refitFootprintToSheet = useStoreV3((s) => s.refitFootprintToSheet)
+  const footprintLocked = useStoreV3((s) => s.footprintLocked)
   const setConnectors = useStoreV3((s) => s.setConnectors)
   const undo = useStoreV3((s) => s.undo)
   const redo = useStoreV3((s) => s.redo)
@@ -253,6 +256,53 @@ export default function FormPanel() {
           onChange={(v) => setGap(v)}
           format={(v) => `${cm1(v)}cm`}
         />
+      </div>
+
+      {/* --- the drift's own extent on the floor -----------------------------
+          It used to be derived once and then left behind: growing the sheet
+          extended flat tiled material past the drift instead of stretching it.
+          Now it FOLLOWS the sheet until you set it by hand, and "refit" puts it
+          back under the sheet's control. */}
+      <div className="col-profile form-block">
+        <SliderRow
+          testId="form-footprint-width"
+          label="drift width (x)"
+          value={form.footprint.width}
+          min={60}
+          max={900}
+          step={5}
+          onChange={(v) => setFootprint('width', v)}
+          format={(v) => `${Math.round(v)}cm`}
+        />
+        <SliderRow
+          testId="form-footprint-depth"
+          label="drift depth (z)"
+          value={form.footprint.depth}
+          min={60}
+          max={1200}
+          step={5}
+          onChange={(v) => setFootprint('depth', v)}
+          format={(v) => `${Math.round(v)}cm`}
+        />
+        <div className="form-panel-history">
+          <button
+            type="button"
+            className="tool-btn"
+            data-testid="form-refit-footprint"
+            disabled={!footprintLocked}
+            onClick={() => refitFootprintToSheet()}
+            title="snap the drift back to exactly cover the sheet, and let it follow the sheet again"
+          >
+            refit to sheet
+          </button>
+        </div>
+        <p className="form-annotation">
+          {footprintLocked
+            ? 'set by hand — the sheet no longer moves it'
+            : 'following the sheet; the drift covers it exactly'}
+          . The drift is flat outside this, and a footprint SHORTER than the sheet leaves a slope
+          discontinuity the straddling tiles cannot follow.
+        </p>
       </div>
 
       <div className="col-profile form-block">

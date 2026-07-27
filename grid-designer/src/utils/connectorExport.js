@@ -267,8 +267,6 @@ export function connectorManifest(config, report, plateParts) {
       kind: 'front-bar',
       quantity: bar.stationIds.length,
       widthMm: mm(bar.widthCm),
-      servesGapMm: [mm(bar.gapMinCm), mm(bar.gapMaxCm)],
-      bandMm: bar.bandCm.map(mm),
       plateOriginMm: byId.get(bar.barId)?.originMm ?? null,
     })),
     parts: conn.kit.map((part) => ({

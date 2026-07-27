@@ -47,8 +47,7 @@ import {
   CONNECTOR_PROFILE,
   BLOCKED_CODE,
   REDUCED_CODE,
-  solveFrontBars,
-  frontBarBand,
+  frontBarWidthFor,
   fastenerGapNeededCm,
 } from './connectors.js'
 import { POWER_SUPPLY } from '../../config.js'
@@ -225,19 +224,27 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
   // plain rectangle bearing on two bezels, so one width serves a whole band of
   // gaps and the whole design usually needs one or two.
   const kit = buildKit(C.stations, cfg.connectors)
-  const bars = solveFrontBars(C.stations.map((st) => Math.max(st.spanStartCm, st.spanEndCm)))
-    .map((b, i) => ({ ...b, barId: `B${String(i).padStart(2, '0')}`, stationIds: [] }))
-
-  // Assign every station the narrowest bar whose band covers its gap, so a
-  // station always gets the bar that leaves it the most bezel bearing.
-  const barFor = (st) => {
-    const gap = Math.max(st.spanStartCm, st.spanEndCm)
-    for (const b of bars) {
-      const [lo, hi] = frontBarBand(b.widthCm)
-      if (gap >= lo - 1e-9 && gap <= hi + 1e-9) return b
-    }
-    return bars[bars.length - 1] ?? null
+  // EVERY STATION GETS ITS OWN BAR, cut to its own gap. The universal bar is
+  // retired: it could not be made to work at the extremes, and forcing one width
+  // across a wide gap spread costs bezel bearing exactly where the joint can
+  // least afford it.
+  //
+  // The bars are still BINNED, so the kit still reports how few distinct widths
+  // the design needs — but that is now a reporting fact rather than a constraint
+  // the geometry has to meet. `frontBarBand` and `solveFrontBars` survive for
+  // exactly that, and for the day one bar becomes possible again.
+  const barBin = cfg.connectors.binSpanCm
+  const barWidths = new Map()
+  for (const st of C.stations) {
+    const w = r(Math.round(frontBarWidthFor(Math.max(st.spanStartCm, st.spanEndCm)) / barBin) * barBin)
+    if (!barWidths.has(w)) barWidths.set(w, { widthCm: w, stationIds: [] })
   }
+  const bars = [...barWidths.values()]
+    .sort((a, b) => a.widthCm - b.widthCm)
+    .map((b, i) => ({ ...b, barId: `B${String(i).padStart(2, '0')}` }))
+  const barByWidth = new Map(bars.map((b) => [b.widthCm, b]))
+  const barFor = (st) =>
+    barByWidth.get(r(Math.round(frontBarWidthFor(Math.max(st.spanStartCm, st.spanEndCm)) / barBin) * barBin)) ?? null
 
   // --- per-station flags ---------------------------------------------------
   // Everything decidable from the station alone lives in connectors.js, so it
@@ -282,6 +289,10 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
       backHalfTypes: kit.length,
       frontBarTypes: bars.length,
       bearsOnSupply: stations.filter((s) => s.flags.includes('W_BEARS_ON_POWER_SUPPLY')).length,
+      // Section-level fouling: exact for these swept solids, unlike the OBB test.
+      foulsPanel: stations.filter((s) =>
+        s.flags.includes('W_BACK_HALF_FOULS_PANEL') || s.flags.includes('W_FRONT_BAR_FOULS_PANEL')).length,
+      panelsCollideAtJoint: stations.filter((s) => s.flags.includes('W_PANELS_COLLIDE_AT_JOINT')).length,
       fastenerPinched: stations.filter((s) => s.flags.includes('W_FASTENER_PINCHED')).length,
       fastenerGapNeededCm: r(fastenerGapNeededCm()),
       lengthCm: cfg.connectors.lengthCm,

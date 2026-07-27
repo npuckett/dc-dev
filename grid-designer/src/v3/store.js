@@ -141,6 +141,19 @@ export function getDerived(config) {
 // -----------------------------------------------------------------------------
 
 /** Coerce a UI value to a finite number, or `fallback` when blank/unparseable. */
+/**
+ * Resize `form.footprint` to exactly cover the sheet, unless the user has taken
+ * manual control of it. The sheet's extent is `cols·pitch − gap` by the same
+ * arithmetic schema.js uses when a footprint is omitted entirely — one rule, so
+ * a derived footprint and a refitted one agree.
+ */
+function refitFootprint(draft) {
+  if (!draft.form?.footprint) return
+  const pitch = (draft.cell?.size ?? 60) + (draft.gap ?? 0)
+  draft.form.footprint.width = draft.sheet.cols * pitch - (draft.gap ?? 0)
+  draft.form.footprint.depth = draft.sheet.rows * pitch - (draft.gap ?? 0)
+}
+
 function numOr(v, fallback) {
   if (v === null || v === undefined || v === '') return fallback
   const n = Number(v)
@@ -264,6 +277,12 @@ const useStoreV3 = create((set, get) => {
      * would fall over.
      */
     showConnectors: true,
+    /**
+     * Has the user sized the drift's footprint by hand? UI-only, deliberately:
+     * it governs how a LATER sheet change behaves, not the design itself, and
+     * the store's contract keeps that kind of state out of `config`.
+     */
+    footprintLocked: false,
     /** Colour mode for the 3D viewport: 'type' | 'gap' | 'clearance' | 'facet'. */
     colorMode: 'type',
     /** Tile id under the pointer in the viewport or the tiling map, or null. */
@@ -312,16 +331,44 @@ const useStoreV3 = create((set, get) => {
       }),
 
     // --- actions: sheet -------------------------------------------------------
+    /**
+     * Growing the sheet used to leave `form.footprint` behind, so the extra
+     * material landed on dead-flat floor outside the drift — HANDOFF §5.2's
+     * "surprises people". The footprint now FOLLOWS the sheet by default, and
+     * `footprintLocked` opts out for a drift that deliberately feathers out
+     * before the sheet ends.
+     */
     setSheetCols: (n) =>
       commit((draft) => {
         if (!draft.sheet) return
         draft.sheet.cols = clamp(Math.round(numOr(n, draft.sheet.cols)), SHEET_COLS_MIN, SHEET_COLS_MAX)
+        if (!get().footprintLocked) refitFootprint(draft)
       }),
     setSheetRows: (n) =>
       commit((draft) => {
         if (!draft.sheet) return
         draft.sheet.rows = clamp(Math.round(numOr(n, draft.sheet.rows)), SHEET_ROWS_MIN, SHEET_ROWS_MAX)
+        if (!get().footprintLocked) refitFootprint(draft)
       }),
+
+    /** The drift's own extent on the floor, independent of the sheet. */
+    setFootprint: (axis, v) => {
+      // Touching it by hand LOCKS it: a drift that deliberately feathers out
+      // before the sheet ends is a legitimate design, and the sheet must stop
+      // dragging it around afterwards.
+      set({ footprintLocked: true })
+      return commit((draft) => {
+        if (!draft.form?.footprint) return
+        const key = axis === 'depth' ? 'depth' : 'width'
+        draft.form.footprint[key] = clamp(numOr(v, draft.form.footprint[key]), 60, 1200)
+      })
+    },
+
+    /** Snap the drift back to exactly cover the sheet, and let it follow again. */
+    refitFootprintToSheet: () => {
+      set({ footprintLocked: false })
+      return commit((draft) => refitFootprint(draft))
+    },
 
     // --- actions: tiling --------------------------------------------------------
     setTilingStrategy: (strategy) =>
