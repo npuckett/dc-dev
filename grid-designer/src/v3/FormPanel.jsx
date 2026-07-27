@@ -108,6 +108,7 @@ export default function FormPanel() {
   const refitFootprintToSheet = useStoreV3((s) => s.refitFootprintToSheet)
   const footprintLocked = useStoreV3((s) => s.footprintLocked)
   const setConnectors = useStoreV3((s) => s.setConnectors)
+  const setRelax = useStoreV3((s) => s.setRelax)
   const undo = useStoreV3((s) => s.undo)
   const redo = useStoreV3((s) => s.redo)
   const canUndo = useStoreV3((s) => s.canUndo)
@@ -115,7 +116,8 @@ export default function FormPanel() {
   const resetConfig = useStoreV3((s) => s.resetConfig)
 
   const { form, sheet, tiling, placement, gap, connectors } = config
-  const { report } = getDerived(config)
+  const { report, layout } = getDerived(config)
+  const relaxReport = layout.relax ?? null
 
   return (
     <section className="form-panel" data-testid="form-panel">
@@ -483,6 +485,56 @@ export default function FormPanel() {
           {report.connectors.summary.worstBinSpanErrorCm.toFixed(2)}cm and{' '}
           {report.connectors.summary.worstBinFoldErrorDeg.toFixed(1)}°.
         </p>
+      </div>
+
+      {/* --- relaxation --------------------------------------------------- */}
+      <div className="col-profile form-block">
+        <label className="form-check-row">
+          <input
+            type="checkbox"
+            data-testid="form-relax-enabled"
+            checked={Boolean(placement.relax?.enabled)}
+            onChange={(e) => setRelax({ enabled: e.target.checked })}
+          />
+          <span className="slider-label">relax into the connector envelope</span>
+        </label>
+        <p className="form-hint">
+          Moves the <b>placements</b> — never the form — until every joint has room for its fastener
+          and stays under the fold the panels allow. The connector cannot be redesigned out of those
+          limits, so this is the only lever left. Off by default: it changes the shape the panels
+          make, and that should be your choice.
+        </p>
+        {placement.relax?.enabled && (
+          <>
+            <SliderRow
+              testId="form-relax-weight"
+              label="hold to form"
+              value={placement.relax.targetWeight}
+              min={0.01}
+              max={0.9}
+              step={0.01}
+              onChange={(v) => setRelax({ targetWeight: v })}
+              format={num2}
+            />
+            <SliderRow
+              testId="form-relax-iterations"
+              label="iterations"
+              value={placement.relax.iterations}
+              min={1}
+              max={400}
+              step={1}
+              onChange={(v) => setRelax({ iterations: v })}
+              format={int0}
+            />
+            <p className="form-annotation">
+              {relaxReport
+                ? relaxReport.unresolved.length === 0
+                  ? `every joint inside the envelope, for ${cm1(relaxReport.worstDisplacementCm)}cm of movement at worst`
+                  : `${relaxReport.unresolved.length} of ${relaxReport.jointCount} joints still outside — this form may be too aggressive for a ${cm1(gap)}cm joint`
+                : 'hold high to keep the authored shape; low to resolve more joints and drift further'}
+            </p>
+          </>
+        )}
       </div>
 
       {report.warnings.length > 0 && (

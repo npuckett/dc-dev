@@ -90,6 +90,11 @@ import {
   TILING_STRATEGIES,
   PLACEMENT_TREES,
   PLACEMENT_MODES,
+  DEFAULT_RELAX,
+  RELAX_ITERATIONS_MIN,
+  RELAX_ITERATIONS_MAX,
+  RELAX_WEIGHT_MIN,
+  RELAX_WEIGHT_MAX,
 } from '../core/v3/schema.js'
 import { buildPreset } from '../core/v3/presets.js'
 import { solveLayout } from '../core/v3/placement.js'
@@ -399,6 +404,24 @@ const useStoreV3 = create((set, get) => {
           PLATE_FIT_TOLERANCE_MIN,
           PLATE_FIT_TOLERANCE_MAX,
         )
+      }),
+
+    /**
+     * The relaxation post-pass. Its own setter rather than part of `setPlacement`
+     * because turning it ON changes the shape the panels make, and that deserves
+     * to be a deliberate act rather than a side effect of adjusting a mode.
+     */
+    setRelax: (patch) =>
+      commit((draft) => {
+        if (!draft.placement) return
+        draft.placement.relax = { ...DEFAULT_RELAX, ...draft.placement.relax, ...patch }
+        const rx = draft.placement.relax
+        rx.enabled = Boolean(rx.enabled)
+        rx.iterations = clamp(Math.round(numOr(rx.iterations, DEFAULT_RELAX.iterations)),
+          RELAX_ITERATIONS_MIN, RELAX_ITERATIONS_MAX)
+        rx.targetWeight = clamp(numOr(rx.targetWeight, DEFAULT_RELAX.targetWeight),
+          RELAX_WEIGHT_MIN, RELAX_WEIGHT_MAX)
+        rx.stiffness = clamp(numOr(rx.stiffness, DEFAULT_RELAX.stiffness), 0.05, 1)
       }),
 
     // --- actions: connectors (P12) ------------------------------------------

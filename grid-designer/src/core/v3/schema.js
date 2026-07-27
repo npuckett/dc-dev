@@ -461,6 +461,31 @@ export const DEFAULT_CONNECTORS = {
 }
 
 export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [], maxPlates: null }
+/**
+ * `placement.relax` — a post-pass that moves the PLACEMENTS (never the form)
+ * until every joint sits inside the connectors' envelope, or reports the ones
+ * it could not.
+ *
+ * Off by default. It changes the shape the panels make, and that has to be an
+ * explicit choice rather than something the tool does behind your back.
+ *
+ *   iterations    fixed, never "until converged" — determinism, same reasoning
+ *                 as placement.js's exactly-3 fixed-point iterations.
+ *   targetWeight  how hard each tile is pulled back toward where the surface put
+ *                 it, per iteration. High keeps the authored shape and resolves
+ *                 fewer joints; low resolves more and drifts further.
+ *   stiffness     how much of each joint violation is corrected per visit.
+ */
+// Tuned against the presets: at 200/0.05/0.8 the worst gap deficit on `modular`
+// falls from 4.0mm to under 0.2mm for 0.3cm of tile movement. Slacker settings
+// leave nearly a millimetre on the table, which is the difference between a
+// fastener fitting and not.
+export const DEFAULT_RELAX = { enabled: false, iterations: 200, targetWeight: 0.05, stiffness: 0.8 }
+export const RELAX_ITERATIONS_MIN = 1
+export const RELAX_ITERATIONS_MAX = 400
+export const RELAX_WEIGHT_MIN = 0.01
+export const RELAX_WEIGHT_MAX = 0.9
+
 export const DEFAULT_PLACEMENT = { tree: 'bfs-corner', mode: 'surface-fit' }
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -493,7 +518,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     // defaults from it.
     overrides: [],
   },
-  placement: { tree: DEFAULT_PLACEMENT.tree, mode: DEFAULT_PLACEMENT.mode },
+  placement: { tree: DEFAULT_PLACEMENT.tree, mode: DEFAULT_PLACEMENT.mode, relax: { ...DEFAULT_RELAX } },
   connectors: { ...DEFAULT_CONNECTORS },
   gapTolerance: DEFAULT_GAP_TOLERANCE,
   groundTolerance: DEFAULT_GROUND_TOLERANCE,
@@ -607,6 +632,7 @@ function withDefaults(raw) {
     placement: {
       tree: placementSrc.tree !== undefined ? placementSrc.tree : DEFAULT_PLACEMENT.tree,
       mode: placementSrc.mode !== undefined ? placementSrc.mode : DEFAULT_PLACEMENT.mode,
+      relax: { ...DEFAULT_RELAX, ...(isPlainObject(placementSrc.relax) ? placementSrc.relax : {}) },
     },
     // Additive block (P9). Every key defaults, so a config written before
     // connectors existed — including every saved localStorage slot — still
@@ -723,6 +749,14 @@ export function normalizeConfig(raw) {
     placement: {
       tree: PLACEMENT_TREES.includes(cfg.placement.tree) ? cfg.placement.tree : DEFAULT_PLACEMENT.tree,
       mode: PLACEMENT_MODES.includes(cfg.placement.mode) ? cfg.placement.mode : DEFAULT_PLACEMENT.mode,
+      relax: {
+        enabled: Boolean(cfg.placement.relax?.enabled),
+        iterations: clampInt(cfg.placement.relax?.iterations, DEFAULT_RELAX.iterations,
+          RELAX_ITERATIONS_MIN, RELAX_ITERATIONS_MAX),
+        targetWeight: clamp(numberOr(cfg.placement.relax?.targetWeight, DEFAULT_RELAX.targetWeight),
+          RELAX_WEIGHT_MIN, RELAX_WEIGHT_MAX),
+        stiffness: clamp(numberOr(cfg.placement.relax?.stiffness, DEFAULT_RELAX.stiffness), 0.05, 1),
+      },
     },
     connectors: {
       lengthCm: clamp(

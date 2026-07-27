@@ -109,6 +109,7 @@ import { normalizeConfig } from './schema.js'
 import { buildTarget } from './target.js'
 import { solveTiling } from './tiling.js'
 import { PANEL_PROFILE } from '../../config.js'
+import { relaxLayout } from './relax.js'
 
 const DEG = 180 / Math.PI
 
@@ -571,6 +572,35 @@ function pointInHull(pt, hull) {
  * @param {object} config raw or normalized v3 config
  * @returns {object} see the OUTPUT block in the file header
  */
+
+/**
+ * Recompute everything a tile derives from its frame — quaternion, solid
+ * corners, floor clearance, tilt.
+ *
+ * Extracted from `solveLayout` so `relax.js` can rebuild a tile it has moved by
+ * exactly the same rule. Two places deriving a tile's geometry from its frame
+ * would be the same class of drift as HANDOFF §2.8's two ideas of "the surface".
+ *
+ * Mutates `tile` and returns it.
+ */
+export function finalizeTileGeometry(tile, groundTol) {
+  const dims = tileDims(tile)
+  tile.width = r(dims.width)
+  tile.length = r(dims.length)
+  const q = frameQuaternion(
+    new THREE.Vector3(...tile.eu),
+    new THREE.Vector3(...tile.ev),
+    new THREE.Vector3(...tile.normal),
+    dims.swapped,
+  )
+  tile.quaternion = [r(q.x), r(q.y), r(q.z), r(q.w)]
+  tile.corners = panelSolidCorners(tile)
+  tile.minY = r(Math.min(...tile.corners.map((c) => c[1])))
+  tile.grounded = tile.minY <= groundTol
+  tile.tiltDeg = r(Math.acos(Math.min(1, Math.abs(tile.normal[1]))) * DEG)
+  return tile
+}
+
 export function solveLayout(config) {
   const cfg = normalizeConfig(config)
   const target = buildTarget(cfg)
@@ -689,22 +719,7 @@ export function solveLayout(config) {
       tile.tiltDeg = null
       continue
     }
-    const dims = tileDims(tile)
-    tile.width = r(dims.width)
-    tile.length = r(dims.length)
-    tile.quaternion = (() => {
-      const q = frameQuaternion(
-        new THREE.Vector3(...tile.eu),
-        new THREE.Vector3(...tile.ev),
-        new THREE.Vector3(...tile.normal),
-        dims.swapped,
-      )
-      return [r(q.x), r(q.y), r(q.z), r(q.w)]
-    })()
-    tile.corners = panelSolidCorners(tile)
-    tile.minY = r(Math.min(...tile.corners.map((c) => c[1])))
-    tile.grounded = tile.minY <= groundTol
-    tile.tiltDeg = r(Math.acos(Math.min(1, Math.abs(tile.normal[1]))) * DEG)
+    finalizeTileGeometry(tile, groundTol)
 
     if (tile.grounded) {
       for (const c of tile.corners) {
@@ -796,7 +811,7 @@ export function solveLayout(config) {
     edgeStats((t) => minCell(t, 1) === 0, 'window'),
   ].filter(Boolean)
 
-  return {
+  const layout = {
     tiles,
     mode,
     tree: {
@@ -812,6 +827,12 @@ export function solveLayout(config) {
     warnings: warnings.concat(tiling.warnings ?? []),
     violations,
   }
+
+  // POST-PASS: relax the placements into the connectors' envelope. Off by
+  // default, and deliberately LAST — it consumes a finished layout and returns
+  // another, so `surface-fit` and `chain` are untouched by its existence and
+  // every existing test of them still describes the same code path.
+  return cfg.placement.relax.enabled ? relaxLayout(layout, cfg) : layout
 }
 
 /**

@@ -336,6 +336,34 @@ export function fastenerGapNeededCm(profile = CONNECTOR_PROFILE) {
   return Math.max(c.bolt.headCm, c.bolt.insertOdCm) + 2 * c.wallCm
 }
 
+/**
+ * The most a joint of this gap can fold before the two panels' own back corners
+ * meet — the hard limit, and the one relax.js pulls joints back inside.
+ *
+ * It belongs to the PANEL, not the connector: the corners sit a shim off the
+ * wall in both axes, so the separation is
+ *
+ *     gap − 2·shim·cos(φ) − 2·(outerWallDepth + shim)·sin(φ),   φ = fold/2
+ *
+ * solved here by bisection. The connector fouls 3–6° before this, so staying
+ * inside it is necessary and very nearly sufficient.
+ */
+export function foldLimitDeg(gapCm, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const p = { ...PANEL_PROFILE, ...panel }
+  const sep = (phi) => gapCm - 2 * c.shimCm * Math.cos(phi) - 2 * (p.outerWallDepth + c.shimCm) * Math.sin(phi)
+  if (sep(Math.PI / 4) > 0) return 90
+  if (sep(0) <= 0) return 0
+  let lo = 0
+  let hi = Math.PI / 4
+  for (let k = 0; k < 60; k++) {
+    const mid = (lo + hi) / 2
+    if (sep(mid) > 0) lo = mid
+    else hi = mid
+  }
+  return (((lo + hi) / 2) * 2 * 180) / Math.PI
+}
+
 export function gapAtDepthCm(spanCm, foldDeg, depthCm) {
   return spanCm - 2 * depthCm * Math.sin(Math.abs((foldDeg * Math.PI) / 180 / 2)) * (foldDeg > 0 ? 1 : -1)
 }
