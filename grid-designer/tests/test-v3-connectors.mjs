@@ -16,11 +16,15 @@ import * as THREE from 'three'
 import {
   solveConnectors,
   stationCount,
+  connectorProfile,
   SPAN_SAMPLES,
   CROWDED_CODE,
+  CONNECTOR_PROFILE,
+  taperDepthAt,
 } from '../src/core/v3/connectors.js'
 import { solveLayout, jointEdgePoint } from '../src/core/v3/placement.js'
 import { DEFAULT_CONFIG, DEFAULT_CONNECTORS, normalizeConfig, validateConfig } from '../src/core/v3/schema.js'
+import { PANEL_PROFILE } from '../src/config.js'
 import { buildPreset, PRESET_IDS } from '../src/core/v3/presets.js'
 
 let passed = 0
@@ -208,6 +212,87 @@ console.log('4. frames agree with an independent recomputation')
   ok(badPoint === 0, 'aFrame/bFrame points are the rim points')
   ok(badMid === 0, 'mid is the midpoint of the two rims')
   ok(badDihedral === 0, 'dihedralDeg is the angle between the two lit normals')
+
+  // --- the SIGN of the fold, checked against an independent physical fact ---
+  // A convex joint is a ridge: the lit faces diverge and the HOUSINGS pinch. So
+  // sign(foldDeg) must agree with sign(lit separation − housing-back separation),
+  // measured on the panel solids and owing nothing to the frame construction
+  // that produced foldDeg. A left-handed frame or a dropped negation flips one
+  // and not the other. HANDOFF §6 records what that class of bug costs here.
+  //
+  // Both separations are measured IN THE CROSS-SECTION PLANE — the r̂ component
+  // removed — because `foldDeg` is by definition the fold ABOUT r̂, which is what
+  // the part's cross-section is cut perpendicular to. The raw 3D separation also
+  // carries the twist, and on a joint where twist dominates fold the two
+  // disagree legitimately: measured 9 such stations, every one of them with
+  // twist larger than fold. Stations flatter than half a degree are skipped for
+  // the same reason — at 0.18° of fold against 6.6° of twist there is no fold
+  // sign left to check.
+  {
+    const TH = PANEL_PROFILE.overallThickness
+    let disagree = 0
+    let convex = 0
+    let concave = 0
+    for (const st of C.stations) {
+      if (Math.abs(st.foldDeg) < 0.5) continue
+      const edge = L.adjacency[st.jointIndex]
+      const A = byId.get(st.a)
+      const B = byId.get(st.b)
+      const pa = jointEdgePoint(A, edge, true, st.s)
+      const pb = jointEdgePoint(B, edge, false, st.s)
+      const qa = pa.clone().addScaledVector(new THREE.Vector3(...A.normal), -TH)
+      const qb = pb.clone().addScaledVector(new THREE.Vector3(...B.normal), -TH)
+      const rHat = new THREE.Vector3(...st.frame.r)
+      const acrossJoint = (u, v) => {
+        const d = v.clone().sub(u)
+        return d.addScaledVector(rHat, -d.dot(rHat)).length()
+      }
+      const pinch = acrossJoint(pa, pb) - acrossJoint(qa, qb)  // >0 when the back pinches
+      if (st.foldDeg > 0) convex++; else concave++
+      if (Math.sign(pinch) !== Math.sign(st.foldDeg)) disagree++
+    }
+    ok(disagree === 0, 'the fold sign agrees with which side of the joint pinches, at every station')
+    ok(convex > 0, `convex joints occur (${convex})`)
+    // A drift is convex almost everywhere, so concave stations are rare and this
+    // is coverage information as much as an assertion: if it ever fails, the
+    // presets stopped exercising the other sign, not the code.
+    ok(concave > 0, `concave joints also occur, so the sign check is non-vacuous (${concave})`)
+  }
+
+  // The same convention, asserted on the PROFILE alone — no layout, no presets,
+  // closed form. Positive fold must bring the hooks (the housing side) closer
+  // together than the rims, and negative fold must spread them.
+  {
+    const SPAN = 6
+    // The lowest pair of points in the outline are the two hooks' INBOARD
+    // corners — deeper than the mouth corners by the taper, which is exactly the
+    // wedge grip this design is built around.
+    const hookGapAt = (foldDeg) => {
+      const pts = connectorProfile({ spanCm: SPAN, foldDeg }).points
+      const lowest = Math.min(...pts.map(([, q]) => q))
+      const bottom = pts.filter(([, q]) => Math.abs(q - lowest) < 0.35)
+      ok(bottom.length === 2, `fold ${foldDeg}: exactly two inboard hook corners at the bottom`)
+      return Math.max(...bottom.map(([p]) => p)) - Math.min(...bottom.map(([p]) => p))
+    }
+    const flat = hookGapAt(0)
+    ok(hookGapAt(20) < flat, 'positive fold (convex) draws the hooks together — the housings pinch')
+    ok(hookGapAt(-20) > flat, 'negative fold (concave) spreads the hooks apart')
+
+    // Closed form, derived from the constants rather than recorded as a golden
+    // number. Each inboard hook corner sits `back` along the panel's inward
+    // direction and `nHook` along its normal, both of which rotate by half the
+    // fold — so the separation is span + 2·back·cos(φ) + 2·nHook·sin(φ), with
+    // nHook negative (it is below the rim plane).
+    const back = CONNECTOR_PROFILE.gripCm + CONNECTOR_PROFILE.wallCm
+    const nHook = -(PANEL_PROFILE.outerThickness + taperDepthAt(back) + CONNECTOR_PROFILE.hookCm)
+    const predicted = (foldDeg) => {
+      const phi = (foldDeg * Math.PI) / 180 / 2
+      return SPAN + 2 * back * Math.cos(phi) + 2 * nHook * Math.sin(phi)
+    }
+    near(flat, predicted(0), 1e-9, 'flat: the bottom width is span + 2·(grip + wall)')
+    near(hookGapAt(20), predicted(20), 1e-9, 'convex: the hooks close by the derived amount')
+    near(hookGapAt(-20), predicted(-20), 1e-9, 'concave: the hooks open by the derived amount')
+  }
 
   // The part straddles its footprint, so spanMin/Max must BRACKET the centre.
   let badBracket = 0
