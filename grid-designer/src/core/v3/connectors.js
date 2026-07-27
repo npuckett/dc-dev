@@ -73,7 +73,7 @@
 import * as THREE from 'three'
 import { normalizeConfig } from './schema.js'
 import { solveLayout, jointEdgePoint, jointEdgeInward, jointEdgeRun } from './placement.js'
-import { PANEL_PROFILE, BODY_INSET } from '../../config.js'
+import { PANEL_PROFILE, POWER_SUPPLY, poweredEdgeBlockedSpan } from '../../config.js'
 
 const DEG = 180 / Math.PI
 
@@ -81,96 +81,65 @@ const DEG = 180 / Math.PI
 export const SPAN_SAMPLES = 5
 
 // =============================================================================
-// THE PART'S CROSS-SECTION
+// THE PART'S CROSS-SECTION — A RIM CLAMP
 // =============================================================================
 /**
- * How the connector grips a panel, and why it is not v1's slot.
+ * How the connector grips a panel.
  *
- * v1 recorded a parallel-sided channel: 9.5mm wide, 8.5mm deep (its overall
- * 28.5mm thickness is exactly three of those 9.5mm — jaw, slot, jaw). A
- * parallel slot assumes the rim is a parallel-sided plate. It is not. Reading
- * the real profile out of config.js:
+ * REBUILT against the measured section (`updatedPanelGeo/`, read through
+ * config.js). The previous grip was a wedge hook that engaged a taper starting
+ * at the outer wall — a feature the real panel does not have. The real rim is:
  *
- *     flange top face      y = 0, exposed inward for lipWidth = 2.5cm
- *     outer wall           y = 0 down to y = -outerThickness (1.0cm)
- *     BELOW THAT, A TAPER  y(i) = -1.0 - 0.675·i, receding inward to the body
+ *     bezel        1.5cm, chamfered, rising inboard to the front-most plane
+ *     outer wall   1.10cm, vertical
+ *     FLANGE       3.0cm, essentially flat, open air behind it
+ *     taper        1.62cm at ~60deg, down to the back plate
  *
- * So the undercut a hook has to engage is a WEDGE that opens with depth — only
- * 1.7mm of it 2.5mm in, 5.7mm of it 8.5mm in. A parallel-sided jaw of any
- * useful reach bites straight into the taper. The lower jaw here is therefore
- * bounded above by the taper plane itself, which turns the grip into a wedge
- * engagement that tightens as the part is pushed on rather than a friction fit
- * that relies on interference.
+ * So the part is now a C that CLAMPS THE RIM: a short lip over the bezel, the
+ * full outer wall, and a long lip over the flange. The flange is the load-
+ * bearing half — 3cm of flat material to bear against — and the bezel lip only
+ * has to stop the clamp rotating off. That is also why the part sits mostly on
+ * the BACK: the front lip covers at most `frontGripCm` of a bezel that is
+ * already a frame, and nothing covers the diffuser.
  *
- * The consequence for assembly, and it is the direct price of "centred in the
- * gap" rather than "on the outside edges": a part at mid-edge cannot be slid on
- * from an open end. It goes on by hooking the lower wedge under the rim first
- * and rotating the upper jaw down onto the flange.
+ * NOTHING HERE RESTATES A PANEL DIMENSION. The outline is traced off
+ * `PANEL_PROFILE` every time, so refining the panel moves the grip with it —
+ * which is the whole point of the profile being parametric (config.js).
  *
- *   gripCm   how far the channel reaches in over the 2.5cm flange. v1's 8.5mm.
- *   wallCm   the back wall closing the C, inboard of the grip.
- *   jawCm    material above the flange. v1's 9.5mm, and also the spine's
- *            thickness — the upper jaws and the spine are one continuous strap
- *            across the joint, which is what makes the part stiff in the
- *            direction that matters.
- *   hookCm   material below the taper plane: the undercut hook.
- *   slotClearanceCm  slop on both slot faces. 0 models the nominal fit exactly;
- *            NEGATIVE is a press fit (v1's 9.5mm slot on a 10mm rim was
- *            -0.5mm). Left at 0 because print tolerance is the printer's call,
- *            not the model's.
+ *   frontGripCm  lip over the bezel. Must stay under `bezelWidth` or the clamp
+ *                overhangs the diffuser.
+ *   backGripCm   lip over the flange — the real grip. Must stay under
+ *                `flangeWidth` or it fouls the taper.
+ *   jawCm        clamp wall thickness, and the spine's thickness with it.
+ *   clearanceCm  slop between the clamp's inner face and the panel. 0 models the
+ *                nominal fit; print tolerance is the printer's call.
  *
- * =============================================================================
- * PLANNED: A THREADED BOSS, AND WHICH DIMENSIONS IT MAY SPEND
- * =============================================================================
- * The part is to gain a threaded area so it can be LOCKED to the panel with a
- * screw — printed or metal. Not built (HANDOFF §5.1), but the section below is
- * already sized with it in mind, and one constraint is not negotiable:
- *
- *   `hookCm` IS THE FOLD BUDGET. `gripCm`, `wallCm` and `jawCm` ARE FREE.
- *
- * The two hooks meet at their MOUTH corners as a joint folds, and the mouth
- * sits at `-(outerThickness + hookCm)` regardless of how far the jaw reaches
- * inboard or how thick it is. Measured, and asserted in
- * test-v3-connector-geometry.mjs §3:
- *
- *   grip 8.5 → 17mm      fold boundary UNCHANGED (21.5/36/55.5/77° at
- *   jaw  9.5 → 15mm      fold boundary UNCHANGED  0.6/1/1.5/2cm gaps)
- *   wall 3.0 → 6mm       fold boundary UNCHANGED
- *   hook 6.0 → 3mm       boundary RISES to 26.5/45/70/90°
- *   hook 6.0 → 10mm      boundary FALLS to 17/28.5/44/60°
- *
- * So a boss may be paid for by reaching the jaw further inboard or thickening
- * it, and must NOT be paid for by deepening the hook. The headroom:
- *
- *   across the joint  the jaw covers 11.5mm of the panel's 25mm flange, so it
- *                     can grow ~13.5mm inboard before it starts covering the
- *                     diffuser. That admits an M8 boss; the current 11.5mm
- *                     already admits M5.
- *   through the jaw   9.5mm of thread engagement without protruding at all.
- *   along the joint   a 10cm part has room for two bosses with space to spare.
- *   access            the screw axis is the panel normal, so a driver comes
- *                     straight down the lit side and never needs gap clearance
- *                     — which the 0.60cm narrowest station would not have given
- *                     it. A point in favour of front-mounting that was not part
- *                     of the original reasoning.
- *
- * THE OPEN QUESTION IS WHAT THE SCREW BITES INTO, and it is not a geometry
- * question — see HANDOFF §4. Threading into the panel flange means modifying
- * existing LED fixtures; a grub screw clamping the rim avoids that but locks by
- * friction alone. The full jaw-to-hook stack at the back of the grip is 33.3mm,
- * so a screw passing right through the assembly is also dimensionally possible.
+ * STILL OPEN: whether a rim clamp is the right part at all. This is a faithful
+ * port of "grip the panel" onto the corrected geometry, not a redesign — see
+ * HANDOFF.
  */
 export const CONNECTOR_PROFILE = {
-  gripCm: 0.85,
-  wallCm: 0.3,
-  jawCm: 0.95,
-  hookCm: 0.6,
-  slotClearanceCm: 0,
+  frontGripCm: 1.0,
+  backGripCm: 2.4,
+  jawCm: 0.4,
+  clearanceCm: 0,
 }
 
-/** Depth of the taper below the rim plane, `i` cm inboard of the panel edge. */
-export function taperDepthAt(i) {
-  return ((PANEL_PROFILE.overallThickness - PANEL_PROFILE.outerThickness) / BODY_INSET) * i
+/**
+ * The panel's own rim surface, as a function of how far inboard you are.
+ * Both are read straight off PANEL_PROFILE — see the note above about not
+ * restating panel dimensions.
+ */
+/** Depth of the bezel surface `i` cm inboard (0 at the edge → 0 at the peak). */
+export function bezelDepthAt(i, profile = PANEL_PROFILE) {
+  const p = { ...PANEL_PROFILE, ...profile }
+  return p.bezelDrop * (1 - Math.min(i, p.bezelWidth) / p.bezelWidth)
+}
+
+/** Depth of the flange surface `i` cm inboard of the edge. */
+export function flangeDepthAt(i, profile = PANEL_PROFILE) {
+  const p = { ...PANEL_PROFILE, ...profile }
+  return p.outerWallDepth + p.flangeDrop * (Math.min(i, p.flangeWidth) / p.flangeWidth)
 }
 
 /**
@@ -203,53 +172,64 @@ export function taperDepthAt(i) {
  * @param {object} [opts.profile] overrides for CONNECTOR_PROFILE
  * @returns {{ points: Array<[number, number]>, extents: object }}
  */
-export function connectorProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE }) {
-  const { gripCm, wallCm, jawCm, hookCm, slotClearanceCm } = { ...CONNECTOR_PROFILE, ...profile }
-  const outer = PANEL_PROFILE.outerThickness
+export function connectorProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE }) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const pp = { ...PANEL_PROFILE, ...panel }
   const phi = (foldDeg * Math.PI) / 180 / 2
-  const c = Math.cos(phi)
-  const s = Math.sin(phi)
-  const back = gripCm + wallCm
+  const cs = Math.cos(phi)
+  const sn = Math.sin(phi)
+  const j = c.jawCm
+  const cl = c.clearanceCm
 
-  // Per side: the rim point, the inward direction, and the lit normal, all in
-  // (p, q). The two sides are mirror images across p = 0.
+  // Per side: the rim datum, the inward direction, and "deeper" (away from the
+  // lit side). The two sides are mirror images across p = 0. The rim datum is
+  // (inboard 0, depth 0) — the front-most plane at the panel's outer edge,
+  // which is exactly the point placement.js's jointEdgePoint returns.
   const sides = [
-    { rim: [-spanCm / 2, 0], inward: [-c, -s], up: [-s, c] },  // A, on the -p side
-    { rim: [spanCm / 2, 0], inward: [c, -s], up: [s, c] },     // B, on the +p side
+    { rim: [-spanCm / 2, 0], inward: [-cs, -sn], deeper: [sn, -cs] },  // A, -p side
+    { rim: [spanCm / 2, 0], inward: [cs, -sn], deeper: [-sn, -cs] },   // B, +p side
+  ]
+  const at = (side, i, d) => [
+    side.rim[0] + i * side.inward[0] + d * side.deeper[0],
+    side.rim[1] + i * side.inward[1] + d * side.deeper[1],
   ]
 
-  // A local (i, n) point on one side, mapped into (p, q).
-  const at = (side, i, n) => [
-    side.rim[0] + i * side.inward[0] + n * side.up[0],
-    side.rim[1] + i * side.inward[1] + n * side.up[1],
-  ]
+  // One clamp, traced as a C opening INBOARD: down the bezel lip's inner face,
+  // around the outer wall, out along the flange lip, then back along the
+  // outside. Every inner-face point sits on the panel's own rim surface (offset
+  // by the clearance), so the clamp cannot bite into the panel by construction.
+  const clamp = (side) => {
+    const fg = Math.min(c.frontGripCm, pp.bezelWidth)
+    const bg = Math.min(c.backGripCm, pp.flangeWidth)
+    return [
+      at(side, fg, bezelDepthAt(fg, pp) - cl),                 // front lip, inner tip
+      at(side, 0, pp.bezelDrop - cl),                          // front outer corner
+      at(side, 0, pp.outerWallDepth + cl),                     // back outer corner
+      at(side, bg, flangeDepthAt(bg, pp) + cl),                // flange lip, inner tip
+      at(side, bg, flangeDepthAt(bg, pp) + cl + j),            // ...its thickness
+      at(side, 0, pp.outerWallDepth + cl + j),                 // spine, back face
+      at(side, 0, pp.bezelDrop - cl - j),                      // spine, front face
+      at(side, fg, bezelDepthAt(fg, pp) - cl - j),             // front lip, outer face
+    ]
+  }
 
-  // One channel's outline in its own (i, n), from the mouth's top corner around
-  // the outside and back through the slot notch. `-taperDepthAt(i)` is the slot
-  // floor: the hook's upper face IS the taper, which is the whole point.
-  const cl = slotClearanceCm
-  const channel = (side) => [
-    at(side, 0, jawCm),                                  // mouth, top of the jaw
-    at(side, back, jawCm),                               // inboard, top
-    at(side, back, -outer - taperDepthAt(back) - hookCm), // inboard, bottom of the hook
-    at(side, 0, -outer - hookCm),                        // mouth, bottom of the hook
-    at(side, 0, -outer - cl),                            // mouth, slot floor
-    at(side, gripCm, -outer - taperDepthAt(gripCm) - cl), // slot floor, inboard end
-    at(side, gripCm, cl),                                // slot ceiling, inboard end
-    at(side, 0, cl),                                     // mouth, slot ceiling
-  ]
+  const A = clamp(sides[0])
+  const B = clamp(sides[1])
 
-  const A = channel(sides[0])
-  const B = channel(sides[1])
-
-  // A's frame is a mirror of B's, so traversing both in the same LOCAL order
-  // would wind them oppositely in (p, q). B is therefore reversed. The spine
-  // appears implicitly, as the two straight hops across the gap: A's slot
-  // ceiling → B's slot ceiling underneath, and B's jaw top → A's jaw top over.
+  // A's frame mirrors B's, so traversing both in the same LOCAL order would wind
+  // them oppositely; B is therefore reversed. The SPINE appears implicitly, as
+  // the two hops across the gap at indices 5 and 6 — it fills the gap over the
+  // whole depth of the outer wall plus both jaw thicknesses, which is a far
+  // stiffer section than a strap across the front.
+  //
+  // Its faces sit at the panels' own edges (inset 0), NOT proud of them. One
+  // shared piece of material bridges the gap; giving each clamp its own outboard
+  // wall instead invented a minimum gap of twice the wall thickness, which shut
+  // out every joint under 0.8cm for no physical reason.
   const points = [
-    A[1], A[2], A[3], A[4], A[5], A[6], A[7],  // channel A, ending at its mouth ceiling
-    B[7], B[6], B[5], B[4], B[3], B[2], B[1],  // spine underside, then channel B reversed
-    B[0], A[0],                                // B's mouth top, spine top, A's mouth top
+    A[0], A[1], A[2], A[3], A[4], A[5],
+    B[5], B[4], B[3], B[2], B[1], B[0], B[7], B[6],
+    A[6], A[7],
   ]
 
   let pMin = Infinity
@@ -432,6 +412,93 @@ function r(v) {
 
 const rv = (v) => [r(v.x), r(v.y), r(v.z)]
 
+// =============================================================================
+// THE POWER SUPPLY — an edge a connector cannot use
+// =============================================================================
+/**
+ * Which of a tile's edges carries the power supply, as `{ axis, boundary }` in
+ * the same terms an adjacency record uses: `axis` is the material direction the
+ * edge RUNS along, `boundary` its coordinate on the other axis.
+ *
+ * The supply is on a 60cm edge on both panel types, so for a plate it is one of
+ * the two short ENDS, never a long side. `policy` picks which end:
+ *   'low'  the end at the tile's minimum coordinate (default)
+ *   'high' the far end
+ *   'none' no supply — for studying what the constraint costs
+ *
+ * A GLOBAL CONVENTION, not a per-tile choice. Which way each panel faces is a
+ * real design freedom that nothing in the tool models yet; until it does, every
+ * panel is assumed oriented the same way, and that assumption is visible here
+ * rather than buried.
+ */
+export function poweredEdgeOf(tile, policy = 'low') {
+  if (policy === 'none') return null
+  // The short edges run ACROSS the tile's long axis. A square has no long axis;
+  // by convention its powered edge runs along u, matching a v-axis plate.
+  const alongU = !(tile.type === '2x4' && tile.axis === 'u')
+  const lo = alongU ? tile.uv.v0 : tile.uv.u0
+  const len = alongU ? tile.uv.vLen : tile.uv.uLen
+  return { axis: alongU ? 'u' : 'v', boundary: policy === 'low' ? lo : lo + len }
+}
+
+const EDGE_EPS = 1e-6
+
+/**
+ * The intervals of a joint that a flange-gripping connector CANNOT use, because
+ * one of the two panels has its power supply behind that stretch of rim.
+ *
+ * Returned in the joint's own run-parameter space (the same coordinates as
+ * `edge.edge.from`/`to`), merged and clipped to the joint.
+ */
+export function blockedSpansOnJoint(edge, A, B, policy = 'low', supply = POWER_SUPPLY) {
+  const out = []
+  for (const [tile, isA] of [[A, true], [B, false]]) {
+    const powered = poweredEdgeOf(tile, policy)
+    if (!powered || powered.axis !== edge.axis) continue
+    const myBoundary = isA ? edge.edge.a : edge.edge.b
+    if (Math.abs(powered.boundary - myBoundary) > EDGE_EPS) continue
+    // The supply is centred on ITS OWN edge, which is the full run-extent of the
+    // tile along `edge.axis` — not the joint, which may be a partial overlap.
+    const runLo = edge.axis === 'u' ? tile.uv.u0 : tile.uv.v0
+    const runLen = edge.axis === 'u' ? tile.uv.uLen : tile.uv.vLen
+    const [from, to] = poweredEdgeBlockedSpan(runLen, supply)
+    out.push([runLo + from, runLo + to])
+  }
+  return mergeIntervals(out, edge.edge.from, edge.edge.to)
+}
+
+/** Merge overlapping intervals and clip them to [lo, hi]. */
+function mergeIntervals(spans, lo, hi) {
+  const clipped = spans
+    .map(([a, b]) => [Math.max(a, lo), Math.min(b, hi)])
+    .filter(([a, b]) => b - a > EDGE_EPS)
+    .sort((x, y) => x[0] - y[0])
+  const out = []
+  for (const s of clipped) {
+    const last = out[out.length - 1]
+    if (last && s[0] <= last[1] + EDGE_EPS) last[1] = Math.max(last[1], s[1])
+    else out.push([...s])
+  }
+  return out
+}
+
+/** The complement of `blocked` within [lo, hi] — where a part may actually go. */
+export function clearSpans(blocked, lo, hi) {
+  const out = []
+  let cursor = lo
+  for (const [a, b] of blocked) {
+    if (a - cursor > EDGE_EPS) out.push([cursor, a])
+    cursor = Math.max(cursor, b)
+  }
+  if (hi - cursor > EDGE_EPS) out.push([cursor, hi])
+  return out
+}
+
+/** A joint whose usable rim is too short for even one part. */
+export const BLOCKED_CODE = 'W_JOINT_BLOCKED_BY_POWER_SUPPLY'
+/** A joint that lost parts to the power supply but still carries some. */
+export const REDUCED_CODE = 'W_JOINT_REDUCED_BY_POWER_SUPPLY'
+
 /**
  * How many parts a joint of `materialLength` gets.
  *
@@ -456,7 +523,7 @@ export function solveConnectors(config, layout = null) {
   const cfg = normalizeConfig(config)
   const L = layout ?? solveLayout(cfg)
   const byId = new Map(L.tiles.map((t) => [t.id, t]))
-  const { lengthCm, spacingCm, minPerJoint } = cfg.connectors
+  const { lengthCm, spacingCm, minPerJoint, powerEdge } = cfg.connectors
 
   const stations = []
   const perJoint = []
@@ -469,13 +536,79 @@ export function solveConnectors(config, layout = null) {
     if (!A?.position || !B?.position) return
 
     const span = edge.materialLength
-    const count = stationCount(span, { spacingCm, minPerJoint })
+    const wanted = stationCount(span, { spacingCm, minPerJoint })
 
-    // Each part occupies `partLength` of the joint centred on its station. With
-    // stations at (k + 0.5)/count the first centre sits at span/(2·count), so
-    // "no part runs off the end and none overlaps its neighbour" is the single
-    // condition partLength ≤ span/count.
-    const room = span / count
+    // --- where the power supply forbids a part ----------------------------
+    // A connector grips the FLANGE, and on a powered edge the supply sits on
+    // the flange for 50 of its 60cm. So the usable rim is only what is left
+    // outside that, and stations are placed in those clear stretches rather
+    // than evenly along a joint that cannot receive them.
+    const blocked = blockedSpansOnJoint(edge, A, B, powerEdge)
+    const clear = clearSpans(blocked, edge.edge.from, edge.edge.to)
+    const clearLength = clear.reduce((n, [a, b]) => n + (b - a), 0)
+
+    // Each clear stretch gets its own parts, sized by the same spacing rule.
+    // A stretch shorter than one part gets none — it cannot hold one.
+    const usable = clear.filter(([a, b]) => b - a >= lengthCm - 1e-9)
+    const perStretch = usable.map(([a, b]) => Math.max(1, Math.ceil((b - a) / spacingCm - 1e-9)))
+    // `minPerJoint` is a floor on the JOINT, so once spacing has had its say,
+    // top up wherever there is still room for another part. Without this the
+    // floor silently stopped applying as soon as a joint was split into
+    // stretches by a power supply.
+    let total = perStretch.reduce((n, k) => n + k, 0)
+    // The floor is a FLOOR: parts are added until it is met even when that means
+    // shortening them, and `W_CONNECTOR_CROWDED` reports the cost. Refusing
+    // instead would silently drop a structural requirement — same contract as a
+    // manual plate override, which is placed and reported rather than vetoed.
+    while (total < minPerJoint && usable.length > 0) {
+      let best = 0
+      let bestRoom = -Infinity
+      usable.forEach(([a, b], k) => {
+        const room = (b - a) / (perStretch[k] + 1)
+        if (room > bestRoom) { bestRoom = room; best = k }
+      })
+      perStretch[best]++
+      total++
+    }
+    const count = total
+
+    if (blocked.length > 0) {
+      const code = count === 0 ? BLOCKED_CODE : count < wanted ? REDUCED_CODE : null
+      if (code) {
+        warnings.push({
+          code,
+          joint: jointIndex,
+          a: edge.a,
+          b: edge.b,
+          message:
+            count === 0
+              ? `joint ${edge.a}–${edge.b} has a power supply behind it and only ${r(clearLength)}cm of ` +
+                `usable rim in stretches too short for a ${lengthCm}cm part — it carries NO connector`
+              : `joint ${edge.a}–${edge.b} has a power supply behind it: ${count} parts fit where ` +
+                `${wanted} were wanted`,
+          wanted,
+          placed: count,
+          clearLengthCm: r(clearLength),
+          blockedCm: r(span - clearLength),
+        })
+      }
+    }
+
+    if (count === 0) {
+      perJoint.push({
+        jointIndex,
+        a: edge.a,
+        b: edge.b,
+        materialLength: r(span),
+        count: 0,
+        lengthCm: 0,
+        blockedCm: r(span - clearLength),
+      })
+      return
+    }
+
+    // Each part occupies `partLength` of its stretch, centred on its station.
+    const room = Math.min(...usable.map(([a, b], k) => (b - a) / perStretch[k]))
     const partLength = Math.min(lengthCm, room)
     if (partLength < lengthCm - 1e-9) {
       warnings.push({
@@ -484,13 +617,21 @@ export function solveConnectors(config, layout = null) {
         a: edge.a,
         b: edge.b,
         message:
-          `joint ${edge.a}–${edge.b} is ${r(span)}cm and takes ${count} parts, leaving ${r(room)}cm ` +
-          `each — they are shortened from ${lengthCm}cm to ${r(partLength)}cm to fit`,
+          `joint ${edge.a}–${edge.b} takes ${count} parts in ${usable.length} usable stretch` +
+          `${usable.length === 1 ? '' : 'es'} — they are shortened from ${lengthCm}cm to ${r(partLength)}cm to fit`,
         requestedLengthCm: lengthCm,
         placedLengthCm: r(partLength),
         count,
       })
     }
+
+    // Station centres: within each usable stretch, evenly spaced and symmetric.
+    const centres = []
+    usable.forEach(([a, b], k) => {
+      const n = perStretch[k]
+      for (let m = 0; m < n; m++) centres.push(a + (b - a) * ((m + 0.5) / n))
+    })
+    centres.sort((x, y) => x - y)
 
     // Rim directions and normals are constant along a joint — both tiles are
     // rigid and planar — so they are computed once per joint, not per station.
@@ -505,7 +646,7 @@ export function solveConnectors(config, layout = null) {
     const dihedralDeg = Math.acos(Math.min(1, Math.max(-1, nA.dot(nB)))) * DEG
 
     for (let k = 0; k < count; k++) {
-      const s = edge.edge.from + span * ((k + 0.5) / count)
+      const s = centres[k]
       const pa = jointEdgePoint(A, edge, true, s)
       const pb = jointEdgePoint(B, edge, false, s)
       const spanCm = pa.distanceTo(pb)
@@ -586,6 +727,7 @@ export function solveConnectors(config, layout = null) {
       materialLength: r(span),
       count,
       lengthCm: r(partLength),
+      blockedCm: r(span - clearLength),
     })
   })
 

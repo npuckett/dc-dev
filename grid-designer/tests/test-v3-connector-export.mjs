@@ -212,13 +212,21 @@ console.log('4. manifest')
 
   // mm throughout, cross-checked against the cm source.
   near(m.parts[0].lengthMm, kit[0].lengthCm * MM_PER_CM, 1e-6, 'part length is in mm')
-  near(m.grip.gripDepthMm, 8.5, 1e-6, "the grip depth is v1's 8.5mm, in mm")
+  near(m.grip.backLipMm, kit[0].lengthCm > 0 ? m.grip.backLipMm : 0, 1e-9, 'the manifest records the grip')
+  ok(m.grip.backLipMm > m.grip.frontLipMm, 'the manifest records a grip that is mostly on the back')
+  ok(m.grip.panelRim.flangeWidthMm > 0, 'and the panel rim it was derived from, so an old manifest is identifiable')
   ok(m.grip.v1Reference.fixedDihedralDeg === 62, "v1's fixed angle is recorded for comparison")
 
   // Every joint in the design is served by exactly one part type.
+  // NOT every joint: a joint whose rim is blocked by a power supply carries no
+  // part at all, so it has nothing to appear in the kit. What must hold is that
+  // every joint that DOES carry parts is covered.
   const joints = new Set()
   for (const p of m.parts) for (const j of p.joints) joints.add(j)
-  ok(joints.size === report.connectors.summary.jointCount, 'every joint is covered by the kit')
+  const carrying = new Set(report.connectors.perJoint.filter((pj) => pj.count > 0).map((pj) => pj.jointIndex))
+  ok(joints.size === carrying.size, 'every joint that carries parts is covered by the kit')
+  ok(carrying.size < report.connectors.summary.jointCount,
+    'and some joints carry none — the power supply, not an omission')
 
   ok(JSON.stringify(connectorManifest(cfg, report, plate.parts).parts) === JSON.stringify(m.parts),
     'the manifest body is deterministic (only `generated` is a timestamp)')

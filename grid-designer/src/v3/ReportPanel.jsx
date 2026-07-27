@@ -273,6 +273,24 @@ export default function ReportPanel() {
           {deg(conn.summary.worstBinFoldErrorDeg)}
         </p>
 
+        {/* The power supply. Given its own line above the clashes because it is
+            not a warning about a part — it is a joint that gets no part at all,
+            and that is a structural hole rather than a tolerance. */}
+        {conn.summary.blockedJoints > 0 && (
+          <p className="report-detail report-bad-text" data-testid="report-conn-blocked">
+            {conn.summary.blockedJoints} of {conn.summary.jointCount} joints carry NO connector — a panel
+            power supply sits on the flange behind them, leaving only{' '}
+            {cm(conn.summary.clearEndCm, 0)} of usable rim at each end of that edge. A part must be{' '}
+            {cm(conn.summary.clearEndCm, 0)} or shorter to fit there.
+          </p>
+        )}
+        {conn.summary.reducedJoints > 0 && (
+          <p className="report-detail" data-testid="report-conn-reduced">
+            {conn.summary.reducedJoints} more joint{conn.summary.reducedJoints === 1 ? '' : 's'} carry fewer
+            parts than asked for, for the same reason.
+          </p>
+        )}
+
         {conn.summary.clashes > 0 && (
           <p className="report-detail report-bad-text" data-testid="report-conn-clashes">
             {conn.summary.clashes} part clash{conn.summary.clashes === 1 ? '' : 'es'} — deepest{' '}

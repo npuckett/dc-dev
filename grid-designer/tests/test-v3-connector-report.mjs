@@ -224,9 +224,17 @@ console.log('5. clash detection')
 // -----------------------------------------------------------------------------
 console.log('6. single-connector joints')
 {
-  const R2 = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2 }))
-  ok(R2.connectors.summary.singleConnectorJoints === 0, 'at the default there are no one-part joints')
+  // With the power supply modelled, "under-connected" joints are expected — a
+  // blocked joint carries none at all. The floor only binds where there is rim
+  // to put a part on, so the clean case is the one with the supply ignored.
+  const R2 = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2, powerEdge: 'none' }))
+  ok(R2.connectors.summary.singleConnectorJoints === 0,
+    'ignoring the power supply, every joint reaches the two-part floor')
   ok(!R2.connectors.warnings.some((w) => w.code === 'W_JOINT_SINGLE_CONNECTOR'), 'and no warning')
+
+  const RP = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2, powerEdge: 'low' }))
+  ok(RP.connectors.summary.singleConnectorJoints > 0,
+    `with it modelled, joints fall below the floor (${RP.connectors.summary.singleConnectorJoints})`)
 
   const R1 = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 1, spacingCm: 200 }))
   ok(R1.connectors.summary.singleConnectorJoints > 0,

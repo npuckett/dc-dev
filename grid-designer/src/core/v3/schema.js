@@ -420,12 +420,31 @@ export const CONNECTOR_BIN_SPAN_MAX = 5
 export const CONNECTOR_BIN_ANGLE_MIN = 0.5
 export const CONNECTOR_BIN_ANGLE_MAX = 30
 
+/**
+ * `connectors.powerEdge` — which edge of every panel carries its power supply.
+ *
+ * The supply is a 50cm box on the back of one 60cm edge, sitting directly on
+ * the 3cm flange a connector grips, so on that edge only ~5cm at each end is
+ * usable. That is a placement constraint with teeth, not a detail.
+ *
+ * 'low' / 'high' put it at the tile's near / far short edge. 'none' removes it,
+ * which is not a physical option — it is there to measure what the constraint
+ * actually costs, the same way `chain` placement exists to show what exact
+ * joints cost.
+ *
+ * A GLOBAL convention. Which way each panel faces is a real design freedom the
+ * tool does not model yet; this makes the assumption explicit instead of
+ * implicit.
+ */
+export const CONNECTOR_POWER_EDGES = ['low', 'high', 'none']
+
 export const DEFAULT_CONNECTORS = {
   lengthCm: 10,
   spacingCm: 50,
   minPerJoint: 2,
   binSpanCm: 0.5,
   binAngleDeg: 5,
+  powerEdge: 'low',
 }
 
 export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [], maxPlates: null }
@@ -588,6 +607,8 @@ function withDefaults(raw) {
       binSpanCm: connectorsSrc.binSpanCm !== undefined ? connectorsSrc.binSpanCm : DEFAULT_CONNECTORS.binSpanCm,
       binAngleDeg:
         connectorsSrc.binAngleDeg !== undefined ? connectorsSrc.binAngleDeg : DEFAULT_CONNECTORS.binAngleDeg,
+      powerEdge:
+        connectorsSrc.powerEdge !== undefined ? connectorsSrc.powerEdge : DEFAULT_CONNECTORS.powerEdge,
     },
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
     groundTolerance: src.groundTolerance !== undefined ? src.groundTolerance : DEFAULT_GROUND_TOLERANCE,
@@ -716,6 +737,9 @@ export function normalizeConfig(raw) {
         CONNECTOR_BIN_ANGLE_MIN,
         CONNECTOR_BIN_ANGLE_MAX,
       ),
+      powerEdge: CONNECTOR_POWER_EDGES.includes(cfg.connectors.powerEdge)
+        ? cfg.connectors.powerEdge
+        : DEFAULT_CONNECTORS.powerEdge,
     },
     gapTolerance: positiveOr(cfg.gapTolerance, DEFAULT_GAP_TOLERANCE),
     groundTolerance: positiveOr(cfg.groundTolerance, DEFAULT_GROUND_TOLERANCE),
@@ -1034,6 +1058,22 @@ export function validateConfig(config) {
         'connectors.minPerJoint',
       )
     }
+    if (!CONNECTOR_POWER_EDGES.includes(conn.powerEdge)) {
+      err(
+        'E_SHAPE',
+        `connectors.powerEdge must be one of ${CONNECTOR_POWER_EDGES.map((v) => `"${v}"`).join(', ')} ` +
+          `(got ${JSON.stringify(conn.powerEdge)})`,
+        'connectors.powerEdge',
+      )
+    } else if (conn.powerEdge === 'none') {
+      warn(
+        'W_POWER_SUPPLY_IGNORED',
+        'connectors.powerEdge is "none" — the panels\' power supplies are being ignored, so connector ' +
+          'placement will not reflect what can physically be fitted',
+        'connectors.powerEdge',
+      )
+    }
+
     // Not an error: one connector on a joint is a hinge rather than a fixture,
     // and with no substructure that matters. But a single-connector build is a
     // legitimate thing to want to look at, so it is surfaced, not blocked.

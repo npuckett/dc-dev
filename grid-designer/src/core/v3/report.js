@@ -39,7 +39,15 @@ import { normalizeConfig } from './schema.js'
 import { buildTarget } from './target.js'
 import { solveLayout, tileOBB, jointEdgePoint } from './placement.js'
 import { findCollisions, aabbOverlap, obbPenetration } from './collide.js'
-import { solveConnectors, connectorOBB, connectorStationFlags, CONNECTOR_LIMITS } from './connectors.js'
+import {
+  solveConnectors,
+  connectorOBB,
+  connectorStationFlags,
+  CONNECTOR_LIMITS,
+  BLOCKED_CODE,
+  REDUCED_CODE,
+} from './connectors.js'
+import { POWER_SUPPLY } from '../../config.js'
 
 const DEG = 180 / Math.PI
 
@@ -251,6 +259,12 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
       infeasible: stations.filter((s) => s.flags.includes('W_CONNECTOR_INFEASIBLE')).length,
       clashes: clashes.length,
       singleConnectorJoints: singles.length,
+      // Joints the power supply leaves with no connector at all, and joints it
+      // merely thins out. Separated because they are different failures: one is
+      // a structural hole, the other is a reduction.
+      blockedJoints: C.warnings.filter((w) => w.code === BLOCKED_CODE).length,
+      reducedJoints: C.warnings.filter((w) => w.code === REDUCED_CODE).length,
+      clearEndCm: r((60 - POWER_SUPPLY.length) / 2),
       spanCm: stations.length
         ? { min: r(Math.min(...stations.map((s) => s.spanMinCm))), max: r(Math.max(...stations.map((s) => s.spanMaxCm))) }
         : { min: 0, max: 0 },

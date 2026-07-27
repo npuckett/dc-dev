@@ -20,13 +20,14 @@ import {
   connectorOBB,
   polygonArea,
   profileSelfIntersects,
-  taperDepthAt,
+  bezelDepthAt,
+  flangeDepthAt,
   solveConnectors,
   CONNECTOR_PROFILE,
   CONNECTOR_LIMITS,
 } from '../src/core/v3/connectors.js'
 import { buildConnectorGeometry, connectorTransform } from '../src/geometry/connectorGeometry.js'
-import { PANEL_PROFILE, BODY_INSET } from '../src/config.js'
+import { PANEL_PROFILE, PANEL_METRICS } from '../src/config.js'
 import { buildPreset, PRESET_IDS } from '../src/core/v3/presets.js'
 import { solveLayout } from '../src/core/v3/placement.js'
 
@@ -85,38 +86,41 @@ console.log('1. profile well-formedness')
 // -----------------------------------------------------------------------------
 console.log('2. the grip matches the panel rim')
 {
-  const slope = (PANEL_PROFILE.overallThickness - PANEL_PROFILE.outerThickness) / BODY_INSET
-  near(taperDepthAt(1), slope, 1e-12, 'taperDepthAt is the panel taper, read from config.js')
-  near(taperDepthAt(0), 0, 1e-12, 'the taper starts at the rim, depth 0')
+  // The clamp's inner faces must lie ON the panel's own rim surfaces. Both are
+  // read from PANEL_PROFILE here, exactly as connectors.js reads them, so this
+  // check follows a refinement of the panel instead of pinning it.
+  near(bezelDepthAt(0), PANEL_PROFILE.bezelDrop, 1e-12, 'the bezel is lowest at the panel edge')
+  near(bezelDepthAt(PANEL_PROFILE.bezelWidth), 0, 1e-12, 'and reaches the front-most plane at its inner edge')
+  near(flangeDepthAt(0), PANEL_PROFILE.outerWallDepth, 1e-12, 'the flange starts at the back outer corner')
+  near(flangeDepthAt(PANEL_PROFILE.flangeWidth), PANEL_METRICS.flangeInnerDepth, 1e-12,
+    'and falls to the flange inner depth')
 
-  // The slot must accept the rim: mouth height = the rim thickness exactly (at
-  // zero clearance), and the floor must FOLLOW the taper, not cut across it.
   const { points } = connectorProfile({ spanCm: 4, foldDeg: 0 })
-  // Panel A is the -p side; its mouth ceiling / floor are the two points at the
-  // rim plane p = -span/2.
-  const rimP = -2
-  const atRim = points.filter(([p]) => Math.abs(p - rimP) < 1e-9).map(([, q]) => q).sort((x, y) => y - x)
-  ok(atRim.length === 4, 'four outline points sit on the rim plane (jaw top, slot ceiling, slot floor, hook bottom)')
-  near(atRim[0], CONNECTOR_PROFILE.jawCm, 1e-9, 'the jaw stands jawCm proud of the flange')
-  near(atRim[1], 0, 1e-9, 'the slot ceiling sits on the flange top plane')
-  near(atRim[2], -PANEL_PROFILE.outerThickness, 1e-9, 'the slot mouth is exactly the rim thickness')
-  near(atRim[3], -PANEL_PROFILE.outerThickness - CONNECTOR_PROFILE.hookCm, 1e-9, 'the hook hangs hookCm below')
+  const rimP = -2   // panel A's edge, at span/2
+  const fg = Math.min(CONNECTOR_PROFILE.frontGripCm, PANEL_PROFILE.bezelWidth)
+  const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
 
-  // The slot floor at the back of the grip must sit at the TAPER depth. A
-  // parallel-sided slot would put it at -outerThickness and bite into the panel.
-  const back = CONNECTOR_PROFILE.gripCm
-  const expected = -PANEL_PROFILE.outerThickness - taperDepthAt(back)
-  const floorInboard = points.find(([p, q]) =>
-    Math.abs(p - (rimP - back)) < 1e-9 && q < -PANEL_PROFILE.outerThickness)
-  ok(floorInboard !== undefined, 'the slot floor has a point at the back of the grip')
-  near(floorInboard[1], expected, 1e-9, 'the slot floor follows the taper plane')
-  ok(expected < -PANEL_PROFILE.outerThickness - 1e-6,
-    `a parallel slot would have cut ${taperDepthAt(back).toFixed(3)}cm into the panel taper — ` +
-    'this is the v1 departure, and it is non-zero')
+  // Indices are fixed by connectorProfile's construction: A's clamp is 0–5.
+  near(points[0][0], rimP - fg, 1e-9, 'the front lip reaches frontGrip inboard')
+  near(points[0][1], -bezelDepthAt(fg), 1e-9, 'and its inner face sits on the bezel')
+  near(points[1][0], rimP, 1e-9, 'the clamp meets the panel at its outer edge')
+  near(points[1][1], -PANEL_PROFILE.bezelDrop, 1e-9, 'at the front outer corner')
+  near(points[2][1], -PANEL_PROFILE.outerWallDepth, 1e-9, 'and runs down the full outer wall')
+  near(points[3][0], rimP - bg, 1e-9, 'the flange lip reaches backGrip inboard')
+  near(points[3][1], -flangeDepthAt(bg), 1e-9, 'and its inner face sits on the flange')
 
-  // And the grip stays on the flange, which is only lipWidth wide.
-  ok(CONNECTOR_PROFILE.gripCm + CONNECTOR_PROFILE.wallCm < PANEL_PROFILE.lipWidth,
-    'grip + back wall stays within the flange width, clear of the diffuser recess')
+  // The clamp closes across the outer wall, which is the whole grip.
+  near(Math.abs(points[2][1] - points[1][1]), PANEL_METRICS.outerWallHeight, 1e-9,
+    'the clamp spans exactly the outer wall height')
+
+  // Both lips must stay on the surfaces they grip, or the clamp overhangs the
+  // diffuser at the front or fouls the taper at the back.
+  ok(CONNECTOR_PROFILE.frontGripCm <= PANEL_PROFILE.bezelWidth,
+    'the front lip stays on the bezel and never covers the diffuser')
+  ok(CONNECTOR_PROFILE.backGripCm <= PANEL_PROFILE.flangeWidth,
+    'the flange lip stays on the flange and never fouls the taper')
+  ok(CONNECTOR_PROFILE.backGripCm > CONNECTOR_PROFILE.frontGripCm,
+    'the grip is mostly on the BACK — the flange bears the load, the bezel lip only locates it')
 }
 
 // -----------------------------------------------------------------------------
@@ -148,11 +152,10 @@ console.log('3. the self-intersection gate')
     `minSpanCm (${CONNECTOR_LIMITS.minSpanCm}cm) is buildable at a shallow fold`)
 
   // --- WHICH dimension sets the boundary, and which are free -------------
-  // Load-bearing for the planned threaded boss (HANDOFF §5.1): the fold
-  // capacity is governed by the HOOK'S DEPTH BELOW THE RIM and by nothing else
-  // in the section, because the hooks meet at their MOUTH corners. So a boss may
-  // be paid for by reaching the jaw further inboard or by thickening it — both
-  // free — but never by deepening the hook.
+  // The clamps meet at their DEEPEST corners as a joint folds, so the fold
+  // capacity is set by how far the part stands off the panel — `jawCm` — and
+  // not by how far either lip reaches along the rim. Re-measured for the rim
+  // clamp; under the previous hook design the budget was the hook's depth.
   const maxFold = (spanCm, profile) => {
     let last = 0
     for (let f = 0; f <= 90; f += 0.5) {
@@ -161,7 +164,7 @@ console.log('3. the self-intersection gate')
     }
     return last
   }
-  const spans = [0.6, 1, 1.5, 2]
+  const spans = [0.5, 1, 1.5, 2]
   const baseline = spans.map((s) => maxFold(s, {}))
 
   const same = (profile, label) => {
@@ -169,15 +172,14 @@ console.log('3. the self-intersection gate')
     ok(got.every((v, k) => v === baseline[k]),
       `${label} does not change the fold boundary (${got.join('/')} vs ${baseline.join('/')})`)
   }
-  same({ gripCm: 1.7 }, 'reaching the jaw from 8.5mm to 17mm inboard')
-  same({ jawCm: 1.5 }, 'thickening the jaw from 9.5mm to 15mm')
-  same({ wallCm: 0.6 }, 'doubling the back wall')
+  same({ frontGripCm: 0.4 }, 'shortening the bezel lip')
+  same({ backGripCm: 1.2 }, 'shortening the flange lip')
+  same({ backGripCm: 3.0 }, 'lengthening the flange lip to the full flange')
 
-  // ...and the check is not simply insensitive: the hook DOES move it.
-  const shallower = spans.map((s) => maxFold(s, { hookCm: 0.3 }))
-  const deeper = spans.map((s) => maxFold(s, { hookCm: 1.0 }))
-  ok(shallower.every((v, k) => v > baseline[k]), `a shallower hook buys fold (${shallower.join('/')})`)
-  ok(deeper.every((v, k) => v < baseline[k]), `a deeper hook costs fold (${deeper.join('/')})`)
+  // ...and the check is not simply insensitive: the standoff DOES move it.
+  const thicker = spans.map((s) => maxFold(s, { jawCm: CONNECTOR_PROFILE.jawCm * 2 }))
+  ok(thicker.every((v, k) => v < baseline[k]),
+    `a thicker jaw costs fold (${thicker.join('/')} vs ${baseline.join('/')})`)
 }
 
 // -----------------------------------------------------------------------------
@@ -332,7 +334,7 @@ console.log('6. preset sweep')
 // sides. Either half alone is satisfiable by a part that does nothing — a
 // connector floating in the gap has no interference at all.
 // -----------------------------------------------------------------------------
-console.log('7. the channel grips the rim, and does not cut into it')
+console.log('7. the clamp grips the rim, and does not cut into it')
 {
   /** Even-odd point-in-polygon. */
   const inside = (pts, x, y) => {
@@ -345,73 +347,62 @@ console.log('7. the channel grips the rim, and does not cut into it')
     return n
   }
 
-  const outer = PANEL_PROFILE.outerThickness
-  const grip = CONNECTOR_PROFILE.gripCm
+  const fg = Math.min(CONNECTOR_PROFILE.frontGripCm, PANEL_PROFILE.bezelWidth)
+  const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
   const EPS = 0.02
 
   let interference = 0
-  let noGripAbove = 0
-  let noGripBelow = 0
+  let noFrontGrip = 0
+  let noBackGrip = 0
   let cases = 0
 
   for (const foldDeg of [-25, -10, 0, 10, 25]) {
     for (const spanCm of [1.5, 3, 6, 12]) {
       const { points } = connectorProfile({ spanCm, foldDeg })
       const phi = (foldDeg * Math.PI) / 180 / 2
-      // Both panels, in the same (p, q) frame connectorProfile builds them in.
       const sides = [
-        { rim: [-spanCm / 2, 0], inward: [-Math.cos(phi), -Math.sin(phi)], up: [-Math.sin(phi), Math.cos(phi)] },
-        { rim: [spanCm / 2, 0], inward: [Math.cos(phi), -Math.sin(phi)], up: [Math.sin(phi), Math.cos(phi)] },
+        { rim: [-spanCm / 2, 0], inward: [-Math.cos(phi), -Math.sin(phi)], deeper: [Math.sin(phi), -Math.cos(phi)] },
+        { rim: [spanCm / 2, 0], inward: [Math.cos(phi), -Math.sin(phi)], deeper: [-Math.sin(phi), -Math.cos(phi)] },
       ]
-      const at = (s, i, n) => [
-        s.rim[0] + i * s.inward[0] + n * s.up[0],
-        s.rim[1] + i * s.inward[1] + n * s.up[1],
+      const at = (s, i, d) => [
+        s.rim[0] + i * s.inward[0] + d * s.deeper[0],
+        s.rim[1] + i * s.inward[1] + d * s.deeper[1],
       ]
 
       for (const side of sides) {
         cases++
         for (let k = 1; k <= 8; k++) {
-          const i = (grip * k) / 9   // strictly inside the gripped depth
-          const floor = -outer - taperDepthAt(i)
+          const iF = (fg * k) / 9
+          const iB = (bg * k) / 9
 
-          // (a) PANEL MATERIAL — between the flange top and the taper — must
-          //     never be inside the connector. This is what a v1-style parallel
-          //     slot would violate, and it is the reason for the wedge hook.
+          // (a) PANEL MATERIAL — between the bezel and the flange, at any inboard
+          //     offset the clamp reaches — must never be inside the clamp.
           for (let m = 1; m <= 6; m++) {
-            const n = (floor * m) / 7
-            const [x, y] = at(side, i, n)
+            const i = (Math.max(fg, bg) * k) / 9
+            const top = -bezelDepthAt(i)
+            const bot = -flangeDepthAt(i)
+            const [x, y] = at(side, i, -(top + ((bot - top) * m) / 7))
             if (inside(points, x, y)) interference++
           }
 
-          // (b) THE GRIP — material just above the flange and just below the
-          //     taper must BE the connector, or it is not holding anything.
-          const [ax, ay] = at(side, i, EPS)
-          if (!inside(points, ax, ay)) noGripAbove++
-          const [bx, by] = at(side, i, floor - EPS)
-          if (!inside(points, bx, by)) noGripBelow++
+          // (b) THE GRIP — material just off the bezel and just off the flange
+          //     must BE the clamp, or it is holding nothing.
+          const [fx, fy] = at(side, iF, bezelDepthAt(iF) - EPS)
+          if (!inside(points, fx, fy)) noFrontGrip++
+          const [bx, by] = at(side, iB, flangeDepthAt(iB) + EPS)
+          if (!inside(points, bx, by)) noBackGrip++
         }
       }
     }
   }
 
-  ok(interference === 0, `no connector material inside the panel rim, over ${cases} panel/fold/span cases`)
-  ok(noGripAbove === 0, 'the upper jaw covers the flange over the full grip depth')
-  ok(noGripBelow === 0, 'the hook sits under the taper over the full grip depth')
+  ok(interference === 0, `no clamp material inside the panel rim, over ${cases} panel/fold/span cases`)
+  ok(noFrontGrip === 0, 'the bezel lip covers the bezel over its full reach')
+  ok(noBackGrip === 0, 'the flange lip covers the flange over its full reach')
 
-  // Non-vacuous: a PARALLEL-sided slot — v1's shape — must fail (a). If this
-  // ever passes, the interference test above has stopped testing anything.
-  {
-    const { points } = connectorProfile({ spanCm: 3, foldDeg: 0 })
-    // Rebuild the same outline with the taper term forced to zero, which is
-    // exactly what a parallel slot is.
-    const flatFloor = points.map(([p, q]) => [p, q])
-    // The deepest gripped point of the panel, which a parallel slot would cut.
-    const cut = -outer - taperDepthAt(grip) / 2
-    const probe = [-3 / 2 - grip * 0.9, cut]
-    ok(!inside(flatFloor, probe[0], probe[1]), 'the tapered slot clears the panel at the deepest gripped point')
-    ok(taperDepthAt(grip) > 0.3,
-      `a parallel slot would have cut ${taperDepthAt(grip).toFixed(2)}cm into the panel — the departure is real`)
-  }
+  // Non-vacuous: the clamp must actually be somewhere, not an empty polygon.
+  const area = polygonArea(connectorProfile({ spanCm: 3, foldDeg: 0 }).points)
+  ok(area > 1, `the clamp has real section area (${area.toFixed(2)} cm²)`)
 }
 
 console.log(`\ntest-v3-connector-geometry: ${passed} checks passed, ${failed} failed`)

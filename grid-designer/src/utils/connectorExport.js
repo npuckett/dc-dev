@@ -46,6 +46,7 @@
 import * as THREE from 'three'
 import { buildConnectorGeometry } from '../geometry/connectorGeometry.js'
 import { CONNECTOR_PROFILE } from '../core/v3/connectors.js'
+import { PANEL_PROFILE, PANEL_METRICS } from '../config.js'
 import { downloadBlob, downloadText, timestamp } from './exporters.js'
 
 /** cm → mm. See "UNITS" above. */
@@ -220,17 +221,24 @@ export function connectorManifest(config, report, plateParts) {
       gapCm: config.gap,
       connectors: config.connectors,
     },
-    // Inherited from v1 (3dprintFiles/) and the panel profile it grips. Recorded
-    // so a part can be checked against the hardware without opening the source.
+    // The grip, and the panel rim it is derived from. Recorded so a part can be
+    // checked against the hardware without opening the source — and so a manifest
+    // from an older panel profile is identifiable as such.
     grip: {
       note:
-        'the lower jaw follows the panel housing TAPER rather than a parallel slot face — ' +
-        'a parallel slot of this depth cuts into the panel, see core/v3/connectors.js',
-      gripDepthMm: mm(CONNECTOR_PROFILE.gripCm),
+        'a rim clamp: a lip over the front bezel, the full outer wall, and a longer lip over the ' +
+        'back flange. The flange is the load-bearing half. Every dimension is derived from ' +
+        'PANEL_PROFILE — see src/config.js',
+      frontLipMm: mm(CONNECTOR_PROFILE.frontGripCm),
+      backLipMm: mm(CONNECTOR_PROFILE.backGripCm),
       jawMm: mm(CONNECTOR_PROFILE.jawCm),
-      hookMm: mm(CONNECTOR_PROFILE.hookCm),
-      backWallMm: mm(CONNECTOR_PROFILE.wallCm),
-      slotClearanceMm: mm(CONNECTOR_PROFILE.slotClearanceCm),
+      clearanceMm: mm(CONNECTOR_PROFILE.clearanceCm),
+      panelRim: {
+        bezelWidthMm: mm(PANEL_PROFILE.bezelWidth),
+        outerWallHeightMm: mm(PANEL_METRICS.outerWallHeight),
+        flangeWidthMm: mm(PANEL_PROFILE.flangeWidth),
+        overallThicknessMm: mm(PANEL_PROFILE.overallThickness),
+      },
       v1Reference: { slotDepthMm: 8.5, slotWidthMm: 9.5, fixedDihedralDeg: 62 },
     },
     totals: {
