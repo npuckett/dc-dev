@@ -56,13 +56,16 @@ export const AUTOSAVE_DELAY_MS = 300
 
 /**
  * The config `version` this build accepts. Mirrors (deliberately, independently
- * of) core/v3/schema.js's `version !== 3` check. Bumped from 2 to 3 for the v3
- * drift-surface pivot (V3_SPEC.md §6 / §7): v2 (per-column fold strip) and v3
- * (one tiled drift surface) configs describe physically different objects and
- * do not map onto one another, so a v2 save must be DISCARDED here, never
- * resurrected into a v3 store — same reasoning as v1→v2's bump before it.
+ * of) core/v4/schema.js's `version !== 4` check. Bumped from 3 to 4 for the v4
+ * folded-ribbon pivot (V4_SPEC.md §6): v3 (one tiled drift surface) and v4 (an
+ * open chain of panels folded at joints the connectors can already build)
+ * describe physically different objects and do not map onto one another, so a
+ * v3 save must be DISCARDED here, never resurrected into a v4 store — same
+ * reasoning as v2→v3's bump before it, and v1→v2's before that. Discarding
+ * stale working configs and slots is the documented mechanism, not a
+ * regression.
  */
-const EXPECTED_CONFIG_VERSION = 3
+const EXPECTED_CONFIG_VERSION = 4
 
 const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 

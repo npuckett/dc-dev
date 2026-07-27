@@ -94,8 +94,34 @@ function removeStorage() {
 // Fixtures
 // -----------------------------------------------------------------------------
 
-/** v3-shaped config (V3_SPEC.md §6) — the CURRENT schema this build accepts. */
+/** v4-shaped config (V4_SPEC.md §6) — the CURRENT schema this build accepts. */
 function sampleConfig(overrides = {}) {
+  return {
+    version: 4,
+    name: 'fold study 1',
+    strip: { count: 1, units: 9, panelType: '2x2' },
+    gap: 2.0,
+    angleDeg: 30,
+    pattern: { kind: 'trapezoid', phase: 0 },
+    placement: { wallOffsetCm: 0, windowOffsetCm: 0, groundToFloor: true },
+    overrides: [{ strip: 0, unit: 3, present: true, flipped: false, role: 'auto' }],
+    connectors: {
+      lengthCm: 10,
+      spacingCm: 50,
+      minPerJoint: 2,
+      binSpanCm: 0.5,
+      binAngleDeg: 5,
+      powerEdge: 'low',
+      supplyMode: 'relief',
+    },
+    meta: { notes: '' },
+    ...overrides,
+  }
+}
+
+/** v3-shaped config (one tiled drift surface) — the schema RETIRED by the v4
+ *  pivot, which a v4 build must discard rather than resurrect (V4_SPEC.md §6). */
+function sampleV3Config(overrides = {}) {
   return {
     version: 3,
     units: 'cm',
@@ -122,8 +148,8 @@ function sampleConfig(overrides = {}) {
   }
 }
 
-/** v2-shaped config (per-column fold strips) — the RETIRED schema a v3 build
- *  must discard rather than resurrect (V3_SPEC.md §6 / §7). */
+/** v2-shaped config (per-column fold strips) — retired two pivots ago, and
+ *  still something a v4 build must discard rather than resurrect. */
 function sampleV2Config(overrides = {}) {
   return {
     version: 2,
@@ -221,10 +247,10 @@ function sampleV2Config(overrides = {}) {
   storage.setItem(WORKING_KEY, JSON.stringify([1, 2, 3]))
   check('malformed envelope (array, not object): returns null', loadWorkingConfig() === null)
 
-  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 3 })) // no `config`
+  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 4 })) // no `config`
   check('malformed envelope (missing config): returns null', loadWorkingConfig() === null)
 
-  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 3, config: 'not an object' }))
+  storage.setItem(WORKING_KEY, JSON.stringify({ schemaVersion: 4, config: 'not an object' }))
   check('malformed envelope (config not an object): returns null', loadWorkingConfig() === null)
 
   storage.setItem(WORKING_KEY, '')
@@ -249,34 +275,44 @@ function sampleV2Config(overrides = {}) {
     loadWorkingConfig() === null,
   )
 
-  // The envelope tag matches (3), but the embedded config claims a different
-  // version (e.g. a v1 or v2 config that slipped in some other way).
+  // The envelope tag matches (4), but the embedded config claims a different
+  // version (an older config that slipped in some other way).
   storage.setItem(
     WORKING_KEY,
-    JSON.stringify({ schemaVersion: 3, savedAt: Date.now(), config: sampleConfig({ version: 2 }) }),
+    JSON.stringify({ schemaVersion: 4, savedAt: Date.now(), config: sampleConfig({ version: 3 }) }),
   )
   check(
     "version mismatch: embedded config's own `version` field is checked independently",
     loadWorkingConfig() === null,
-    'a v2-tagged config must not be resurrected into a v3-only build',
+    'a v3-tagged config must not be resurrected into a v4-only build',
   )
 
   storage.setItem(
     WORKING_KEY,
-    JSON.stringify({ schemaVersion: 3, savedAt: Date.now(), config: sampleConfig({ version: 1 }) }),
+    JSON.stringify({ schemaVersion: 4, savedAt: Date.now(), config: sampleConfig({ version: 1 }) }),
   )
   check('version mismatch: a v1 config is also discarded', loadWorkingConfig() === null)
 
-  // THE ACTUAL PIVOT CASE (V3_SPEC.md §6 / §7): a real v2 config (per-column
-  // fold strips), saved by a pre-pivot build under the OLD envelope tag, must
-  // be discarded rather than loaded into a v3 store — the two models describe
+  // THE ACTUAL PIVOT CASE (V4_SPEC.md §6): a real v3 config (one tiled drift
+  // surface), saved by a pre-pivot build under the OLD envelope tag, must be
+  // discarded rather than loaded into a v4 store — the two models describe
   // physically different objects and do not map onto one another.
+  storage.setItem(
+    WORKING_KEY,
+    JSON.stringify({ schemaVersion: 3, savedAt: Date.now(), config: sampleV3Config() }),
+  )
+  check(
+    'v4 pivot: a v3 envelope (schemaVersion 3) saved by a pre-pivot build is discarded, not loaded into v4',
+    loadWorkingConfig() === null,
+  )
+
+  // ...and so is the v2 envelope from the pivot before it.
   storage.setItem(
     WORKING_KEY,
     JSON.stringify({ schemaVersion: 2, savedAt: Date.now(), config: sampleV2Config() }),
   )
   check(
-    'v2 pivot: a v2 envelope (schemaVersion 2) saved by a pre-pivot build is discarded, not loaded into v3',
+    'v3 pivot: a v2 envelope is still discarded, two pivots later',
     loadWorkingConfig() === null,
   )
 }
