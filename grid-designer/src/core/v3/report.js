@@ -44,8 +44,11 @@ import {
   connectorOBB,
   connectorStationFlags,
   CONNECTOR_LIMITS,
+  CONNECTOR_PROFILE,
   BLOCKED_CODE,
   REDUCED_CODE,
+  solveFrontBars,
+  fastenerGapNeededCm,
 } from './connectors.js'
 import { POWER_SUPPLY } from '../../config.js'
 
@@ -230,12 +233,18 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
   // substructure that is a real degree of freedom rather than a detail.
   const singles = C.perJoint.filter((pj) => pj.count < 2)
 
+  // TWO PART FAMILIES. The back halves bin on geometry as before — they have to
+  // sit on the flange at the joint's own fold. The FRONT BARS do not: a bar is a
+  // plain rectangle bearing on two bezels, so one width serves a whole band of
+  // gaps and the whole design usually needs one or two.
   const kit = buildKit(C.stations, cfg.connectors)
+  const bars = solveFrontBars(C.stations.map((st) => Math.max(st.spanStartCm, st.spanEndCm)))
 
   return {
     stations,
     perJoint: C.perJoint,
     kit,
+    bars,
     clashes,
     warnings: [
       ...C.warnings,
@@ -251,7 +260,14 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
     summary: {
       count: stations.length,
       jointCount: C.perJoint.length,
-      partTypes: kit.length,
+      // What actually goes on a printer: one back half per geometry bin, plus a
+      // handful of universal bars.
+      partTypes: kit.length + bars.length,
+      backHalfTypes: kit.length,
+      frontBarTypes: bars.length,
+      bearsOnSupply: stations.filter((s) => s.flags.includes('W_BEARS_ON_POWER_SUPPLY')).length,
+      fastenerPinched: stations.filter((s) => s.flags.includes('W_FASTENER_PINCHED')).length,
+      fastenerGapNeededCm: r(fastenerGapNeededCm()),
       lengthCm: cfg.connectors.lengthCm,
       binSpanCm: cfg.connectors.binSpanCm,
       binAngleDeg: cfg.connectors.binAngleDeg,

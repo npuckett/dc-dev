@@ -16,7 +16,9 @@ import * as THREE from 'three'
 import {
   solveConnectors,
   stationCount,
-  connectorProfile,
+  backHalfProfile,
+  frontBarProfile,
+  solveFrontBars,
   SPAN_SAMPLES,
   CROWDED_CODE,
   CONNECTOR_PROFILE,
@@ -24,6 +26,12 @@ import {
   BLOCKED_CODE,
   blockedSpansOnJoint,
   clearSpans,
+  connectorStationFlags,
+  supplyProudAt,
+  supplyReliefCm,
+  fastenerGapNeededCm,
+  gapAtDepthCm,
+  frontBarBand,
 } from '../src/core/v3/connectors.js'
 import { solveLayout, jointEdgePoint } from '../src/core/v3/placement.js'
 import { DEFAULT_CONFIG, DEFAULT_CONNECTORS, normalizeConfig, validateConfig } from '../src/core/v3/schema.js'
@@ -268,15 +276,13 @@ console.log('4. frames agree with an independent recomputation')
   {
     const SPAN = 6
     const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
-    const lipDepth = flangeDepthAt(bg) + CONNECTOR_PROFILE.jawCm
-    // The two flange lip outer corners, taken by INDEX rather than by "lowest
-    // point": at a concave fold the spine's back corners dip below the lips, so
-    // a geometric search picks the wrong pair and the closed form disagrees for
-    // the wrong reason. connectorProfile emits A's clamp at 0–5 and B's mirrored
-    // at 6–13, so the flange lip outer corners are always indices 4 and 7.
+    const lipDepth = flangeDepthAt(bg)
+    // The two flange lip contact points, taken by INDEX: backHalfProfile emits
+    // [A floor, B floor, B lip, B wall, B split, A split, A wall, A lip], so the
+    // lips are 2 and 7.
     const lipGapAt = (foldDeg) => {
-      const pts = connectorProfile({ spanCm: SPAN, foldDeg }).points
-      return Math.abs(pts[7][0] - pts[4][0])
+      const pts = backHalfProfile({ spanCm: SPAN, foldDeg }).points
+      return Math.abs(pts[2][0] - pts[7][0])
     }
     const flat = lipGapAt(0)
     ok(lipGapAt(20) < flat, 'positive fold (convex) draws the flange lips together — the backs pinch')
@@ -289,7 +295,7 @@ console.log('4. frames agree with an independent recomputation')
       const phi = (foldDeg * Math.PI) / 180 / 2
       return SPAN + 2 * bg * Math.cos(phi) - 2 * lipDepth * Math.sin(phi)
     }
-    near(flat, predicted(0), 1e-9, 'flat: the bottom width is span + 2·backGrip')
+    near(flat, predicted(0), 1e-9, 'flat: the lip separation is span + 2·backGrip')
     near(lipGapAt(20), predicted(20), 1e-9, 'convex: the lips close by the derived amount')
     near(lipGapAt(-20), predicted(-20), 1e-9, 'concave: the lips open by the derived amount')
   }
@@ -452,22 +458,40 @@ console.log('7. schema block')
 // thing the corrected panel geometry brought with it, so it is asserted as a
 // measured consequence rather than described.
 // -----------------------------------------------------------------------------
-console.log('8. the power supply blocks connectors')
+console.log('8. the power supply')
 {
   const withPS = (over) => solveConnectors(cfgOf({ connectors: { ...over } }))
 
+  // --- RELIEF (the default) --------------------------------------------------
+  // The supply is flush with the flange to within 1mm, so a relief in the back
+  // half's lip clears it and the joint is connected — but the lip then bears on
+  // the supply HOUSING rather than the panel frame, which is reported.
   const off = withPS({ powerEdge: 'none' })
-  const on = withPS({ powerEdge: 'low' })
-  ok(on.stations.length < off.stations.length,
-    `modelling the power supply removes parts (${off.stations.length} → ${on.stations.length})`)
+  const relief = withPS({ powerEdge: 'low', supplyMode: 'relief' })
+  ok(relief.stations.length === off.stations.length,
+    'in relief mode the supply costs no parts at all')
+  const bearing = relief.stations.filter((st) => st.bearsOnPowerSupply).length
+  ok(bearing > 0, `but ${bearing} parts land over a supply and are flagged`)
+  ok(off.stations.filter((st) => st.bearsOnPowerSupply).length === 0,
+    'and none are flagged once the supply is gone — the flag tracks the supply')
 
-  const blocked = on.warnings.filter((w) => w.code === BLOCKED_CODE)
-  ok(blocked.length > 0, `joints are left with no connector at all (${blocked.length})`)
-  ok(off.warnings.filter((w) => w.code === BLOCKED_CODE).length === 0,
-    'and none are blocked once the supply is ignored — the constraint is what does it')
+  // The relief is small, and derived rather than assumed.
+  const relCm = supplyReliefCm(CONNECTOR_PROFILE.backGripCm)
+  ok(relCm > 0, 'the supply does stand proud of the flange, so a relief is needed')
+  ok(relCm <= 0.1 + 1e-9, `and only ${(relCm * 10).toFixed(1)}mm of it — a printable pocket`)
+  near(supplyProudAt(0), 0, 1e-12, 'it is flush at the panel edge')
+  near(supplyProudAt(PANEL_PROFILE.flangeWidth), PANEL_PROFILE.flangeDrop, 1e-12,
+    'and proud by exactly the flange drop at the flange inner edge')
 
-  // Every blocked joint really does touch a powered edge, and really has no room.
-  const cfg = cfgOf({})
+  // --- BLOCK (the stricter reading) -----------------------------------------
+  const block = withPS({ powerEdge: 'low', supplyMode: 'block' })
+  ok(block.stations.length < relief.stations.length,
+    `treating the supply as solid costs parts (${relief.stations.length} → ${block.stations.length})`)
+  const blocked = block.warnings.filter((w) => w.code === BLOCKED_CODE)
+  ok(blocked.length > 0, `and leaves joints with nothing (${blocked.length})`)
+
+  // Every blocked joint really does touch a powered edge and really has no room.
+  const cfg = cfgOf({ connectors: { supplyMode: 'block' } })
   const L = solveLayout(cfg)
   const byId = new Map(L.tiles.map((t) => [t.id, t]))
   let wrong = 0
@@ -475,32 +499,87 @@ console.log('8. the power supply blocks connectors')
     const edge = L.adjacency[w.joint]
     const spans = blockedSpansOnJoint(edge, byId.get(edge.a), byId.get(edge.b), 'low')
     if (spans.length === 0) wrong++
-    const clear = clearSpans(spans, edge.edge.from, edge.edge.to)
-    if (clear.some(([a, b]) => b - a >= cfg.connectors.lengthCm)) wrong++
+    if (clearSpans(spans, edge.edge.from, edge.edge.to).some(([x, y]) => y - x >= cfg.connectors.lengthCm)) wrong++
   }
   ok(wrong === 0, 'every blocked joint touches a powered edge and has no stretch long enough')
 
-  // THE THRESHOLD. 5cm of clear rim at each end, so the cliff is exactly there.
   const blockedAt = (lengthCm) =>
-    withPS({ lengthCm, powerEdge: 'low' }).warnings.filter((w) => w.code === BLOCKED_CODE).length
-  ok(blockedAt(5) === 0, 'a 5cm part fits every powered edge — it fits the clear end exactly')
-  ok(blockedAt(6) > 0, 'a 6cm part does not')
-  console.log(`   parts: 5cm → ${blockedAt(5)} blocked joints, 6cm → ${blockedAt(6)}, ` +
-    `10cm → ${blockedAt(10)}`)
+    withPS({ lengthCm, powerEdge: 'low', supplyMode: 'block' })
+      .warnings.filter((w) => w.code === BLOCKED_CODE).length
+  ok(blockedAt(5) === 0, 'blocking: a 5cm part fits the clear end exactly')
+  ok(blockedAt(6) > 0, 'blocking: a 6cm part does not')
+  console.log(`   relief: ${relief.stations.length} parts, ${bearing} on a supply, ` +
+    `${(relCm * 10).toFixed(1)}mm relief · block: ${block.stations.length} parts, ${blocked.length} joints empty`)
 
-  // The blocked span itself, closed form against config.js.
+  // Where the supply sits is a real choice: 'high' affects a different set.
+  const lo = new Set(withPS({ powerEdge: 'low', supplyMode: 'block' })
+    .warnings.filter((w) => w.code === BLOCKED_CODE).map((w) => w.joint))
+  const hi = new Set(withPS({ powerEdge: 'high', supplyMode: 'block' })
+    .warnings.filter((w) => w.code === BLOCKED_CODE).map((w) => w.joint))
+  ok(hi.size > 0, 'the "high" convention blocks joints too')
+  ok([...lo].some((j) => !hi.has(j)) || [...hi].some((j) => !lo.has(j)),
+    'and a different set of them — panel orientation genuinely matters')
+
   const [from, to] = poweredEdgeBlockedSpan(60)
   near(from, (60 - POWER_SUPPLY.length) / 2, 1e-12, 'the blocked span is centred on the edge')
   near(to - from, POWER_SUPPLY.length, 1e-12, 'and is exactly as long as the supply')
-  ok(clearSpans([[from, to]], 0, 60).every(([a, b]) => Math.abs(b - a - 5) < 1e-12),
-    'leaving two 5cm clear stretches')
+}
 
-  // 'high' puts it on the other end, so a different set of joints is affected.
-  const low = new Set(withPS({ powerEdge: 'low' }).warnings.filter((w) => w.code === BLOCKED_CODE).map((w) => w.joint))
-  const high = new Set(withPS({ powerEdge: 'high' }).warnings.filter((w) => w.code === BLOCKED_CODE).map((w) => w.joint))
-  ok(high.size > 0, 'the "high" convention blocks joints too')
-  ok([...low].some((j) => !high.has(j)) || [...high].some((j) => !low.has(j)),
-    'and a different set of them — panel orientation genuinely matters')
+// -----------------------------------------------------------------------------
+// 9. THE FASTENER — three small bolts, and the gap they need.
+// -----------------------------------------------------------------------------
+console.log('9. the fastener needs gap, measured at depth')
+{
+  const need = fastenerGapNeededCm()
+  near(need, Math.max(CONNECTOR_PROFILE.bolt.headCm, CONNECTOR_PROFILE.bolt.insertOdCm)
+    + 2 * CONNECTOR_PROFILE.wallCm, 1e-12, 'the need is the head or insert, plus a wall each side')
+  ok(need <= 1.0 + 1e-9, `three ${CONNECTOR_PROFILE.bolt.name}s need only ${need.toFixed(2)}cm of gap`)
+
+  // The gap CLOSES with depth on a convex joint, and the insert sits deep.
+  ok(gapAtDepthCm(3, 35, 1.7) < 3, 'a convex fold narrows the gap at depth')
+  ok(gapAtDepthCm(3, -35, 1.7) > 3, 'a concave fold opens it')
+  near(gapAtDepthCm(3, 0, 1.7), 3, 1e-12, 'and a flat joint does neither')
+
+  // The flag fires where it should and is silent where it should not.
+  const stub = (o) => ({ id: 'T', jointIndex: 0, lengthCm: 10, spanStartCm: 3, spanEndCm: 3,
+    spanMinCm: 3, spanMaxCm: 3, spanSpreadCm: 0, foldDeg: 0, ...o })
+  ok(!connectorStationFlags(stub({})).includes('W_FASTENER_PINCHED'), 'a 3cm gap takes the fastener')
+  ok(connectorStationFlags(stub({ spanMinCm: 0.7, spanMaxCm: 0.7 })).includes('W_FASTENER_PINCHED'),
+    'a 0.7cm gap does not')
+  ok(connectorStationFlags(stub({ spanMinCm: 1.2, spanMaxCm: 1.2, foldDeg: 30 }))
+    .includes('W_FASTENER_PINCHED'),
+    'and a 1.2cm gap that would pass at the face fails once the fold closes it at depth')
+}
+
+// -----------------------------------------------------------------------------
+// 10. THE UNIVERSAL FRONT BAR.
+// -----------------------------------------------------------------------------
+console.log('10. one bar serves a band of gaps')
+{
+  const band = frontBarBand(6)
+  near(band[0], 6 - 2 * PANEL_PROFILE.bezelWidth, 1e-12, 'the narrowest gap gives the bar a full bezel lip')
+  near(band[1], 6 - 2 * CONNECTOR_PROFILE.frontMinLipCm, 1e-12, 'the widest leaves the minimum bearing')
+  const width = band[1] - band[0]
+  near(width, 2 * (PANEL_PROFILE.bezelWidth - CONNECTOR_PROFILE.frontMinLipCm), 1e-12,
+    'so the band is set by the bezel width, not by the bar')
+
+  // Greedy cover is exact for fixed-width intervals on a line.
+  const bars = solveFrontBars([2, 2.5, 3, 5.5, 6])
+  ok(bars.length === 2, `five gaps spanning 4cm need 2 bars (got ${bars.length})`)
+  let uncovered = 0
+  for (const g of [2, 2.5, 3, 5.5, 6]) {
+    if (!bars.some((b) => { const [lo, hi] = frontBarBand(b.widthCm); return g >= lo - 1e-9 && g <= hi + 1e-9 })) uncovered++
+  }
+  ok(uncovered === 0, 'and every gap is covered by one of them')
+  ok(solveFrontBars([3, 3, 3]).length === 1, 'identical gaps need one bar')
+
+  // The bar really is a plain rectangle — that is what makes it universal.
+  const prof = frontBarProfile(5)
+  ok(prof.points.length === 4, 'the bar section is a rectangle')
+  near(prof.extents.width, 5, 1e-12, 'as wide as asked')
+  const other = frontBarProfile(5)
+  ok(JSON.stringify(prof.points) === JSON.stringify(other.points),
+    'and depends on nothing but its width — no fold, no station')
 }
 
 console.log(`\ntest-v3-connectors: ${passed} checks passed, ${failed} failed`)

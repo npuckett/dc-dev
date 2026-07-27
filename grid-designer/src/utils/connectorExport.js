@@ -226,13 +226,14 @@ export function connectorManifest(config, report, plateParts) {
     // from an older panel profile is identifiable as such.
     grip: {
       note:
-        'a rim clamp: a lip over the front bezel, the full outer wall, and a longer lip over the ' +
-        'back flange. The flange is the load-bearing half. Every dimension is derived from ' +
-        'PANEL_PROFILE — see src/config.js',
-      frontLipMm: mm(CONNECTOR_PROFILE.frontGripCm),
+        'two pieces bolted together: a universal front BAR bearing on both bezels, and a per-joint ' +
+        'BACK HALF reaching under both flanges, pulled together by three countersunk bolts into ' +
+        'heat-set inserts. Every panel-facing dimension derives from PANEL_PROFILE — see src/config.js',
       backLipMm: mm(CONNECTOR_PROFILE.backGripCm),
-      jawMm: mm(CONNECTOR_PROFILE.jawCm),
-      clearanceMm: mm(CONNECTOR_PROFILE.clearanceCm),
+      frontMinLipMm: mm(CONNECTOR_PROFILE.frontMinLipCm),
+      splitDepthMm: mm(CONNECTOR_PROFILE.splitDepthCm),
+      boltCount: CONNECTOR_PROFILE.boltCount,
+      bolt: CONNECTOR_PROFILE.bolt,
       panelRim: {
         bezelWidthMm: mm(PANEL_PROFILE.bezelWidth),
         outerWallHeightMm: mm(PANEL_METRICS.outerWallHeight),

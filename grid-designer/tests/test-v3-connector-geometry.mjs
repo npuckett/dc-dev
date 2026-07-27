@@ -15,13 +15,16 @@
 
 import * as THREE from 'three'
 import {
-  connectorProfile,
+  backHalfProfile,
+  frontBarProfile,
+  frontBarBand,
   connectorEndProfiles,
   connectorOBB,
   polygonArea,
   profileSelfIntersects,
   bezelDepthAt,
   flangeDepthAt,
+  splitPlaneRange,
   solveConnectors,
   CONNECTOR_PROFILE,
   CONNECTOR_LIMITS,
@@ -52,75 +55,75 @@ console.log('=== test-v3-connector-geometry ===')
 // -----------------------------------------------------------------------------
 // 1. The profile is a well-formed, counter-clockwise simple polygon.
 // -----------------------------------------------------------------------------
-console.log('1. profile well-formedness')
+console.log('1. both sections are well-formed, counter-clockwise polygons')
 {
   let notCCW = 0
   let degenerate = 0
   let wrongCount = 0
   for (const spanCm of [1.5, 3, 6, 12]) {
     for (const foldDeg of [-30, -10, 0, 10, 30]) {
-      const { points } = connectorProfile({ spanCm, foldDeg })
-      if (points.length !== 16) wrongCount++
+      const { points } = backHalfProfile({ spanCm, foldDeg })
+      if (points.length !== 8) wrongCount++
       if (polygonArea(points) <= 0) notCCW++
       if (profileSelfIntersects(points)) degenerate++
       for (const [p, q] of points) if (!Number.isFinite(p) || !Number.isFinite(q)) degenerate++
     }
   }
-  ok(wrongCount === 0, 'the outline is always 16 points, so a loft between two of them cannot tear')
-  ok(notCCW === 0, 'the outline is counter-clockwise at every span and fold')
+  ok(wrongCount === 0, 'the back half is always an 8-point outline, so a loft cannot tear')
+  ok(notCCW === 0, 'and counter-clockwise at every span and fold — a clockwise one lofts inside-out')
   ok(degenerate === 0, 'no self-intersection or non-finite point in the working range')
 
-  // Span appears in the outline exactly where it should: the part gets wider by
-  // exactly the extra gap, because the channels themselves do not change.
-  const a = connectorProfile({ spanCm: 3, foldDeg: 0 }).extents
-  const b = connectorProfile({ spanCm: 8, foldDeg: 0 }).extents
-  near(b.width - a.width, 5, 1e-9, 'widening the gap by 5cm widens the part by exactly 5cm')
-  near(a.height, b.height, 1e-9, 'the gap does not change the part height at zero fold')
+  for (const w of [3, 5, 9]) {
+    const bar = frontBarProfile(w)
+    ok(bar.points.length === 4, `the front bar at ${w}cm is a rectangle`)
+    ok(polygonArea(bar.points) > 0, `and counter-clockwise`)
+    near(bar.extents.width, w, 1e-12, `and exactly ${w}cm wide`)
+  }
+
+  const a = backHalfProfile({ spanCm: 3, foldDeg: 0 }).extents
+  const b = backHalfProfile({ spanCm: 8, foldDeg: 0 }).extents
+  near(b.width - a.width, 5, 1e-9, 'widening the gap by 5cm widens the back half by exactly 5cm')
+  near(a.height, b.height, 1e-9, 'the gap does not change its height at zero fold')
 }
 
 // -----------------------------------------------------------------------------
-// 2. The grip is derived from the REAL panel rim, not from v1's parallel slot.
-//
-// This is the design's one deliberate departure from the v1 part, so it is
-// asserted against config.js rather than against a copied number.
+// 2. Each piece grips the surface it is supposed to, derived from PANEL_PROFILE.
 // -----------------------------------------------------------------------------
-console.log('2. the grip matches the panel rim')
+console.log('2. the pieces match the panel rim')
 {
-  // The clamp's inner faces must lie ON the panel's own rim surfaces. Both are
-  // read from PANEL_PROFILE here, exactly as connectors.js reads them, so this
-  // check follows a refinement of the panel instead of pinning it.
   near(bezelDepthAt(0), PANEL_PROFILE.bezelDrop, 1e-12, 'the bezel is lowest at the panel edge')
-  near(bezelDepthAt(PANEL_PROFILE.bezelWidth), 0, 1e-12, 'and reaches the front-most plane at its inner edge')
+  near(bezelDepthAt(PANEL_PROFILE.bezelWidth), 0, 1e-12, 'and reaches the front plane at its inner edge')
   near(flangeDepthAt(0), PANEL_PROFILE.outerWallDepth, 1e-12, 'the flange starts at the back outer corner')
   near(flangeDepthAt(PANEL_PROFILE.flangeWidth), PANEL_METRICS.flangeInnerDepth, 1e-12,
     'and falls to the flange inner depth')
 
-  const { points } = connectorProfile({ spanCm: 4, foldDeg: 0 })
-  const rimP = -2   // panel A's edge, at span/2
-  const fg = Math.min(CONNECTOR_PROFILE.frontGripCm, PANEL_PROFILE.bezelWidth)
+  // BACK HALF: lips on the flange, top face at the split plane.
   const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
-
-  // Indices are fixed by connectorProfile's construction: A's clamp is 0–5.
-  near(points[0][0], rimP - fg, 1e-9, 'the front lip reaches frontGrip inboard')
-  near(points[0][1], -bezelDepthAt(fg), 1e-9, 'and its inner face sits on the bezel')
-  near(points[1][0], rimP, 1e-9, 'the clamp meets the panel at its outer edge')
-  near(points[1][1], -PANEL_PROFILE.bezelDrop, 1e-9, 'at the front outer corner')
-  near(points[2][1], -PANEL_PROFILE.outerWallDepth, 1e-9, 'and runs down the full outer wall')
-  near(points[3][0], rimP - bg, 1e-9, 'the flange lip reaches backGrip inboard')
-  near(points[3][1], -flangeDepthAt(bg), 1e-9, 'and its inner face sits on the flange')
-
-  // The clamp closes across the outer wall, which is the whole grip.
-  near(Math.abs(points[2][1] - points[1][1]), PANEL_METRICS.outerWallHeight, 1e-9,
-    'the clamp spans exactly the outer wall height')
-
-  // Both lips must stay on the surfaces they grip, or the clamp overhangs the
-  // diffuser at the front or fouls the taper at the back.
-  ok(CONNECTOR_PROFILE.frontGripCm <= PANEL_PROFILE.bezelWidth,
-    'the front lip stays on the bezel and never covers the diffuser')
+  const { points } = backHalfProfile({ spanCm: 4, foldDeg: 0 })
+  near(points[7][0], -2 - bg, 1e-9, 'the flange lip reaches backGrip inboard')
+  near(points[7][1], -flangeDepthAt(bg), 1e-9, 'and its top face sits on the flange')
+  near(points[6][1], -PANEL_PROFILE.outerWallDepth, 1e-9, 'it runs up the outer wall from the back corner')
+  near(points[5][1], -CONNECTOR_PROFILE.splitDepthCm, 1e-9, 'to the split plane')
+  near(points[5][0], -2, 1e-9, 'and meets the panel at its outer edge')
   ok(CONNECTOR_PROFILE.backGripCm <= PANEL_PROFILE.flangeWidth,
     'the flange lip stays on the flange and never fouls the taper')
-  ok(CONNECTOR_PROFILE.backGripCm > CONNECTOR_PROFILE.frontGripCm,
-    'the grip is mostly on the BACK — the flange bears the load, the bezel lip only locates it')
+
+  // THE SPLIT PLANE has only the outer wall to live in.
+  const [lo, hi] = splitPlaneRange()
+  near(lo, PANEL_PROFILE.bezelDrop, 1e-12, 'it must clear the bezel the front bar grips')
+  near(hi, PANEL_PROFILE.outerWallDepth, 1e-12, 'and stay above the flange the back half grips')
+  near(hi - lo, PANEL_METRICS.outerWallHeight, 1e-12,
+    'so its whole latitude is the outer wall height')
+  ok(CONNECTOR_PROFILE.splitDepthCm > lo && CONNECTOR_PROFILE.splitDepthCm < hi,
+    'and the shipped split sits inside it')
+
+  // FRONT BAR: its underside stays within the bezel's own drop, so it bears on
+  // the bezel rather than hovering above the panel or cutting into it.
+  ok(CONNECTOR_PROFILE.frontFlatDepthCm >= 0, 'the bar underside is at or behind the front plane')
+  ok(CONNECTOR_PROFILE.frontFlatDepthCm <= PANEL_PROFILE.bezelDrop + 1e-9,
+    'and no deeper than the bezel drop, so it cannot cut into the bezel')
+  ok(CONNECTOR_PROFILE.crownCm > 0,
+    'the bar stands proud — the bezel peak IS the front plane, so a lip over it has nowhere else to go')
 }
 
 // -----------------------------------------------------------------------------
@@ -130,7 +133,7 @@ console.log('2. the grip matches the panel rim')
 // -----------------------------------------------------------------------------
 console.log('3. the self-intersection gate')
 {
-  const bad = (spanCm, foldDeg) => profileSelfIntersects(connectorProfile({ spanCm, foldDeg }).points)
+  const bad = (spanCm, foldDeg) => profileSelfIntersects(backHalfProfile({ spanCm, foldDeg }).points)
   ok(!bad(3, 35), 'a 3cm gap folds 35° fine')
   ok(bad(0.4, 40), 'a 0.4cm gap at 40° puts the two hooks through each other')
   ok(!bad(0.4, 5), 'the same 0.4cm gap is fine when nearly flat')
@@ -151,35 +154,47 @@ console.log('3. the self-intersection gate')
   ok(!bad(CONNECTOR_LIMITS.minSpanCm, 10),
     `minSpanCm (${CONNECTOR_LIMITS.minSpanCm}cm) is buildable at a shallow fold`)
 
-  // --- WHICH dimension sets the boundary, and which are free -------------
-  // The clamps meet at their DEEPEST corners as a joint folds, so the fold
-  // capacity is set by how far the part stands off the panel — `jawCm` — and
-  // not by how far either lip reaches along the rim. Re-measured for the rim
-  // clamp; under the previous hook design the budget was the hook's depth.
+  // --- WHAT SETS THE BOUNDARY, in closed form ----------------------------
+  // With the two-piece design the back half closes when the two panels' own
+  // BACK OUTER CORNERS meet — i.e. when the gap has shut at the outer-wall
+  // depth. So the limit is
+  //
+  //     maxFold = 2·asin( gap / (2·outerWallDepth) )
+  //
+  // which contains no connector dimension at all. That is the finding: the fold
+  // limit belongs to the PANEL, and no redesign of the part buys more of it.
+  // (Past that point the panels themselves interpenetrate, which collide.js
+  // already reports — the two agree because they are the same event.)
   const maxFold = (spanCm, profile) => {
     let last = 0
     for (let f = 0; f <= 90; f += 0.5) {
-      if (profileSelfIntersects(connectorProfile({ spanCm, foldDeg: f, profile }).points)) break
+      if (profileSelfIntersects(backHalfProfile({ spanCm, foldDeg: f, profile }).points)) break
       last = f
     }
     return last
   }
-  const spans = [0.5, 1, 1.5, 2]
-  const baseline = spans.map((s) => maxFold(s, {}))
+  const closedForm = (gap) => {
+    const x = gap / (2 * PANEL_PROFILE.outerWallDepth)
+    return x >= 1 ? 90 : (2 * Math.asin(x) * 180) / Math.PI
+  }
+  let offBy = 0
+  for (const gap of [0.5, 0.8, 1, 1.5, 2]) {
+    const got = maxFold(gap, {})
+    if (Math.abs(got - Math.min(90, closedForm(gap))) > 0.6) offBy++
+  }
+  ok(offBy === 0, 'the fold limit matches 2·asin(gap / 2·outerWallDepth) at every gap')
 
+  // And it really is independent of the connector's own dimensions.
+  const spans = [0.5, 1, 1.5]
+  const baseline = spans.map((s) => maxFold(s, {}))
   const same = (profile, label) => {
     const got = spans.map((s) => maxFold(s, profile))
-    ok(got.every((v, k) => v === baseline[k]),
-      `${label} does not change the fold boundary (${got.join('/')} vs ${baseline.join('/')})`)
+    ok(got.every((v, k) => v === baseline[k]), `${label} cannot buy fold (${got.join('/')})`)
   }
-  same({ frontGripCm: 0.4 }, 'shortening the bezel lip')
-  same({ backGripCm: 1.2 }, 'shortening the flange lip')
-  same({ backGripCm: 3.0 }, 'lengthening the flange lip to the full flange')
-
-  // ...and the check is not simply insensitive: the standoff DOES move it.
-  const thicker = spans.map((s) => maxFold(s, { jawCm: CONNECTOR_PROFILE.jawCm * 2 }))
-  ok(thicker.every((v, k) => v < baseline[k]),
-    `a thicker jaw costs fold (${thicker.join('/')} vs ${baseline.join('/')})`)
+  same({ splitDepthCm: 1.0 }, 'a deeper split')
+  same({ splitDepthCm: 0.3 }, 'a shallower split')
+  same({ backGripCm: 3.0 }, 'a longer flange lip')
+  same({ backFloorCm: 0.9 }, 'a deeper floor')
 }
 
 // -----------------------------------------------------------------------------
@@ -334,9 +349,8 @@ console.log('6. preset sweep')
 // sides. Either half alone is satisfiable by a part that does nothing — a
 // connector floating in the gap has no interference at all.
 // -----------------------------------------------------------------------------
-console.log('7. the clamp grips the rim, and does not cut into it')
+console.log('7. each piece grips without cutting into the panel')
 {
-  /** Even-odd point-in-polygon. */
   const inside = (pts, x, y) => {
     let n = false
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -346,63 +360,60 @@ console.log('7. the clamp grips the rim, and does not cut into it')
     }
     return n
   }
-
-  const fg = Math.min(CONNECTOR_PROFILE.frontGripCm, PANEL_PROFILE.bezelWidth)
   const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
   const EPS = 0.02
-
   let interference = 0
-  let noFrontGrip = 0
-  let noBackGrip = 0
+  let noGrip = 0
   let cases = 0
 
   for (const foldDeg of [-25, -10, 0, 10, 25]) {
     for (const spanCm of [1.5, 3, 6, 12]) {
-      const { points } = connectorProfile({ spanCm, foldDeg })
+      const { points } = backHalfProfile({ spanCm, foldDeg })
       const phi = (foldDeg * Math.PI) / 180 / 2
       const sides = [
         { rim: [-spanCm / 2, 0], inward: [-Math.cos(phi), -Math.sin(phi)], deeper: [Math.sin(phi), -Math.cos(phi)] },
         { rim: [spanCm / 2, 0], inward: [Math.cos(phi), -Math.sin(phi)], deeper: [-Math.sin(phi), -Math.cos(phi)] },
       ]
-      const at = (s, i, d) => [
-        s.rim[0] + i * s.inward[0] + d * s.deeper[0],
-        s.rim[1] + i * s.inward[1] + d * s.deeper[1],
-      ]
+      const at = (s, i, d) => [s.rim[0] + i * s.inward[0] + d * s.deeper[0], s.rim[1] + i * s.inward[1] + d * s.deeper[1]]
 
       for (const side of sides) {
         cases++
         for (let k = 1; k <= 8; k++) {
-          const iF = (fg * k) / 9
-          const iB = (bg * k) / 9
-
-          // (a) PANEL MATERIAL — between the bezel and the flange, at any inboard
-          //     offset the clamp reaches — must never be inside the clamp.
+          const i = (bg * k) / 9
+          // (a) PANEL MATERIAL — anything between the bezel and the flange at an
+          //     offset the back half reaches must never be inside it.
           for (let m = 1; m <= 6; m++) {
-            const i = (Math.max(fg, bg) * k) / 9
             const top = -bezelDepthAt(i)
             const bot = -flangeDepthAt(i)
             const [x, y] = at(side, i, -(top + ((bot - top) * m) / 7))
             if (inside(points, x, y)) interference++
           }
-
-          // (b) THE GRIP — material just off the bezel and just off the flange
-          //     must BE the clamp, or it is holding nothing.
-          const [fx, fy] = at(side, iF, bezelDepthAt(iF) - EPS)
-          if (!inside(points, fx, fy)) noFrontGrip++
-          const [bx, by] = at(side, iB, flangeDepthAt(iB) + EPS)
-          if (!inside(points, bx, by)) noBackGrip++
+          // (b) THE GRIP — material just behind the flange must BE the back half.
+          const [gx, gy] = at(side, i, flangeDepthAt(i) + EPS)
+          if (!inside(points, gx, gy)) noGrip++
         }
       }
     }
   }
+  ok(interference === 0, `no back-half material inside the panel rim, over ${cases} panel/fold/span cases`)
+  ok(noGrip === 0, 'the flange lip covers the flange over its full reach')
 
-  ok(interference === 0, `no clamp material inside the panel rim, over ${cases} panel/fold/span cases`)
-  ok(noFrontGrip === 0, 'the bezel lip covers the bezel over its full reach')
-  ok(noBackGrip === 0, 'the flange lip covers the flange over its full reach')
+  // THE FRONT BAR bears on both bezels for every gap in its band, and never
+  // reaches past the bezel onto the diffuser. That IS the band's definition, so
+  // it is checked at both ends of it rather than at a comfortable middle.
+  let badBar = 0
+  for (const width of [4, 6, 9]) {
+    const [lo, hi] = frontBarBand(width)
+    for (const gap of [lo, (lo + hi) / 2, hi]) {
+      const lip = (width - gap) / 2
+      if (lip < CONNECTOR_PROFILE.frontMinLipCm - 1e-9) badBar++
+      if (lip > PANEL_PROFILE.bezelWidth + 1e-9) badBar++
+    }
+  }
+  ok(badBar === 0, 'across every band, the bar keeps a bearing lip and never overhangs the diffuser')
 
-  // Non-vacuous: the clamp must actually be somewhere, not an empty polygon.
-  const area = polygonArea(connectorProfile({ spanCm: 3, foldDeg: 0 }).points)
-  ok(area > 1, `the clamp has real section area (${area.toFixed(2)} cm²)`)
+  const area = polygonArea(backHalfProfile({ spanCm: 3, foldDeg: 0 }).points)
+  ok(area > 1, `the back half has real section area (${area.toFixed(2)} cm²)`)
 }
 
 console.log(`\ntest-v3-connector-geometry: ${passed} checks passed, ${failed} failed`)

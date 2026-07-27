@@ -81,157 +81,202 @@ const DEG = 180 / Math.PI
 export const SPAN_SAMPLES = 5
 
 // =============================================================================
-// THE PART'S CROSS-SECTION — A RIM CLAMP
+// THE PART — A TWO-PIECE BOLTED RIM CLAMP
 // =============================================================================
 /**
- * How the connector grips a panel.
+ * Two printed pieces per station, pulled together by three small bolts.
  *
- * REBUILT against the measured section (`updatedPanelGeo/`, read through
- * config.js). The previous grip was a wedge hook that engaged a taper starting
- * at the outer wall — a feature the real panel does not have. The real rim is:
+ *   FRONT BAR   a plain rectangular bar lying across the gap, bearing on both
+ *               panels' bezels, with three countersunk holes. UNIVERSAL: its
+ *               only variable is its width, so one bar serves a whole BAND of
+ *               gaps (see `frontBarBand`).
+ *   BACK HALF   fills the gap behind the bar and reaches under both flanges,
+ *               with three heat-set inserts. Per-station geometry — it has to
+ *               sit on the flange at the joint's own fold.
  *
- *     bezel        1.5cm, chamfered, rising inboard to the front-most plane
- *     outer wall   1.10cm, vertical
- *     FLANGE       3.0cm, essentially flat, open air behind it
- *     taper        1.62cm at ~60deg, down to the back plate
+ * The bolts do the clamping, so the two pieces never have to snap or rotate on:
+ * the back half goes on from behind, the bar drops on from the front, three
+ * bolts pull the rims between them. That was the point of splitting it.
  *
- * So the part is now a C that CLAMPS THE RIM: a short lip over the bezel, the
- * full outer wall, and a long lip over the flange. The flange is the load-
- * bearing half — 3cm of flat material to bear against — and the bezel lip only
- * has to stop the clamp rotating off. That is also why the part sits mostly on
- * the BACK: the front lip covers at most `frontGripCm` of a bezel that is
- * already a frame, and nothing covers the diffuser.
+ * WHY THE BAR CAN BE UNIVERSAL. It bears on two bezel surfaces and spans
+ * whatever is between them. A bar of width W leaves a lip of `(W − gap)/2` on
+ * each side, so it serves every gap for which that lip is between
+ * `frontMinLipCm` (enough to bear on) and the bezel's own width (beyond which
+ * it would overhang the diffuser). That is a band `2·(bezelWidth − minLip)`
+ * wide — 2.2cm at the measured panel. Measured over the presets: `closed` and
+ * `modular` need ONE bar, `shelf` and `drift` two.
  *
- * NOTHING HERE RESTATES A PANEL DIMENSION. The outline is traced off
- * `PANEL_PROFILE` every time, so refining the panel moves the grip with it —
- * which is the whole point of the profile being parametric (config.js).
+ * ITS UNDERSIDE IS FLAT, so it bears on a LINE rather than a face — at the
+ * panel's outer corner on a convex joint, nearer the bezel peak on a concave
+ * one. That is the price of universality and it is real; a per-station bar
+ * would bear on the full lip. Three bolts rather than one exist partly to
+ * spread the load that line has to carry.
  *
- *   frontGripCm  lip over the bezel. Must stay under `bezelWidth` or the clamp
- *                overhangs the diffuser.
- *   backGripCm   lip over the flange — the real grip. Must stay under
- *                `flangeWidth` or it fouls the taper.
- *   jawCm        clamp wall thickness, and the spine's thickness with it.
- *   clearanceCm  slop between the clamp's inner face and the panel. 0 models the
- *                nominal fit; print tolerance is the printer's call.
+ * THE BAR STANDS PROUD of the panel's front plane by `crownCm`. It cannot sit
+ * flush: the bezel peak IS the front plane, so a lip over it has nowhere to be
+ * except above it.
  *
- * STILL OPEN: whether a rim clamp is the right part at all. This is a faithful
- * port of "grip the panel" onto the corrected geometry, not a redesign — see
- * HANDOFF.
+ * NOTHING HERE RESTATES A PANEL DIMENSION — every surface is traced off
+ * PANEL_PROFILE, so refining the panel moves the clamp with it.
  */
-export const CONNECTOR_PROFILE = {
-  frontGripCm: 1.0,
-  backGripCm: 2.4,
-  jawCm: 0.4,
-  clearanceCm: 0,
+export const BOLT_M3 = {
+  name: 'M3',
+  shankCm: 0.30,
+  headCm: 0.60,
+  headDepthCm: 0.24,
+  insertOdCm: 0.40,
+  insertLenCm: 0.57,
+  lengthCm: 1.2,
 }
 
-/**
- * The panel's own rim surface, as a function of how far inboard you are.
- * Both are read straight off PANEL_PROFILE — see the note above about not
- * restating panel dimensions.
- */
-/** Depth of the bezel surface `i` cm inboard (0 at the edge → 0 at the peak). */
-export function bezelDepthAt(i, profile = PANEL_PROFILE) {
-  const p = { ...PANEL_PROFILE, ...profile }
+export const CONNECTOR_PROFILE = {
+  /** Least bearing the front bar may keep on a bezel before it is not holding. */
+  frontMinLipCm: 0.4,
+  /** Depth of the bar's flat underside — inside the bezel's own 1mm drop. */
+  frontFlatDepthCm: 0.05,
+  /** How far the bar stands proud of the panel's front plane. */
+  crownCm: 0.35,
+  /** Where the two pieces part. Must lie inside the outer wall — see below. */
+  splitDepthCm: 0.6,
+  /** The back half's lip on the flange: the load-bearing grip. */
+  backGripCm: 2.4,
+  /** Material below the flange lip. */
+  backFloorCm: 0.45,
+  /** Material around a fastener. */
+  wallCm: 0.2,
+  boltCount: 3,
+  bolt: BOLT_M3,
+}
+
+/** Depth of the bezel surface `i` cm inboard (bezelDrop at the edge → 0 at the peak). */
+export function bezelDepthAt(i, panel = PANEL_PROFILE) {
+  const p = { ...PANEL_PROFILE, ...panel }
   return p.bezelDrop * (1 - Math.min(i, p.bezelWidth) / p.bezelWidth)
 }
 
 /** Depth of the flange surface `i` cm inboard of the edge. */
-export function flangeDepthAt(i, profile = PANEL_PROFILE) {
-  const p = { ...PANEL_PROFILE, ...profile }
+export function flangeDepthAt(i, panel = PANEL_PROFILE) {
+  const p = { ...PANEL_PROFILE, ...panel }
   return p.outerWallDepth + p.flangeDrop * (Math.min(i, p.flangeWidth) / p.flangeWidth)
 }
 
 /**
- * The part's cross-section, as a simple closed polygon in the plane
- * perpendicular to the joint.
- *
- * Coordinates are `(p, q)` about the midpoint of the two rims: `p` runs from
- * panel A's rim toward panel B's, `q` is "up" (roughly the average lit normal).
- * Panel A's rim sits at `p = -span/2`, panel B's at `+span/2`, and each panel's
- * face tilts away from the p-axis by half the fold — so a positive `foldDeg`
- * (convex, a ridge) has both faces falling away and the lit faces diverging.
- *
- * The polygon is traversed counter-clockwise:
- *
- *      ┌────────────────────────────────────────────┐   ← one continuous strap:
- *      │  jaw A   ╎        spine        ╎   jaw B   │     both upper jaws + spine
- *      ├──────┐   ╎                     ╎   ┌───────┤
- *      │ slot │←── rim A inserts here   ╎   │ slot  │
- *      ├──────┘   ╎                     ╎   └───────┤
- *      │ hook A   ╎                     ╎   hook B  │
- *      └──────────┘                     └───────────┘
- *
- * The two notches are the slots. Nothing spans the gap on the underside — the
- * spine is the top band only, so the part never reaches into the space behind
- * the panels, which is the space that CLOSES on a convex joint.
- *
- * @param {object} opts
- * @param {number} opts.spanCm rim-to-rim distance at this cross-section
- * @param {number} opts.foldDeg signed dihedral; positive is convex (a ridge)
- * @param {object} [opts.profile] overrides for CONNECTOR_PROFILE
- * @returns {{ points: Array<[number, number]>, extents: object }}
+ * THE SPLIT PLANE HAS ONLY THE OUTER WALL TO LIVE IN. It must sit below the
+ * bezel the front bar grips and above the flange the back half grips, so its
+ * whole latitude is the 1.1cm outer wall. Reported rather than clamped, on the
+ * usual contract.
  */
-export function connectorProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE }) {
+export function splitPlaneRange(panel = PANEL_PROFILE) {
+  const p = { ...PANEL_PROFILE, ...panel }
+  return [p.bezelDrop, p.outerWallDepth]
+}
+
+/** The band of gaps one front bar of width `barWidthCm` can serve. */
+export function frontBarBand(barWidthCm, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const p = { ...PANEL_PROFILE, ...panel }
+  return [barWidthCm - 2 * p.bezelWidth, barWidthCm - 2 * c.frontMinLipCm]
+}
+
+/**
+ * Cover a set of gaps with as few front bars as possible.
+ *
+ * Greedy from the narrowest gap up: each bar is sized so the narrowest gap it
+ * serves gets the FULL bezel lip, and it then covers everything up to the top
+ * of its band. Greedy is optimal for covering points on a line with fixed-width
+ * intervals, so this is the true minimum, not a heuristic.
+ */
+export function solveFrontBars(gapsCm, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const p = { ...PANEL_PROFILE, ...panel }
+  const sorted = [...gapsCm].sort((x, y) => x - y)
+  const bars = []
+  let i = 0
+  while (i < sorted.length) {
+    const widthCm = r(sorted[i] + 2 * p.bezelWidth)
+    const [, hi] = frontBarBand(widthCm, c, p)
+    const serves = []
+    while (i < sorted.length && sorted[i] <= hi + 1e-9) serves.push(sorted[i++])
+    bars.push({
+      widthCm,
+      gapMinCm: r(serves[0]),
+      gapMaxCm: r(serves[serves.length - 1]),
+      bandCm: [r(widthCm - 2 * p.bezelWidth), r(hi)],
+      count: serves.length,
+    })
+  }
+  return bars
+}
+
+/**
+ * The FRONT BAR's cross-section: a rectangle, centred on the gap.
+ *
+ * Genuinely just a rectangle — that is what makes it universal. Its underside
+ * is flat at `frontFlatDepthCm`, its top at `-crownCm`, and it spans its own
+ * width regardless of what the joint underneath is doing.
+ */
+export function frontBarProfile(barWidthCm, profile = CONNECTOR_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const h = barWidthCm / 2
+  const top = c.crownCm
+  const bot = -c.frontFlatDepthCm
+  const points = [[-h, bot], [h, bot], [h, top], [-h, top]]
+  return { points, extents: extentsOf(points) }
+}
+
+/**
+ * The BACK HALF's cross-section: fills the gap behind the split plane and
+ * reaches under both flanges. Per-station, because the flanges tilt with the
+ * joint's fold.
+ */
+export function backHalfProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE, panel = PANEL_PROFILE }) {
   const c = { ...CONNECTOR_PROFILE, ...profile }
   const pp = { ...PANEL_PROFILE, ...panel }
   const phi = (foldDeg * Math.PI) / 180 / 2
   const cs = Math.cos(phi)
   const sn = Math.sin(phi)
-  const j = c.jawCm
-  const cl = c.clearanceCm
+  const bg = Math.min(c.backGripCm, pp.flangeWidth)
 
-  // Per side: the rim datum, the inward direction, and "deeper" (away from the
-  // lit side). The two sides are mirror images across p = 0. The rim datum is
-  // (inboard 0, depth 0) — the front-most plane at the panel's outer edge,
-  // which is exactly the point placement.js's jointEdgePoint returns.
   const sides = [
-    { rim: [-spanCm / 2, 0], inward: [-cs, -sn], deeper: [sn, -cs] },  // A, -p side
-    { rim: [spanCm / 2, 0], inward: [cs, -sn], deeper: [-sn, -cs] },   // B, +p side
+    { rim: [-spanCm / 2, 0], inward: [-cs, -sn], deeper: [sn, -cs] },
+    { rim: [spanCm / 2, 0], inward: [cs, -sn], deeper: [-sn, -cs] },
   ]
   const at = (side, i, d) => [
     side.rim[0] + i * side.inward[0] + d * side.deeper[0],
     side.rim[1] + i * side.inward[1] + d * side.deeper[1],
   ]
 
-  // One clamp, traced as a C opening INBOARD: down the bezel lip's inner face,
-  // around the outer wall, out along the flange lip, then back along the
-  // outside. Every inner-face point sits on the panel's own rim surface (offset
-  // by the clearance), so the clamp cannot bite into the panel by construction.
-  const clamp = (side) => {
-    const fg = Math.min(c.frontGripCm, pp.bezelWidth)
-    const bg = Math.min(c.backGripCm, pp.flangeWidth)
-    return [
-      at(side, fg, bezelDepthAt(fg, pp) - cl),                 // front lip, inner tip
-      at(side, 0, pp.bezelDrop - cl),                          // front outer corner
-      at(side, 0, pp.outerWallDepth + cl),                     // back outer corner
-      at(side, bg, flangeDepthAt(bg, pp) + cl),                // flange lip, inner tip
-      at(side, bg, flangeDepthAt(bg, pp) + cl + j),            // ...its thickness
-      at(side, 0, pp.outerWallDepth + cl + j),                 // spine, back face
-      at(side, 0, pp.bezelDrop - cl - j),                      // spine, front face
-      at(side, fg, bezelDepthAt(fg, pp) - cl - j),             // front lip, outer face
-    ]
-  }
-
-  const A = clamp(sides[0])
-  const B = clamp(sides[1])
-
-  // A's frame mirrors B's, so traversing both in the same LOCAL order would wind
-  // them oppositely; B is therefore reversed. The SPINE appears implicitly, as
-  // the two hops across the gap at indices 5 and 6 — it fills the gap over the
-  // whole depth of the outer wall plus both jaw thicknesses, which is a far
-  // stiffer section than a strap across the front.
-  //
-  // Its faces sit at the panels' own edges (inset 0), NOT proud of them. One
-  // shared piece of material bridges the gap; giving each clamp its own outboard
-  // wall instead invented a minimum gap of twice the wall thickness, which shut
-  // out every joint under 0.8cm for no physical reason.
+  const aLip = at(sides[0], bg, flangeDepthAt(bg, pp))
+  const bLip = at(sides[1], bg, flangeDepthAt(bg, pp))
+  const aWall = at(sides[0], 0, pp.outerWallDepth)
+  const bWall = at(sides[1], 0, pp.outerWallDepth)
+  // The floor must clear EVERY point above it, not just the lips: on a concave
+  // joint the walls tilt outward and their back corners drop below the lips, and
+  // a floor taken from the lips alone left them hanging through it — a
+  // self-intersecting outline, which lofts into a torn shell.
+  const floor = Math.min(aLip[1], bLip[1], aWall[1], bWall[1]) - c.backFloorCm
+  // Counter-clockwise in (p, q): along the floor, up the far side, back over the
+  // top face, down the near side. The loft's winding rule depends on it, and a
+  // clockwise outline produces a shell that is inside-out — invisible on screen,
+  // fatal at the slicer.
+  // The top surface FOLLOWS THE PANEL: up the outer wall from the back corner to
+  // the split plane, across the gap, and back down the other wall. Cutting
+  // straight from the split plane to the flange lip instead would run the piece
+  // clean through the panel's own section.
   const points = [
-    A[0], A[1], A[2], A[3], A[4], A[5],
-    B[5], B[4], B[3], B[2], B[1], B[0], B[7], B[6],
-    A[6], A[7],
+    [aLip[0], floor],
+    [bLip[0], floor],
+    bLip,
+    bWall,
+    at(sides[1], 0, c.splitDepthCm),
+    at(sides[0], 0, c.splitDepthCm),
+    aWall,
+    aLip,
   ]
+  return { points, extents: extentsOf(points) }
+}
 
+function extentsOf(points) {
   let pMin = Infinity
   let pMax = -Infinity
   let qMin = Infinity
@@ -242,8 +287,25 @@ export function connectorProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE,
     if (q < qMin) qMin = q
     if (q > qMax) qMax = q
   }
+  return { pMin, pMax, qMin, qMax, width: pMax - pMin, height: qMax - qMin }
+}
 
-  return { points, extents: { pMin, pMax, qMin, qMax, width: pMax - pMin, height: qMax - qMin } }
+/**
+ * The gap a fastener needs, and where it is narrowest.
+ *
+ * The binding dimension is the countersink head or the insert's outside
+ * diameter, whichever is larger, plus a wall each side. And the check must be
+ * made at DEPTH, not at the face: on a convex joint the gap narrows as
+ * `gap − 2·d·sin(fold/2)`, and the insert sits at the bottom of the back half.
+ * This is the first constraint in the tool that couples gap and fold.
+ */
+export function fastenerGapNeededCm(profile = CONNECTOR_PROFILE) {
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  return Math.max(c.bolt.headCm, c.bolt.insertOdCm) + 2 * c.wallCm
+}
+
+export function gapAtDepthCm(spanCm, foldDeg, depthCm) {
+  return spanCm - 2 * depthCm * Math.sin(Math.abs((foldDeg * Math.PI) / 180 / 2)) * (foldDeg > 0 ? 1 : -1)
 }
 
 /**
@@ -255,8 +317,8 @@ export function connectorProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE,
  */
 export function connectorEndProfiles(station, profile = CONNECTOR_PROFILE) {
   return {
-    start: connectorProfile({ spanCm: station.spanStartCm, foldDeg: station.foldDeg, profile }),
-    end: connectorProfile({ spanCm: station.spanEndCm, foldDeg: station.foldDeg, profile }),
+    start: backHalfProfile({ spanCm: station.spanStartCm, foldDeg: station.foldDeg, profile }),
+    end: backHalfProfile({ spanCm: station.spanEndCm, foldDeg: station.foldDeg, profile }),
   }
 }
 
@@ -271,7 +333,16 @@ export function connectorEndProfiles(station, profile = CONNECTOR_PROFILE) {
  * plates in HANDOFF §6.
  */
 export function connectorOBB(station, profile = CONNECTOR_PROFILE) {
-  const { start, end } = connectorEndProfiles(station, profile)
+  return pieceOBB(station, connectorEndProfiles(station, profile))
+}
+
+/** The front bar's box. A constant rectangle, so both ends are the same. */
+export function frontBarOBB(station, barWidthCm, profile = CONNECTOR_PROFILE) {
+  const prof = frontBarProfile(barWidthCm, profile)
+  return pieceOBB(station, { start: prof, end: prof })
+}
+
+function pieceOBB(station, { start, end }) {
   const pMin = Math.min(start.extents.pMin, end.extents.pMin)
   const pMax = Math.max(start.extents.pMax, end.extents.pMax)
   const qMin = Math.min(start.extents.qMin, end.extents.qMin)
@@ -294,6 +365,11 @@ export function connectorOBB(station, profile = CONNECTOR_PROFILE) {
   }
 }
 
+/**
+ * Does the BACK HALF fold so far that it closes on itself? The two flange lips
+ * swing toward each other as a convex joint folds, exactly as the old one-piece
+ * clamp's did. The front bar cannot self-intersect — it is a rectangle.
+ */
 /** Signed area of a closed polygon; positive means counter-clockwise. */
 export function polygonArea(points) {
   let a = 0
@@ -385,15 +461,29 @@ export const CONNECTOR_LIMITS = {
  *   W_CONNECTOR_TWIST   the part wedges too much along its own length; this is
  *        the one `connectors.lengthCm` directly controls.
  */
-export function connectorStationFlags(station, limits = CONNECTOR_LIMITS) {
+export function connectorStationFlags(station, limits = CONNECTOR_LIMITS, profile = CONNECTOR_PROFILE) {
   const flags = []
-  const { start, end } = connectorEndProfiles(station)
+  const { start, end } = connectorEndProfiles(station, profile)
   if (profileSelfIntersects(start.points) || profileSelfIntersects(end.points)) {
     flags.push('W_CONNECTOR_INFEASIBLE')
   }
   if (station.spanMinCm < limits.minSpanCm) flags.push('W_CONNECTOR_PINCH')
   if (station.spanMaxCm > limits.maxSpanCm) flags.push('W_CONNECTOR_SPAN')
   if (station.spanSpreadCm > limits.maxSpanSpreadCm) flags.push('W_CONNECTOR_TWIST')
+
+  // THE FASTENER, checked where the gap is NARROWEST — at the bottom of the
+  // back half, not at the face. On a convex joint the gap closes with depth, so
+  // a bolt that clears at the rim can still be pinched at the insert.
+  const need = fastenerGapNeededCm(profile)
+  const c = { ...CONNECTOR_PROFILE, ...profile }
+  const deep = flangeDepthAt(c.backGripCm) + c.backFloorCm
+  const atFace = station.spanMinCm
+  const atDepth = gapAtDepthCm(station.spanMinCm, station.foldDeg, deep)
+  if (Math.min(atFace, atDepth) < need) flags.push('W_FASTENER_PINCHED')
+
+  // The panel's power supply sits on the flange this half grips, so the lip
+  // bears on the SUPPLY HOUSING rather than the panel frame.
+  if (station.bearsOnPowerSupply) flags.push('W_BEARS_ON_POWER_SUPPLY')
   return flags
 }
 
@@ -494,10 +584,46 @@ export function clearSpans(blocked, lo, hi) {
   return out
 }
 
-/** A joint whose usable rim is too short for even one part. */
+/**
+ * A joint whose usable rim is too short for even one part. Only reachable when
+ * the supply is treated as a hard obstruction (`powerEdge: 'block'`).
+ */
 export const BLOCKED_CODE = 'W_JOINT_BLOCKED_BY_POWER_SUPPLY'
 /** A joint that lost parts to the power supply but still carries some. */
 export const REDUCED_CODE = 'W_JOINT_REDUCED_BY_POWER_SUPPLY'
+
+/**
+ * HOW FAR THE SUPPLY STANDS PROUD OF THE FLANGE, at `i` cm inboard.
+ *
+ * Re-measured, and it corrects an earlier over-statement in this file. The
+ * supply's top face sits at the flange's OUTER depth (1.20cm) while the flange
+ * itself falls away to 1.30cm going inboard — so the supply is FLUSH at the
+ * panel edge and at most 1mm proud at the flange's inner edge. It is set into
+ * the housing behind the flange, not a box sitting on top of it.
+ *
+ * Consequences, and they pull in opposite directions:
+ *   - the interference is tiny, so a 1mm RELIEF in the back half's lip clears
+ *     it and a powered edge can carry a connector after all;
+ *   - but the lip then bears on the SUPPLY HOUSING rather than on the panel
+ *     frame, because the supply occupies the flange it would otherwise sit on.
+ *
+ * The tool reports that rather than choosing: `W_BEARS_ON_POWER_SUPPLY`.
+ * Whether a driver housing is something to clamp against is a hardware question
+ * this model cannot answer.
+ */
+export function supplyProudAt(i, panel = PANEL_PROFILE, supply = POWER_SUPPLY) {
+  const p = { ...PANEL_PROFILE, ...panel }
+  const s = { ...POWER_SUPPLY, ...supply }
+  if (i < s.edgeInset || i > s.edgeInset + s.depth) return 0
+  return Math.max(0, flangeDepthAt(i, p) - p.outerWallDepth)
+}
+
+/** The relief a lip reaching `gripCm` inboard needs to clear the supply. */
+export function supplyReliefCm(gripCm, panel = PANEL_PROFILE, supply = POWER_SUPPLY) {
+  let worst = 0
+  for (let k = 0; k <= 20; k++) worst = Math.max(worst, supplyProudAt((gripCm * k) / 20, panel, supply))
+  return worst
+}
 
 /**
  * How many parts a joint of `materialLength` gets.
@@ -523,7 +649,7 @@ export function solveConnectors(config, layout = null) {
   const cfg = normalizeConfig(config)
   const L = layout ?? solveLayout(cfg)
   const byId = new Map(L.tiles.map((t) => [t.id, t]))
-  const { lengthCm, spacingCm, minPerJoint, powerEdge } = cfg.connectors
+  const { lengthCm, spacingCm, minPerJoint, powerEdge, supplyMode } = cfg.connectors
 
   const stations = []
   const perJoint = []
@@ -543,7 +669,13 @@ export function solveConnectors(config, layout = null) {
     // the flange for 50 of its 60cm. So the usable rim is only what is left
     // outside that, and stations are placed in those clear stretches rather
     // than evenly along a joint that cannot receive them.
-    const blocked = blockedSpansOnJoint(edge, A, B, powerEdge)
+    // In 'relief' mode (the default) the supply is NOT an obstruction: it is
+    // flush with the flange to within 1mm, so a relief in the lip clears it and
+    // the part is placed normally — but flagged, because the lip then bears on
+    // the supply housing rather than the panel frame. 'block' keeps the older,
+    // stricter reading so the difference can be measured.
+    const supplySpans = blockedSpansOnJoint(edge, A, B, powerEdge)
+    const blocked = supplyMode === 'block' ? supplySpans : []
     const clear = clearSpans(blocked, edge.edge.from, edge.edge.to)
     const clearLength = clear.reduce((n, [a, b]) => n + (b - a), 0)
 
@@ -688,8 +820,12 @@ export function solveConnectors(config, layout = null) {
       const spanStart = spanAt(s - along * partLength / 2)
       const spanEnd = spanAt(s + along * partLength / 2)
 
+      const half = partLength / 2
+      const bearsOnPowerSupply = supplySpans.some(([lo, hi]) => s + half > lo && s - half < hi)
+
       stations.push({
         id: `J${jointIndex}S${k}`,
+        bearsOnPowerSupply,
         jointIndex,
         a: edge.a,
         b: edge.b,

@@ -50,7 +50,12 @@ console.log('1. the summary is consistent with the stations')
     ok(c.summary.jointCount === c.perJoint.length, `${id}: every joint appears once in perJoint`)
     ok(c.summary.flagged === c.stations.filter((s) => s.flags.length > 0).length,
       `${id}: flagged count matches the rows`)
-    ok(c.summary.partTypes === c.kit.length, `${id}: partTypes matches the kit length`)
+    // partTypes is now BOTH families: one back half per geometry bin plus the
+    // handful of universal front bars.
+    ok(c.summary.backHalfTypes === c.kit.length, `${id}: backHalfTypes matches the kit length`)
+    ok(c.summary.frontBarTypes === c.bars.length, `${id}: frontBarTypes matches the bar list`)
+    ok(c.summary.partTypes === c.kit.length + c.bars.length, `${id}: partTypes is both families`)
+    ok(c.bars.length <= c.kit.length, `${id}: there are never more bar types than back-half types`)
     ok(c.summary.clashes === c.clashes.length, `${id}: clash count matches the rows`)
 
     const worstSpread = Math.max(...c.stations.map((s) => s.spanSpreadCm))
@@ -232,9 +237,17 @@ console.log('6. single-connector joints')
     'ignoring the power supply, every joint reaches the two-part floor')
   ok(!R2.connectors.warnings.some((w) => w.code === 'W_JOINT_SINGLE_CONNECTOR'), 'and no warning')
 
-  const RP = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2, powerEdge: 'low' }))
-  ok(RP.connectors.summary.singleConnectorJoints > 0,
-    `with it modelled, joints fall below the floor (${RP.connectors.summary.singleConnectorJoints})`)
+  // In the DEFAULT relief mode the supply costs no parts, so nothing falls below
+  // the floor — that is the whole point of the correction. Only the stricter
+  // 'block' reading empties joints.
+  const RR = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2, powerEdge: 'low' }))
+  ok(RR.connectors.summary.singleConnectorJoints === 0,
+    'relief mode leaves every joint at the floor')
+  ok(RR.connectors.summary.bearsOnSupply > 0,
+    `but flags the parts that bear on a supply (${RR.connectors.summary.bearsOnSupply})`)
+  const RB = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 2, powerEdge: 'low', supplyMode: 'block' }))
+  ok(RB.connectors.summary.singleConnectorJoints > 0,
+    `the stricter reading drops joints below the floor (${RB.connectors.summary.singleConnectorJoints})`)
 
   const R1 = buildReport(withConnectors(buildPreset('drift'), { minPerJoint: 1, spacingCm: 200 }))
   ok(R1.connectors.summary.singleConnectorJoints > 0,

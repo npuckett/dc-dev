@@ -198,7 +198,8 @@ console.log('4. manifest')
 
   ok(m.units === 'millimetres', 'the manifest states its units')
   ok(m.parts.length === kit.length, 'one row per unique type')
-  ok(m.totals.uniqueTypes === kit.length, 'totals agree with the rows')
+  ok(m.totals.uniqueTypes === kit.length + report.connectors.bars.length,
+    'totals count back halves and front bars')
 
   // The count the STL cannot carry: how many of each to actually run.
   const printed = m.parts.reduce((n, p) => n + p.quantity, 0)
@@ -212,8 +213,8 @@ console.log('4. manifest')
 
   // mm throughout, cross-checked against the cm source.
   near(m.parts[0].lengthMm, kit[0].lengthCm * MM_PER_CM, 1e-6, 'part length is in mm')
-  near(m.grip.backLipMm, kit[0].lengthCm > 0 ? m.grip.backLipMm : 0, 1e-9, 'the manifest records the grip')
-  ok(m.grip.backLipMm > m.grip.frontLipMm, 'the manifest records a grip that is mostly on the back')
+  ok(m.grip.backLipMm > 0, 'the manifest records the flange grip')
+  ok(m.grip.panelRim.outerWallHeightMm > 0, 'and the wall the two halves clamp across')
   ok(m.grip.panelRim.flangeWidthMm > 0, 'and the panel rim it was derived from, so an old manifest is identifiable')
   ok(m.grip.v1Reference.fixedDihedralDeg === 62, "v1's fixed angle is recorded for comparison")
 
@@ -225,8 +226,8 @@ console.log('4. manifest')
   for (const p of m.parts) for (const j of p.joints) joints.add(j)
   const carrying = new Set(report.connectors.perJoint.filter((pj) => pj.count > 0).map((pj) => pj.jointIndex))
   ok(joints.size === carrying.size, 'every joint that carries parts is covered by the kit')
-  ok(carrying.size < report.connectors.summary.jointCount,
-    'and some joints carry none — the power supply, not an omission')
+  ok(carrying.size === report.connectors.summary.jointCount,
+    'and in relief mode every joint carries parts — the supply costs none')
 
   ok(JSON.stringify(connectorManifest(cfg, report, plate.parts).parts) === JSON.stringify(m.parts),
     'the manifest body is deterministic (only `generated` is a timestamp)')

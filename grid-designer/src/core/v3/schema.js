@@ -438,6 +438,18 @@ export const CONNECTOR_BIN_ANGLE_MAX = 30
  */
 export const CONNECTOR_POWER_EDGES = ['low', 'high', 'none']
 
+/**
+ * `connectors.supplyMode` — how the power supply is treated.
+ *
+ * 'relief' (default) — the supply is flush with the flange to within 1mm, so a
+ *   relief in the back half's lip clears it and the joint carries a connector.
+ *   The lip then bears on the supply HOUSING rather than the panel frame, which
+ *   is reported per station and not decided here.
+ * 'block' — treat the supply as solid, so a powered edge has only ~5cm of clear
+ *   rim at each end. Kept to measure what the stricter reading costs.
+ */
+export const CONNECTOR_SUPPLY_MODES = ['relief', 'block']
+
 export const DEFAULT_CONNECTORS = {
   lengthCm: 10,
   spacingCm: 50,
@@ -445,6 +457,7 @@ export const DEFAULT_CONNECTORS = {
   binSpanCm: 0.5,
   binAngleDeg: 5,
   powerEdge: 'low',
+  supplyMode: 'relief',
 }
 
 export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, overrides: [], maxPlates: null }
@@ -609,6 +622,8 @@ function withDefaults(raw) {
         connectorsSrc.binAngleDeg !== undefined ? connectorsSrc.binAngleDeg : DEFAULT_CONNECTORS.binAngleDeg,
       powerEdge:
         connectorsSrc.powerEdge !== undefined ? connectorsSrc.powerEdge : DEFAULT_CONNECTORS.powerEdge,
+      supplyMode:
+        connectorsSrc.supplyMode !== undefined ? connectorsSrc.supplyMode : DEFAULT_CONNECTORS.supplyMode,
     },
     gapTolerance: src.gapTolerance !== undefined ? src.gapTolerance : DEFAULT_GAP_TOLERANCE,
     groundTolerance: src.groundTolerance !== undefined ? src.groundTolerance : DEFAULT_GROUND_TOLERANCE,
@@ -740,6 +755,9 @@ export function normalizeConfig(raw) {
       powerEdge: CONNECTOR_POWER_EDGES.includes(cfg.connectors.powerEdge)
         ? cfg.connectors.powerEdge
         : DEFAULT_CONNECTORS.powerEdge,
+      supplyMode: CONNECTOR_SUPPLY_MODES.includes(cfg.connectors.supplyMode)
+        ? cfg.connectors.supplyMode
+        : DEFAULT_CONNECTORS.supplyMode,
     },
     gapTolerance: positiveOr(cfg.gapTolerance, DEFAULT_GAP_TOLERANCE),
     groundTolerance: positiveOr(cfg.groundTolerance, DEFAULT_GROUND_TOLERANCE),

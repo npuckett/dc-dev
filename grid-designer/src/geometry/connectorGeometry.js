@@ -35,7 +35,7 @@
  */
 
 import * as THREE from 'three'
-import { connectorEndProfiles, CONNECTOR_PROFILE } from '../core/v3/connectors.js'
+import { connectorEndProfiles, frontBarProfile, CONNECTOR_PROFILE } from '../core/v3/connectors.js'
 
 /**
  * Build one connector's solid.
@@ -45,8 +45,23 @@ import { connectorEndProfiles, CONNECTOR_PROFILE } from '../core/v3/connectors.j
  * @returns {THREE.BufferGeometry} closed, outward-oriented, in the station frame
  */
 export function buildConnectorGeometry(station, profile = CONNECTOR_PROFILE) {
-  const { start, end } = connectorEndProfiles(station, profile)
-  const half = station.lengthCm / 2
+  return loft(connectorEndProfiles(station, profile), station.lengthCm)
+}
+
+/**
+ * The FRONT BAR. A constant rectangular section, so both ends of the loft are
+ * the same profile — which is exactly why one bar serves a whole band of gaps.
+ *
+ * @param {number} barWidthCm across the joint
+ * @param {number} lengthCm along the joint
+ */
+export function buildFrontBarGeometry(barWidthCm, lengthCm, profile = CONNECTOR_PROFILE) {
+  const prof = frontBarProfile(barWidthCm, profile)
+  return loft({ start: prof, end: prof }, lengthCm)
+}
+
+function loft({ start, end }, lengthCm) {
+  const half = lengthCm / 2
 
   if (start.points.length !== end.points.length) {
     // Cannot happen — connectorProfile emits a fixed 16-point outline — but a
