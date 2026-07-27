@@ -1,15 +1,28 @@
 # grid-designer — handoff & decision log
 
-Written 2026-07-26/27, covering the **v3 pivot** and the connector work that followed. Read
-**[README.md](README.md)** for how the tool works and **[V3_SPEC.md](V3_SPEC.md)** for the model;
-this document records **why it is the way it is**, what was tried and rejected, and what is open.
+Written 2026-07-26/27, covering the **v3 pivot**, the connector work that followed, and the **v4
+pivot away from both**. Read **[README.md](README.md)** for how the tool works and
+**[V4_SPEC.md](V4_SPEC.md)** for the current model; this document records **why it is the way it
+is**, what was tried and rejected, and what is open.
 
-Branch `v3-drift-tiling`. All suites green (3901 checks across 16 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (5567 checks across 21 suites), build clean, app verified
 in the browser.
+
+> ## STATUS, 2026-07-27 — v4 is the model; §0 below is now history
+>
+> The surface-fit direction described in §0 was retired and **replaced**, in the same session, by
+> the folded ribbon: [V4_SPEC.md](V4_SPEC.md), `src/core/v4/`, `src/v4/`. §0 is preserved unedited
+> because it is the argument for the replacement, and §2's findings still hold. **§8 is the v4
+> record** and **§9 is the network** — the ribbon generalised to a 2-D lattice, which is what the
+> tool now builds. Read §9 first.
+>
+> What is live from v3: `core/v3/connectors.js` (the part and its feasibility envelope) and
+> `core/v3/collide.js`. Everything else in `core/v3/` and all of `src/v3/` is kept, tested and
+> unmounted.
 
 ---
 
-## 0. STATUS — the surface-fit direction is retired
+## 0. HISTORY — why the surface-fit direction was retired
 
 **Everything in this repository works and is tested. The approach it embodies is being left
 behind.** Read this section before anything else; the rest of the document is the evidence.
@@ -656,8 +669,12 @@ output comparison where available.
 **Start with §0.** It says what was built, what it proved, and why the direction is being left. Then
 **§5.3**, which is the inventory of what carries over — most of the repository does.
 
+**That new direction was built — it is v4, and §8 is its record.** Read §8 first; the list below is
+the background it was built on, and is still the right background.
+
 If you are continuing the NEW direction, the reading order is:
 
+0. **§8** — what v4 is, what it measured, and the one hardware question it raised.
 1. **§0** — the verdict and the evidence for it.
 2. **`src/config.js`'s header** — the measured panel, and why it is parameters rather than a shape.
    This is the foundation the new model should sit on.
@@ -669,10 +686,329 @@ If you are continuing the NEW direction, the reading order is:
    and a form built out of known-good folds.
 
 If you are maintaining what exists: `npm run dev --prefix grid-designer` (port 5175, or the
-`grid-designer-fresh` launch entry on 5177), run the 16 suites, load `shelf` to see the brief
-satisfied and `crest` to see the report say no. Turn on **connectors** in the viewport toolbar; tick
-**relax** on `modular` to watch 25 joints come inside the envelope for 0.3 cm of movement.
+`grid-designer-alt` / `grid-designer-fresh` entries on 5176 / 5177), run the 20 suites. The app
+mounts **v4**: push the angle past 33.6° to watch the envelope readout turn from a permission into a
+refusal with the reason named, drop it to 12° to see the front-bar warnings clear, and orbit round
+to +X for the profile the fold pattern reads in.
+
+The retired v3 UI is `src/v3/AppV3.jsx`, unmounted — point `src/main.jsx` at it to load `shelf` and
+see the brief satisfied, or `crest` to see the report say no.
 
 **Verify the numbers, not the narrative** — and prefer structural proof over output comparison. That
 practice caught every one of the errors recorded here, including three of my own proposals that
 measured worse than doing nothing.
+
+---
+
+## 8. v4 — the folded ribbon
+
+Built 2026-07-27, immediately after §0's verdict. **[V4_SPEC.md](V4_SPEC.md)** is the specification;
+this section is what building it established.
+
+### 8.1 What it is
+
+An open chain of rigid 60 × 60 panels folded in a vertical plane, running from the window away
+toward +z, in the trapezoid pattern `_ / - \ _ / - \ _`. One angle θ, shared by every angled unit.
+The flats between the angled units split each direction change in half, so **every fold is θ rather
+than 2θ** — the reason this pattern buys height cheaply.
+
+Built as two work packages, each delegated and then independently verified by re-running the suites
+and probing the core directly rather than reading the summary (§6):
+
+| package | what |
+|---|---|
+| WP1 | `src/core/v4/` — schema, chain, connectors, report + 746 checks across four suites |
+| WP2 | `src/v4/` — store, shell, controls, units table, metrics, report, viewport |
+
+### 8.2 The bisector construction, and why the gap stops being a measurement
+
+The chain is a polyline on the panels' **lit-face plane**, and each joint steps along the bisector
+of the two panel directions:
+
+```
+S_{k+1} = E_k + gap · normalize(u_k + u_{k+1})
+```
+
+so `|S_{k+1} − E_k| = gap` exactly, at every joint, at every angle, and the joint is symmetric about
+that step. Verified over 49 (gap, angle) combinations: **max |span − gap| = 0, exactly**, along with
+zero span spread and zero twist.
+
+**This is the whole pivot in one line of arithmetic.** In v3 the gap was an outcome: you authored a
+surface, panelized it, and measured how far each joint had been wedged from nominal — 58 of 60
+joints out of tolerance on a typical drift. In v4 it is an input the geometry honours by
+construction. There is nothing to deviate, so there is no tolerance on it and no relaxation solver.
+
+### 8.3 The envelope has to be bisected, not read off
+
+`foldLimitDeg(gap)` is the panels' own back-corner limit and it is far too generous to use directly:
+at a 2 cm gap it says 90°. The binding constraint at that gap is **`W_FASTENER_PINCHED` at 33.6°** —
+the M3 bolt pinched at the depth its insert sits at, on a convex joint where the gap narrows with
+depth. §2.20 already said the connector fouls 3–6° before the panels do; the consequence is that the
+honest limit is **where the flags start**, found by bisecting `connectorStationFlags` over 60 fixed
+steps, and never by evaluating a formula.
+
+Both directions are reported, because both are permissions:
+
+- `maxAngleDeg` — the largest θ this gap admits. **33.60° at gap 2 cm** (headroom 3.60° on the
+  default 30° design).
+- `minGapCm` — the smallest gap this angle admits. **1.90 cm at θ = 30°** (headroom 0.10 cm).
+
+Both were verified to be real boundaries rather than plausible numbers: clean at `maxAngleDeg −
+0.05°` and dirty at `+0.05°`, clean at `minGapCm + 0.005` and dirty at `−0.005`.
+
+**This is the thing §0 says v3 never had.** The old tool could grade a design; this one states what
+you are allowed to do before you do it.
+
+### 8.4 The front bar cannot lie across a valley — a new finding, and a real problem
+
+Assign a bar width and ask `sectionFouling` directly (v3's ordering assigns widths *after* flagging,
+so `W_FRONT_BAR_FOULS_PANEL` has never fired in either version) and it says:
+
+> **a flat front bar bites the bezels on a concave joint past 12.37° of fold.**
+
+In a valley the two lit faces tilt up toward a bar that stays flat across the gap, and its overhang
+meets the rising bezel peaks. Bisected at gaps of 1, 1.5, 2, 3 and 4 cm: **12.37° at every one of
+them.** That constancy is the tell — the overhang that collides is `frontLipCm`, which does not
+depend on the gap, so **widening the gap does not buy a single degree.**
+
+This matters here in a way it did not for a drift: **exactly half of a trapezoid wave's joints are
+valleys**, so at any useful θ the front bar needs an answer. The default 30° design is 17.6° past it
+on four of its eight joints.
+
+It is deliberately kept **out** of `ENVELOPE_HARD_FLAGS` and given its own reading
+(`envelope.frontBar`, and `W_FRONT_BAR_FOULS_BEZEL` per joint):
+
+- folding it in would collapse `maxAngleDeg` from 33.60° to 12.37° and hide the limit that governs
+  the **connector**, which is the one a fold actually has to respect;
+- and it is **fixable in the part** — a relief or chamfer on the bar's underside, or a narrower bar
+  on concave stations. A limit you can design away does not belong in the same number as one you
+  cannot.
+
+**This is the open hardware question v4 hands back.** §5.1 already recorded that the universal front
+bar was retired and each station gets its own; this says the concave stations need a different
+*section*, not just a different width.
+
+### 8.5 Smaller things worth keeping
+
+- **A flip is a statement about the joint, not a display option.** The connector grips the back
+  flange, so a joint whose two panels face opposite ways has its flanges on opposite sides and **no
+  part in this family can span it**. v4 emits no station for such a joint and reports
+  `W_JOINT_FLIP_MISMATCH`. Flipping one unit costs two joints their connectors.
+- **Removal is kinematically inert, by design.** Removing a unit leaves every other unit's position
+  *bit-identical*; only the two joints touching it disappear. A layout that re-solved itself when
+  you deleted a panel would make the pattern unusable to reason about.
+- **Adjacent panels' OBBs genuinely interpenetrate** — 0.12 cm at 30°, 2.4 cm at 75°, always at a
+  convex fold where the housings converge. Excluding adjacent pairs from the collision pass is
+  therefore load-bearing, not a formality: their overlap is the joint's business and
+  `sectionFouling` judges it exactly, where an OBB pair cannot.
+- **1e-9 rounding is too coarse for a feasibility verdict.** v3's `r()` at 1e-9 gave an 8.0 cm gap a
+  measured 8.000000001 and tripped `W_CONNECTOR_SPAN` — a picometre deciding buildability. Unit
+  records keep 1e-9; joint rim points, normals and run vectors use 1e-12.
+- **`dihedralDeg` is `|foldDeg|`, not an independent `acos`.** `acos` is badly conditioned near a
+  flat joint and returned ~1e-4° of noise at θ → 0 where `atan2` is exact.
+
+### 8.6 Open — the next package
+
+**The sideways branches.** The `high` units (3, 7, …) are marked as branch anchors and nothing runs
+out of them yet. The plan is angled panels from a high unit down to the floor, sideways along x, to
+meet the next strip and close the network in 3D. `strip.count` and the `(strip, unit)` override key
+already exist for it; `strip.count > 1` currently renders independent parallel ribbons with no
+cross-strip joints.
+
+Note that this is where §3's planar-quad trap will reappear, and where it will be decided rather
+than argued: a branch that lands on the floor *and* meets its neighbour's branch is a closed cycle,
+and a cycle of rigid panels does not generally admit exact joints (§2.2). The v4 answer available
+and not available to v3 is that the branch's own angle is a free parameter chosen from inside the
+envelope, rather than dictated by a surface.
+
+Also open, in rough order of how much they matter:
+
+- **the front bar's concave section** (§8.4) — the one real hardware question this pass raised
+- per-unit angle overrides; plates (`2x4`) in the chain
+- the connector manifest still self-identifies as `grid-designer v3` and has a `design.sheet` slot
+  a v4 config cannot fill; the parts and quantities are correct
+- part labelling, cable routing, structural analysis — all still §5.1's list, all still unbuilt
+
+---
+
+## 9. v4, part two — the network
+
+The ribbon generalised to a 2-D lattice, per **[V4_SPEC.md §9](V4_SPEC.md)**. The unit of design
+stops being a panel in a chain and becomes a **flat cell on a lattice**; the angled panels are
+derived, one per edge between two present cells.
+
+### 9.1 The rules forced the structure
+
+The brief was a growth grammar — ground flats add ramps UP at any face, high flats add ramps DOWN,
+repeat in x and z, ragged edges allowed. That admits **exactly two levels**, which makes every flat
+cell's four neighbours the opposite level, which is a **checkerboard**. There was no design freedom
+left to exercise; the rules had already chosen.
+
+### 9.2 The half-angle identity, and why the lattice is uniform
+
+The bisector step of §8.2 collapses when one panel is horizontal:
+
+```
+normalize(u_flat + u_tilt) = (cos(θ/2), sin(θ/2))
+```
+
+because `1 + cos θ = 2cos²(θ/2)`, `sin θ = 2 sin(θ/2) cos(θ/2)`, and the norm is `2cos(θ/2)`.
+
+So **every** level change costs the same plan distance and the same rise, in x and in z alike:
+
+```
+CELL PITCH   P = 60 + 2·gap·cos(θ/2) + 60·cos θ      identical in both axes
+LEVEL RISE   R = 2·gap·sin(θ/2)      + 60·sin θ
+```
+
+`P = 115.825228`, `R = 31.035276` at θ = 30°, gap = 2 — agreeing with the shipped ribbon to nine
+decimals. **The flat cells therefore sit on a uniform square lattice and every cycle closes with
+zero residual.** Verified by walking ground→ramp→high→ramp→ground→ramp→high→ramp around a corner and
+landing back on the start point.
+
+**This is the answer to §3's planar-quad trap, and it is worth being precise about why it is not a
+counterexample.** §3 says an all-quads-planar form on a rectangular lattice must be `h(i,j) = f(i) +
+g(j)`, and that such a family cannot be zero along two intersecting edges *and* be a mound. The
+checkerboard IS separable — `level = A(i) XOR B(j)` — and it escapes the trap by not being a mound.
+It is periodic. The trap was never a statement about rigid panels; it was a statement about mounds.
+
+### 9.3 A ramp needs one cell, not two
+
+The first cut required a ramp's **both** cells to be present. That made the plan editor a lie:
+clicking one flat removed up to five panels, so you could not edit the design panel by panel, which
+is the only thing the editor is for.
+
+The fix was one operator — `&&` to `||` — and the justification was already in the model: a **wall
+anchor** is a ramp with nothing at its far end, and it is a perfectly good panel. A ramp held at one
+end cantilevers off its single joint. Only a ramp with **neither** cell is absent, because that one
+would float.
+
+One click is now exactly one panel: 37 → 36 → 35 → 36 → 37, verified in the browser as well as the
+suite. Removing an interior flat costs four joints (one orphaned end per ramp) rather than eight.
+
+### 9.4 Editing and growing are one operation
+
+Because the lattice is **generated** rather than chained, switching a cell off leaves every other
+panel bit-identical — verified live in the browser, not just in the suite. So:
+
+- switching a cell **off** makes a ragged edge;
+- switching one **on** at a free face is "growing panel by panel", and it lands on the lattice by
+  construction, so it closes exactly;
+- switching an **edge** off opens the network without cutting material out of its boundary.
+
+There is no separate growth mechanism, no hinge to drag, and nothing to reconcile. That equivalence
+is the reason the lattice model was chosen over a kinematic tree, which is what `panel-designer/`
+was and why it was abandoned: a tree cannot close a cycle, and a network is nothing but cycles.
+
+### 9.5 A flip is much more expensive on a network
+
+A ramp cannot be flipped — its orientation is fixed by which cells it joins. So flipping a *cell*
+mismatches **every joint that cell has**, up to four, and each of them loses its connector. On the
+ribbon a flip cost two joints; here it can cost four. The store's notice says so at the moment of
+the click rather than leaving the report to break the news.
+
+If flipping is to stay useful on a network, `overrides.edges` needs a `flipped` too. Not built.
+
+### 9.6 The corner clearance — the one number with no 1-D analogue, and it is unresolved
+
+Four ramps meet at each lattice corner and, in plan, leave a diamond hole between them: a ground
+cell's +x ramp occupies `x > 60, z ∈ [0,60]` and its +z ramp `z > 60, x ∈ [0,60]`, so the region
+beyond both is occupied by neither. That much is exact and intended.
+
+Whether their **housings** clear is not settled, and the tool cannot settle it:
+
+| measured with | clearance at θ = 30°, gap 2 |
+|---|---|
+| the full OBB | **−0.12 cm** (crosses zero at 28.2°) |
+| a back-plate-only box | **+9.43 cm** (still +7.19 cm at 50°) |
+
+The boxes meet at their **corners**, where the real section is 1.2 cm of outer wall and the OBB
+claims 4.1 cm. The honest test is section-level — the `sectionFouling` analogue for a pair that
+shares no joint — and no such function exists in `core/v3/`.
+
+So corner pairs are reported (`metrics.cornerClearance`, `W_CORNER_RAMPS_MEET`, and their own
+`report.cornerContacts` list) and deliberately kept **out of `report.collisions`**. Calling a 3 cm
+box corner a panel collision would assert something the primitive cannot support, and would put 16
+red pairs on a design whose panels are very probably 9 cm apart. **A positive clearance is a
+guarantee; a negative one is a question.**
+
+Unlike the front bar (§8.4), the gap buys this back directly: the crossing is 14.0° at gap 1, 28.2°
+at gap 2, 58.4° at gap 4, ≥75° at gap 8.
+
+### 9.7 Smaller findings
+
+- **`collisions` is structurally empty on a lattice.** The only panels that can reach each other are
+  the ones sharing a joint (excluded — that overlap *is* the joint) and the two ramps off a shared
+  cell (the corner pairs). Everything else is a full pitch away. An empty list is therefore the
+  expected result, which is exactly why the suite checks the split is a **partition** of the raw
+  overlaps rather than trusting the count.
+- **`maxAngleDeg` must round DOWN and `minGapCm` UP.** Rounding either to 1e-9 could move it onto
+  the *dirty* side of a boundary located to 1e-16 — `isClean(reportedMinGap)` was actually false at
+  15° and 60°, so the tool was issuing a permission it would itself refuse. Latent since the ribbon;
+  only surfaced with the network's numbers.
+- **The envelope is a property of (gap, θ) and nothing else** — every joint on a lattice has the
+  same span and the same |fold|, so a 10 × 10 network reports the same 33.60° as a 1 × 2 one. That
+  is what makes it quotable as a permission *before* a design exists. It is still measured over the
+  real design, because a module that asserts its own inputs cannot detect its own bug.
+
+### 9.8 Growing the network is the same click as shrinking it
+
+The plan editor started out only able to *remove*: you could switch a cell back on inside the
+bounding rectangle, but reaching past it meant the cols/rows steppers, which add a whole row at a
+time and cannot reach the wall or window sides at all. Since the point of the editor is tailoring
+where the surface meets the ground, that was most of the job missing.
+
+A **ring of empty slots** one cell wide now surrounds the grid; clicking one grows the rectangle.
+Three things had to be true for it to mean "add one panel":
+
+1. **Every other new cell slot starts absent.** Otherwise widening by a column adds five.
+2. **Every new edge slot not touching the clicked cell starts absent.** This one was found by
+   measuring rather than by thinking: because a ramp needs only ONE cell (§9.3), widening the
+   rectangle hung a ramp off every cell of the column beside it, and the first version of the click
+   added **seven** panels. The tooltip promised one.
+3. **Switching a cell on re-connects it to its present neighbours** — it clears exactly the
+   suppressions from (2) whose far cell is there. Without it, filling a slot next to an existing
+   column left the new panel floating beside its neighbour with no ramp between them. Edges to an
+   *absent* neighbour stay off, or a click would sprout cantilevers into empty space.
+
+**The re-origin is the part worth remembering.** Growing at `i = −1` shifts every index by one, so
+both the overrides and `pattern.phase` have to move with it — `level = (i + j + phase) mod 2` would
+otherwise invert the entire checkerboard, turning every ground cell high. That is a failure that
+looks deliberate, so the suite checks it both ways: all 15 original cells keep their level after a
+wall-edge growth, and omitting the flip inverts all 15.
+
+`trim` shrinks the rectangle back to the cells in use, by the same rule in reverse. No panel moves.
+
+### 9.9 The room's column
+
+`config.obstacles` (V4_SPEC §9.11) — axis-aligned boxes the design has to be planned around. The
+measured column (380, 285, 50 cm square, corner-anchored) ships as a default, because a design made
+without it on screen is a design made against the wrong room.
+
+Two decisions worth keeping:
+
+- **`anchor` is explicit.** `(380, 285)` is ambiguous between a near corner and a centre, and the two
+  differ by 25 cm on a 50 cm column. Rather than guess, the record says which and the UI prints the
+  resulting extents beside the inputs. Guessing here produces a collision report that looks entirely
+  plausible and is wrong by half a column.
+- **Report, never enforce.** A fouled panel is named, outlined red in the plan and turns the column
+  red in 3D, but it is still placed and still counted — verified by a test asserting a fouled design
+  has exactly the same panel count and the same collision list as one with no column at all. The
+  fix is a click in the plan editor, not a veto.
+
+The overlap test deliberately uses the full panel OBB. It overstates the section near the rim (§9.6),
+but here that bias is the safe direction: a false "this fouls the column" costs one click, a false
+"it clears" costs a site visit. Clearance is a **lower bound** for the same reason.
+
+At the shipped 3 × 5 the column is 88 cm clear. It first bites at **4 columns** (2 panels), and 5
+columns puts 3 through it.
+
+### 9.10 Open
+
+1. **The corner section test** (§9.5) — the one real gap.
+2. **The front bar's concave section** (§8.4) — still the open hardware question, and the network
+   makes it worse: *every* ramp meets its ground cell in a valley, so exactly half of every
+   network's joints are concave at any θ.
+3. **What the wall anchor fixes to.** The geometry says where the toe lands; the attachment is not
+   modelled.
+4. Flippable ramps (§9.4); per-cell angle; plateaus of same-level flats; plates.

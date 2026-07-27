@@ -1,34 +1,100 @@
 # grid-designer
 
-A three.js tool for **planning the Drop Ceiling V2 installation** as a **tiled 3D surface** — a snow
-drift built from rigid ceiling-light panels. You author a drift form, a tiling algorithm decides
-which cells get a square and which get a plate, the panels are placed on it, and the tool measures
-**what the connectors have to absorb**.
+A three.js tool for **planning the Drop Ceiling V2 installation** as an **open folded network** of
+rigid ceiling-light panels. You set an angle and a gap; the tool lays flat panels on a checkerboard
+lattice — alternating ground and high — derives the angled panel on every edge between them, and
+tells you **how much more you can fold before the connectors run out**.
 
-That last part is the point. Read **[V3_SPEC.md](V3_SPEC.md)** for the model and
-**[HANDOFF.md](HANDOFF.md)** for the decision log and what is still open.
+Click the plan grid to shape it: take a cell out for a ragged edge, add one at a free face to grow,
+drop a single ramp to open the network. Nothing you do moves anything else — the lattice is
+generated, so every cycle closes exactly.
 
-> ### ⚠ This approach is being left behind
+Read **[V4_SPEC.md](V4_SPEC.md)** for the model and **[HANDOFF.md](HANDOFF.md)** for the decision
+log — including §0, which records the approach this one replaced and why.
+
+> ### The inversion, in one line
 >
-> Everything here works and is tested. What is being retired is the **workflow** — author a drift
-> surface, tile it with rigid panels, measure the damage. Built out to connectors, fasteners and a
-> relaxation solver, it turned out that **the tool is very good at saying no and has no way to say
-> yes**: every lever that is not the form itself measured as useless or actively harmful.
+> **v3 chose a form and then asked whether the panels could be it. v4 chooses folds the connectors
+> can already build and lets the form be whatever those compose into.**
 >
-> The next direction builds from the **panel and connector geometry** instead — a form composed of
-> joints already inside the connectors' feasible envelope is buildable by construction, with no
-> reconciliation step.
+> That is not a refactor, it is the opposite direction. v3 was built out to connectors, fasteners,
+> collision detection and a relaxation solver, and the honest verdict was that **it became very good
+> at saying no and never acquired a way to say yes** — every lever that was not the form itself
+> measured as useless or actively harmful ([HANDOFF §0](HANDOFF.md)).
 >
-> **[HANDOFF.md §0](HANDOFF.md)** has the verdict and the evidence; **§5.3** is the inventory of what
-> carries over (most of this repo — the measured panel, the connector, the collision machinery and
-> the whole test convention). Read those two before building on this.
+> In v4 the gap is an **input the geometry honours exactly** rather than an outcome that gets
+> measured, every joint is inside the connector envelope **by construction**, and the headline
+> number is a permission: *at a 2 cm gap you may fold to 33.6°.* There is no reconciliation step, no
+> relaxation, and nothing to fit.
 
 | project | what it is | status |
 |---|---|---|
-| `grid-designer/` | **this** — tiled 3D drift surface planning (schema v3) | active |
+| `grid-designer/` | **this** — the folded ribbon (schema v4) | active |
+| `grid-designer/src/{core/v3,v3}/` | the retired surface-fit tool | kept, unmounted; see [HANDOFF §0](HANDOFF.md) |
 | `panel-designer/` | first attempt: single-rooted kinematic tree | abandoned; some modules were copied out |
 | `spatial-editor/` | generic r3f scene editor | unrelated prior art |
 | `IO/public-viewer/` | live viewer for the **existing** installation | separate concern |
+
+---
+
+## The v4 model in one page
+
+**A strip is an open chain of rigid 60 × 60 panels folded in a vertical plane**, running from the
+window (`z = 0`) away toward `+z`. The first strip stands against the wall (`x = 0`).
+
+```
+unit k      1     2     3     4     5     6     7     8     9
+glyph       _     /     -     \     _     /     -     \     _
+role      base  rise  high  fall  base  rise  high  fall  base
+tilt α      0    +θ     0    −θ     0    +θ     0    −θ     0
+```
+
+One angle **θ**, shared by every angled unit, symmetric. Because the flats sit between the angled
+units, **every fold is θ rather than 2θ** — which is why this pattern buys height cheaply.
+
+**`high` units are the branch anchors.** The sideways build runs out of units 3 and 7, angled back
+down to the floor to meet the next strip and make the 3D network. v4 marks them and does not yet
+build them.
+
+Three things you can do to any unit: **remove** it (the chain does not re-solve — every other panel
+stays exactly where it was), **flip** it (lit face up/down on a flat, out/in on an angled one), or
+override its role.
+
+### Why the gap is exact
+
+The chain is a polyline on the panels' lit-face plane, and each joint steps along the **bisector** of
+the two panel directions:
+
+```
+S_{k+1} = E_k + gap · normalize(u_k + u_{k+1})
+```
+
+so `|S_{k+1} − E_k| = gap` at every joint, at every angle, by construction. That single property is
+what removes the entire v3 reconciliation problem.
+
+### The number the old tool could never produce
+
+`report.envelope` reports **`maxAngleDeg`** (the largest θ this gap admits with every joint clean)
+and **`minGapCm`** (the smallest gap this angle admits), both found by bisecting on the connector's
+own flag set rather than by reading a formula — because the part fouls 3–6° before the panels do,
+and the honest limit is where the flags start.
+
+At the default 2 cm gap: **33.6°**, limited by `W_FASTENER_PINCHED` — the bolt pinched at the depth
+its insert sits at, not the panels and not the fold.
+
+### The front bar is a separate limit, and this pattern needs it fixed
+
+A flat front bar sized for the gap **bites the bezels on a concave joint past 12.37°** — the two lit
+faces tilt up toward a bar that stays flat across the gap. Measured at 12.37° for gaps of 1, 1.5, 2,
+3 and 4 cm: **constant**, because the overhang that collides is `frontLipCm` and does not depend on
+the gap. **Widening the gap does not buy a degree.**
+
+Half of a trapezoid wave's joints are valleys, so at any useful θ this needs an answer. It is
+reported separately from the envelope (`envelope.frontBar`, `W_FRONT_BAR_FOULS_BEZEL` per joint)
+rather than folded into `maxAngleDeg`, for two reasons: it would collapse the headline number from
+33.6° to 12.37° and hide the limit that governs the connector, and **it is fixable in the part** — a
+relief or a chamfer on the bar's underside, or a narrower bar on concave stations. A limit you can
+design away does not belong in the same number as one you cannot.
 
 ---
 
@@ -103,7 +169,14 @@ One edge of every panel carries a **50 cm power supply** on the back, sitting on
 
 ---
 
-## The model (schema v3)
+## The retired model (schema v3) — kept for the record
+
+> Everything from here to "The connectors" describes the **surface-fit tool, which is no longer
+> mounted**. It is documented because its measurements are still the evidence base — the connector
+> envelope v4 builds inside was established here — and because [HANDOFF §2](HANDOFF.md) refers to it
+> throughout. `src/core/v3/connectors.js` and `collide.js` are still live and imported by v4;
+> `form.js`, `target.js`, `tiling.js`, `placement.js`, `relax.js`, `presets.js`, `report.js` and
+> `schema.js` are not.
 
 v2 modelled the installation as 6 independent 2D column fold-chains. **v3 throws that out.** It is
 now one 3D surface tiled by rigid panels; panels pitch, roll and yaw. "Row" and "column" are retired
@@ -417,33 +490,30 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
 
 ## The UI
 
+Same shell as before — top bar, fixed left control column, 3D viewport — rebuilt against the v4
+model in `src/v4/`. The v3 panels are still on disk and no longer mounted.
+
 - **3D viewport** — orbit, ground grid, the **WINDOW / SHORE** line at z = 0, the translucent
-  **WALL** at x = 0, a dismissible measuring box, and four **colour modes**: `type`, `gap`
-  (deviation per tile), `clearance` (grounding at a glance), `facet` (makes the angular target
-  legible). Plus a translucent **ghost of the target surface** and **collision highlighting**.
-- **Preset bar** — the six drifts, each showing what it trades away.
-- **Drift form** — every knob, with `angularity`, `facetCells` and `placement.mode` annotated
-  inline, because their meaning is not guessable from a label.
-- **Report** — joint deviation against tolerance, the holonomy split in `chain` mode, shape
-  residual, collisions, and per-edge grounding clearance.
-- **Plan view** — the material lattice showing squares and plates; row 0 at the bottom, wall
-  left. **Click a square to arm it**, mergeable neighbours highlight (green `+` when the plate
-  would fit, amber `~` when it would not, with the cost in the tooltip), click one to **combine
-  into a plate**; click a plate to **split** it. Escape disarms. Pinned tiles are marked, and the
-  report shows how many are hand-pinned versus algorithm-chosen.
-- **Plate budget** — a "limit plates" toggle and a count, with the report reading `plates / budget`
-  and turning red if pinning has pushed you over it.
-- **Connectors** — a viewport toggle drawing the printed parts **coloured by kit type**, so a design
-  needing four distinct parts reads instantly as four colours and one that has gone to a unique part
-  per joint reads as confetti (amber = flagged, red = cannot be built or fouls something); ticks
-  along every joint in the plan view showing where the parts sit; the kit table in the report; and
-  five knobs, split between the ones that decide the **structure** (length, spacing, count) and the
-  ones that only decide the **print queue** (the two bins).
-- **Drift footprint** — its own x/z sliders. It follows the sheet until you set it by hand, which
-  locks it; "refit to sheet" hands control back. (It used to be derived once and left behind, so
-  growing the sheet extended flat tiled material past the drift.)
-- **Relax** — a toggle plus "hold to form" and iterations, with a live line saying either how much
-  movement bought a clean envelope or how many joints are still outside.
+  **WALL** at x = 0, a dismissible measuring box, and four **colour modes**: `role` (the pattern
+  made visible), `fold` (worst joint fold touching each panel), `flip` (so a flipped panel is
+  unmistakable), `flags`. The default camera is a three-quarter from in front of the window, which
+  is what keeps the wall on the right and the window at the bottom; **orbit round to +X for the
+  profile**, which is the view the fold pattern reads in.
+- **The ribbon** — panel count and **angle** are the two knobs you actually drive, and both carry
+  their limits inline: the angle slider says how much headroom the connector leaves *and*, in its
+  own line, when you have gone past what a flat front bar can lie across. Plus gap, phase, strips,
+  the wall/window offsets and "sit on the floor".
+- **The glyph readout** — `_/-\_/-\_`, the clearest possible statement of what the strip is.
+- **Units table** — one row per panel, unit 1 at the window: **remove**, **flip** and a role
+  override. The flip toggle is labelled with the word that fits the unit — **up/down** on a flat,
+  **out/in** on an angled one — and the branch anchors are marked `↔`. Hovering a row highlights
+  that panel in 3D. Removed units dim rather than vanish.
+- **Metrics** — the measuring box **plus the per-axis detail it hides**: per strip (plan run,
+  height, developed length, and the compression ratio the folding bought), per row across the
+  strips, and per unit along the chain (z from/to, run, y from/to, rise).
+- **Report** — the **envelope first**: `maxAngleDeg`, `minGapCm`, headroom in both, and what
+  actually stops you spelled out in words. Then the front bar's own separate limit, the joint table
+  (span, fold, convex/concave, stations, flags), collisions and warnings.
 - **CONFIG JSON** + named slots + **Export**:
   - **OBJ** — the assembly, one named object per panel *and per connector*, world transforms baked.
   - **Connector STL** — one of each unique type, both families, **in millimetres**, laid flat for
@@ -463,18 +533,25 @@ src/
 ├── geometry/panelGeometry.js     the panel solid                  (kept from v2 — do not touch)
 ├── geometry/connectorGeometry.js the connector solid — lofts the profile
 ├── persistence.js                localStorage autosave + named slots
-├── core/v3/                      ← HEADLESS ZONE
+├── core/v4/                      ← HEADLESS ZONE — THE ACTIVE MODEL
+│   ├── schema.js              config v4, normalize, validate
+│   ├── chain.js               roles, fold kinematics, world placement, OBBs, bounds
+│   ├── connectors.js          v4 stations → v3's part machinery
+│   └── report.js              joints, the ENVELOPE, collisions, metrics
+├── v4/                        store + components (mounted by main.jsx)
+├── core/v3/                   ← HEADLESS ZONE — retired except connectors + collide
+│   ├── connectors.js          ★ the part, and the joint feasibility envelope — LIVE, v4 imports it
+│   ├── collide.js             ★ 15-axis OBB SAT — LIVE, v4 imports it
 │   ├── form.js                the smooth drift H(x,z) + analytic gradient
 │   ├── target.js              faceting + the arc-length unroll
 │   ├── schema.js              config, normalize, validate
 │   ├── tiling.js              domino tiling; square vs plate by fit
 │   ├── placement.js           surface-fit and chain placement, grounding
-│   ├── connectors.js          station placement, both part sections, limits
 │   ├── relax.js               spring relaxation into the connector envelope
 │   ├── report.js              joints, holonomy, fit, collisions, the connector kit
-│   ├── collide.js             15-axis OBB SAT
+│   ├── schema.js              config v3, normalize, validate
 │   └── presets.js             the six drifts
-├── v3/                        store + components
+├── v3/                        store + components (kept, unmounted)
 ├── utils/exporters.js         OBJ / JSON                          (kept from v2)
 └── utils/connectorExport.js   printable STL plate + manifest (MILLIMETRES)
 ```
@@ -504,6 +581,15 @@ Plain node scripts, no framework. Each prints a pass/fail summary and exits non-
 
 ```bash
 cd grid-designer
+
+# --- v4, the active model -------------------------------------------------
+node tests/test-v4-schema.mjs     #  228  config v4, normalization, every range code
+node tests/test-v4-lattice.mjs    #  939  the checkerboard, pitch, closure, handedness, editing
+node tests/test-v4-connectors.mjs #  189  stations, the fold sign, the flip mismatch
+node tests/test-v4-report.mjs     #  272  the envelope boundary, the front bar, corners, metrics
+node tests/test-v4-obstacles.mjs  #   37  the column: extents, hits, clearance, report-not-veto
+
+# --- v3, retired but still green ------------------------------------------
 node tests/test-form.mjs          #   89  drift heightfield, analytic gradient
 node tests/test-v3-schema.mjs     #  290  schema, normalization, every code
 node tests/test-v3-target.mjs     #   40  unroll, faceting, coplanarity
@@ -513,17 +599,17 @@ node tests/test-v3-placement.mjs  #  518  placement, grounding, both modes
 node tests/test-v3-report.mjs     #   49  joints, holonomy, collisions
 node tests/test-v3-presets.mjs    #   64  each preset delivers its claim
 node tests/test-v3-obj.mjs        #   25  OBJ round-trip
-node tests/test-geometry.mjs      #   50  the panel solid
-node tests/test-persistence.mjs   #   46  storage, version discard
+node tests/test-geometry.mjs      #   83  the panel solid
+node tests/test-persistence.mjs   #   47  storage, version discard
 node tests/test-v3-connectors.mjs         #  168  stations, frames, the fold sign, the power supply
 node tests/test-v3-connector-geometry.mjs #   79  both sections, both solids, the grip, the render sweep
 node tests/test-v3-connector-report.mjs   #  187  flags, the kit partition, clashes
 node tests/test-v3-connector-export.mjs   #   62  plate, STL bytes, manifest, assembly OBJ
-node tests/test-v3-relax.mjs              #   56  determinism, placements-only, and that it can fail
+node tests/test-v3-relax.mjs              #   71  determinism, placements-only, and that it can fail
 npm run build
 ```
 
-**3886 checks.** Three conventions worth keeping:
+**5567 checks across 21 suites.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat
