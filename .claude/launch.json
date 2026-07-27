@@ -12,6 +12,22 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "grid-designer", "--", "--port", "5176", "--strictPort"],
       "port": 5176
+    },
+    {
+      "name": "grid-designer-fresh",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "grid-designer",
+        "--",
+        "--port",
+        "5177",
+        "--strictPort",
+        "--force"
+      ],
+      "port": 5177
     }
   ]
 }

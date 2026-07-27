@@ -51,6 +51,33 @@ it away to get height. See "the trade" below.
 Panels are joined by 3D-printed connectors spanning the gap. Panels never share a vertex, which is
 why the geometry is tractable at all.
 
+### The panel section
+
+Measured from `updatedPanelGeo/` and held in `config.js` as **nine caliper-measurable parameters**;
+everything else — the solid, the collision boxes, the connector's grip — derives from them through
+`panelSectionRings()`. Refining the panel means editing those numbers and nothing else.
+
+```
+inboard  ←──────────────────────────  0 = the outer edge
+
+bezel peak ──┐                                    depth 0
+             │╲___                                bezelDrop 0.10
+   diffuser  │    ╲______________ front corner    diffuserDepth 0.363
+             │                   │  outer wall, 1.10 high
+             │     ______________│  back corner   outerWallDepth 1.20
+             │    /   FLANGE 3.0cm — nearly flat  flangeDrop 0.10
+             │   /  taper 1.62cm at ~60°
+             │__/                                 overallThickness 4.10
+                back plate
+```
+
+**The 3 cm back flange is the point** — it is what a connector grips, and it is the feature the
+inherited 3.7 cm section did not have at all. The panels are 60 × 60 and 60 × 121 exactly, so the
+`60 + 1 + 60 = 121` modularity argument survives.
+
+One edge of every panel carries a **50 cm power supply** on the back, sitting on that flange. See
+"The power supply" below — it is a real placement constraint, not a detail.
+
 ### World conventions
 
 - Units **centimetres**, **Y up**, X–Z are the floor axes.
@@ -91,6 +118,8 @@ tiling.js    → a deterministic domino tiling: which cells get a 60×60 square 
                the TARGET (the same surface placement seats panels on), plus any
                cells you have pinned by hand
 placement.js → rigid panel placements on the target
+relax.js     → OPTIONAL: nudge those placements until every joint is inside the
+               connectors' envelope, and report the ones that will not go
 connectors.js→ where the 3D-printed parts go and what each has to be shaped like
 report.js    → per-joint gaps, skew, dihedral, holonomy, surface fit, collisions,
                and the connector kit
@@ -196,93 +225,137 @@ no.
 placement is a stiffness decision rather than a detailing one.
 
 v1 (`3dprintFiles/`) used **one part everywhere**: a Y-junction edge clamp holding a fixed **62°**,
-sitting on the assembly's *outside* edges — 94.9 × 156.7 × 28.5 mm, slot 9.5 × 8.5 mm. It could be
-one part because every v1 joint was the same angle. v3's are all different, and worse, **a single
-joint is different along its own length.** Measured across the six presets:
+sitting on the assembly's *outside* edges. It could be one part because every v1 joint was the same
+angle. v3's are all different, and worse, **a single joint is different along its own length** —
+measured across the presets, the rim-to-rim span swings up to **12.77 cm** from one end of one joint
+to the other, while inside a **10 cm window** it swings 0.02–0.15 cm. That is why the parts are
+short and sit in the gap: a joint no rigid part can hold becomes a handful of near-constant local
+problems.
+
+### Two pieces, bolted
+
+Each station takes **two printed pieces**, pulled together by **three M3 countersunk bolts** into
+heat-set inserts:
 
 | | |
 |---|---|
-| station dihedral | 0 – 34.8° |
-| station skew | 0 – 11.5° |
-| rim-to-rim span | 0.60 – 15.82 cm |
-| span swing along **one whole joint** | up to **12.77 cm** |
-| span swing inside **one 10 cm window** | 0.02 – 0.15 cm mean, **2.12 cm** worst |
+| **front bar** | a plain rectangle lying across the gap, bearing on both panels' bezels, three countersunk holes |
+| **back half** | fills the gap behind it and reaches under both flanges, three heat-set inserts |
 
-That last pair is the design. A joint that wedges from 3 cm to 16 cm end to end cannot be held by
-any one rigid part, but **every 10 cm slice of it is very nearly a constant-span, constant-angle
-problem**. Short parts, centred in the gap, turn one intractable joint into a handful of easy ones —
-the same move as "let the target be angular", applied to the hardware instead of the surface.
+Nothing snaps or rotates on: the back half goes on from behind, the bar drops on from the front,
+three bolts pull the rims between them. **Every clamp face stands `shimCm` (0.75 mm) off the panel**
+— the parts never touch, and a rubber shim goes in that space on the real build.
 
-The price of *centred* rather than *on the outside edges*: a part at mid-edge **cannot be slid on
-from an open end**. It goes on by hooking the lower wedge under the rim and rotating the upper jaw
-down onto the flange.
+Three M3s need **1.00 cm of gap** (the countersink head plus 2 mm walls), against 1.45 cm for one
+countersunk M5. And the check is made **at depth, not at the face**: on a convex joint the gap closes
+as `gap − 2·d·sin(fold/2)` and the insert sits at the bottom of the back half. That is the first
+constraint in the tool that couples gap and fold.
 
-### Why the grip is not v1's slot
+### It grips the flange, because that is what the panel offers
 
-v1's channel was parallel-sided. That assumes the rim is a parallel-sided plate, and reading
-`config.js` says it is not — below the 1.0 cm outer wall the housing **tapers inward at 0.675 per
-cm**, so the undercut a hook engages is a *wedge* that opens with depth: 1.7 mm of it 2.5 mm in,
-5.7 mm at 8.5 mm. A parallel jaw of any useful reach bites straight into that taper. **The lower jaw
-here is bounded above by the taper plane itself**, which makes the grip a wedge engagement rather
-than an interference fit.
+Reading the measured section out of `config.js`: the front is a 1.5 cm chamfered bezel over a
+recessed diffuser — a decorative surface on the lit face, and a poor thing to clamp. The back
+carries a **3 cm nearly-flat flange** with open air behind it. So the flange is the load-bearing
+half and the bezel lip only locates the bar. Every panel-facing dimension is traced off
+`PANEL_PROFILE`, so refining the panel moves the clamp with it.
 
-### Twist needs no term in the geometry
+### The range is the panel's, not the part's
 
-Both tiles are rigid planes, so along a joint the **fold is constant** and the **span varies
-linearly**. Each part is therefore a *loft* between a start cross-section and an end one, and a
-twisted joint is simply one whose two ends want different spans.
+This is the most useful thing the tool learned about the connector. Sweeping gap against fold:
 
-### The feasibility gate is derived, not tabulated
+| gap | connector fouls a panel at | **the panels collide at** |
+|---|---|---|
+| 0.4 cm | 15° | **19°** |
+| 0.6 cm | 25° | **28°** |
+| 1.0 cm | 45° | **49°** |
+| 1.5 cm | 71° | **77°** |
 
-The cross-section self-intersects when the two hooks — swinging under the joint as it folds — meet.
-Measured: a **0.4 cm** gap holds ±14°, **1.0 cm** holds ±36°, **2.5 cm** holds anything. This is the
-same fact the housings already report, seen from the connector side. Across all six presets, **464
-stations, none infeasible** — and the reason is a property rather than luck: *where the surface
-folds hard the gap has already wedged open, and where the gap is tight the surface is nearly flat.*
+**The part is already within 3–6° of a hard geometric limit that belongs to the panels**, and no
+connector dimension moves it — split depth, lip length and floor depth were all swept and none
+changes the boundary. Only the shim does, by a degree. So there is nothing to expand in the
+narrow-gap/large-fold corner by redesigning the part; the levers are a wider gap, less fold, or
+**relaxation** (below).
+
+The limit has a closed form: the two back corners meet at
+`gap − 2·shim·cos(φ) − 2·(outerWallDepth + shim)·sin(φ) = 0`, with `φ = fold/2`.
+
+### Collision detection is done in section, not by bounding box
+
+Both the panel and the connector are **swept solids along the joint**, so a 2D section test is exact
+for them. A bounding box is not close: a connector's box always encloses the rim it wraps, which is
+why the OBB check had to exclude the two panels it grips — and therefore could never see a part
+biting into its own panel. `polygonsOverlap` can, and runs at both ends of the loft.
 
 ### The kit
 
-`connectors.binSpanCm` / `binAngleDeg` decide how coarsely distinct parts merge into one printable
-type. **This is the plate budget's question in another currency** — and unlike the plate budget it
-costs nothing physical, only print queue. Part types as the bins loosen:
+Every station gets a back half and a front bar cut to its own gap, then both families are **binned**
+so the kit reports how few distinct parts a design needs. The universal front bar — one width
+serving a whole band of gaps — is **retired for now**: it could not be made to work at the extremes.
+`frontBarBand` and `solveFrontBars` survive for the day it becomes possible again.
 
-| preset | 0.1cm/1° | 0.25cm/2.5° | **0.5cm/5°** | 1cm/10° | 2cm/15° | parts |
-|---|---|---|---|---|---|---|
-| `shelf` | 59 | 51 | 37 | 16 | 9 | 69 |
-| `closed` | 24 | 14 | **8** | 4 | 3 | 51 |
-| `drift` | 26 | 18 | 16 | 11 | 5 | 82 |
-| `dune` | 35 | 29 | 23 | 18 | 17 | 85 |
-| `modular` | 23 | 15 | **8** | 5 | 3 | 112 |
-| `crest` | 25 | 24 | 21 | 17 | 12 | 65 |
-
-At the default bins no preset has an infeasible part or a clash, and 8 types covers `closed` and
-`modular` outright.
+| preset | parts | back halves | front bars | total types |
+|---|---|---|---|---|
+| `shelf` | 69 | 37 | 10 | 47 |
+| `closed` | 51 | 8 | 4 | 12 |
+| `drift` | 82 | 14 | 8 | 22 |
+| `dune` | 85 | 22 | 19 | 41 |
+| `modular` | 112 | 8 | 5 | 13 |
+| `crest` | 65 | 20 | 16 | 36 |
 
 **`minPerJoint` defaults to 2 for a structural reason**: a joint held by one part is free to rotate
 about it, and with no substructure that is a real degree of freedom.
 
+### The power supply
+
+A **50 cm box on the back of one 60 cm edge** of every panel, sitting on the flange the connector
+grips. Its top face is at the flange's outer depth while the flange falls away, so it is **flush at
+the panel edge and at most 1 mm proud** at the flange's inner edge — set into the housing, not a box
+on top of it.
+
+So a **0.8 mm relief** in the back half's lip clears it and a powered edge carries a connector after
+all. What it costs instead is reported rather than hidden: the lip then bears on the **supply
+housing** rather than the panel frame (`W_BEARS_ON_POWER_SUPPLY`), and whether a driver housing is
+something to clamp against is a hardware question this model cannot answer. `supplyMode: 'block'`
+keeps the stricter reading measurable — under it, 6–25 joints per preset carry no connector at all.
+
+Which edge is powered is a **global convention** (`connectors.powerEdge`). Panel orientation is a
+real design freedom the tool does not model yet.
+
 ### Planned: a threaded boss
 
-The part is to gain a threaded area so it can be **locked to the panel with a screw**, printed or
-metal. Not built — but the section is already sized for it, and the sizing rule is worth knowing
-before anyone edits `CONNECTOR_PROFILE`:
+A separate locking screw, on top of the three bolts. Not built. The sizing rule, measured:
 
-> **`hookCm` is the fold budget. `gripCm`, `jawCm` and `wallCm` are free.**
+> **`hookCm`-style standoff is the fold budget; the lips are free.**
 
-The two hooks meet at their *mouth* corners as a joint folds, and the mouth's depth does not depend
-on how far the jaw reaches inboard or how thick it is. Measured: taking the grip from 8.5 mm to
-17 mm, or the jaw from 9.5 mm to 15 mm, leaves the fold boundary **completely unchanged**, while
-taking the hook from 6 mm to 10 mm drops it from 21.5° to 17° at a 0.6 cm gap. So a boss may be paid
-for by reaching the jaw further inboard — there is 13.5 mm of flange spare, enough for M8, and the
-current 11.5 mm already takes M5 — and must never be paid for by deepening the hook. Asserted in
-both directions in `tests/test-v3-connector-geometry.mjs`.
+The jaw can reach further inboard — 13.5 mm of the panel's 25 mm flange is spare, enough for M8 —
+without costing any fold capacity. **The open question is what the screw bites into**, and it is not
+a geometry question: threading into the flange means modifying existing LED fixtures. See HANDOFF
+§4.7.
 
-Front-mounting turns out to help here too: the screw axis is the panel normal, so a driver comes
-straight down the lit side and never needs clearance in the gap — which the 0.60 cm narrowest
-station could not have given it.
+---
 
-**The open question is what the screw bites into**, and it is not a geometry question — threading
-into the flange means modifying existing LED fixtures. See HANDOFF §4.7.
+## Relaxing into the envelope
+
+Because the connector cannot be redesigned out of its hard cases, a joint outside the envelope is a
+**placement** problem. `placement.relax` is a spring relaxation that moves the panels until every
+joint has room for its fastener and stays under the fold the panels allow.
+
+**It moves the placements, never the form.** `form` is authored intent; shifting it would quietly
+redesign the drift. `surface-fit` already fits each tile independently — this does the same thing
+globally, every joint pulling on its two tiles and every tile pulling back toward where the surface
+put it. The tiling is untouched too.
+
+**Deterministic**: Gauss–Seidel, a fixed iteration count, joints in adjacency order. No convergence
+test and no early exit, for the same reason `placement.js` runs exactly three fixed-point iterations.
+
+**It can fail, and says so.** `unresolved` names every joint still outside and what it is short by;
+`moved` reports how far each tile was shoved, because a design that only works after a lot of
+shoving is not the design that was authored. Neither is a veto.
+
+Measured: `modular` goes from **25 joints outside the envelope to 0**, for 0.3 cm of movement at
+worst and 0.01 → 0.02 cm of shape residual. `closed` is already inside and is not moved at all.
+
+Off by default — it changes the shape the panels make, and that should be a deliberate choice.
 
 ---
 
@@ -304,8 +377,12 @@ violation would reject every intermediate state of a slider drag.
 | a tile's solid dips below the floor | `W_BELOW_FLOOR` | warning |
 | fewer than 3 ground contacts, so there is no support polygon to test | `W_NO_SUPPORT` | warning |
 | a manual override is malformed, off-grid, or two claim the same cell | `E_OVERRIDE_SHAPE`, `E_OVERRIDE_BOUNDS`, `E_OVERRIDE_CONFLICT` | error |
-| a connector's two hooks would pass through each other | `W_CONNECTOR_INFEASIBLE` | violation |
+| a connector's section closes on itself | `W_CONNECTOR_INFEASIBLE` | violation |
+| a piece bites into a panel, measured **in section** | `W_BACK_HALF_FOULS_PANEL`, `W_FRONT_BAR_FOULS_PANEL` | violation |
+| the two panels themselves collide at a joint | `W_PANELS_COLLIDE_AT_JOINT` | violation |
+| the gap is too narrow for the fastener, **measured at depth** | `W_FASTENER_PINCHED` | violation |
 | a connector fouls a panel it does **not** grip, or another connector | `W_CONNECTOR_CLASH` | violation |
+| the flange lip bears on the power supply housing, not the panel frame | `W_BEARS_ON_POWER_SUPPLY` | warning |
 | the gap is too narrow to fit a part into / too wide for the spine to stay stiff | `W_CONNECTOR_PINCH`, `W_CONNECTOR_SPAN` | warning |
 | a part wedges too much along its own length — the number `lengthCm` controls | `W_CONNECTOR_TWIST` | warning |
 | a joint carries one part, so it is a hinge rather than a fixture | `W_JOINT_SINGLE_CONNECTOR` | warning |
@@ -347,11 +424,15 @@ corner is necessarily where "both edges down" and "not flat" trade against each 
   along every joint in the plan view showing where the parts sit; the kit table in the report; and
   five knobs, split between the ones that decide the **structure** (length, spacing, count) and the
   ones that only decide the **print queue** (the two bins).
+- **Drift footprint** — its own x/z sliders. It follows the sheet until you set it by hand, which
+  locks it; "refit to sheet" hands control back. (It used to be derived once and left behind, so
+  growing the sheet extended flat tiled material past the drift.)
+- **Relax** — a toggle plus "hold to form" and iterations, with a live line saying either how much
+  movement bought a clean envelope or how many joints are still outside.
 - **CONFIG JSON** + named slots + **Export**:
   - **OBJ** — the assembly, one named object per panel *and per connector*, world transforms baked.
-  - **Connector STL** — one of each unique type, **in millimetres**, laid flat for printing with the
-    slot axis vertical (which is what v1 did, and for the same reasons: largest face down, the slot
-    becomes a support-free horizontal groove, no layer boundary across a jaw).
+  - **Connector STL** — one of each unique type, both families, **in millimetres**, laid flat for
+    printing (largest face down, no layer boundary across a gripping face).
   - **Connector manifest** — how many of each to run, where each sits on the plate, and what each is
     forced to absorb by not getting its own exact geometry. The STL cannot say that `P00` is needed
     46 times; this is the document that goes with it.
@@ -373,7 +454,8 @@ src/
 │   ├── schema.js              config, normalize, validate
 │   ├── tiling.js              domino tiling; square vs plate by fit
 │   ├── placement.js           surface-fit and chain placement, grounding
-│   ├── connectors.js          station placement, the part cross-section, limits
+│   ├── connectors.js          station placement, both part sections, limits
+│   ├── relax.js               spring relaxation into the connector envelope
 │   ├── report.js              joints, holonomy, fit, collisions, the connector kit
 │   ├── collide.js             15-axis OBB SAT
 │   └── presets.js             the six drifts
@@ -418,14 +500,15 @@ node tests/test-v3-presets.mjs    #   64  each preset delivers its claim
 node tests/test-v3-obj.mjs        #   25  OBJ round-trip
 node tests/test-geometry.mjs      #   50  the panel solid
 node tests/test-persistence.mjs   #   46  storage, version discard
-node tests/test-v3-connectors.mjs         #  140  stations, frames, the fold sign, schema
-node tests/test-v3-connector-geometry.mjs #   69  the profile, the solid, the grip
-node tests/test-v3-connector-report.mjs   #  166  flags, the kit partition, clashes
-node tests/test-v3-connector-export.mjs   #   59  plate, STL bytes, manifest, assembly OBJ
+node tests/test-v3-connectors.mjs         #  168  stations, frames, the fold sign, the power supply
+node tests/test-v3-connector-geometry.mjs #   79  both sections, both solids, the grip, the render sweep
+node tests/test-v3-connector-report.mjs   #  187  flags, the kit partition, clashes
+node tests/test-v3-connector-export.mjs   #   62  plate, STL bytes, manifest, assembly OBJ
+node tests/test-v3-relax.mjs              #   56  determinism, placements-only, and that it can fail
 npm run build
 ```
 
-**3735 checks.** Three conventions worth keeping:
+**3886 checks.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat

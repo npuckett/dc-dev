@@ -10,7 +10,7 @@ survives unchanged and is still the reason any of this is tractable:
 > Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
 > to absorb.
 
-Branch `v3-drift-tiling`. All suites green (3735 checks across 15 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3886 checks across 16 suites), build clean, app verified
 in the browser.
 
 ---
@@ -45,7 +45,14 @@ Built in order, one commit each (the messages carry the detail):
 | `d4956f1` | the connector solid, gripped off the real rim (P10) |
 | `c4e32a4` | the connector kit, and what each part is forced to absorb (P11) |
 | `a2ec09a` | show the connectors and let them be tuned (P12) |
-| *this* | printable STL + manifest, and the docs (P13) |
+| `e4d8195` | printable STL + manifest, and the docs (P13) |
+| `a516bf9` | size the connector section for the planned locking screw |
+| `96fccff` | the measured panel, parametrically, and the power supply |
+| `53c5878` | the two-piece bolted clamp (P14) |
+| `f5715e3` | shim clearance, and render both pieces |
+| `59cb110` | section-level collision, per-station bars, footprint controls |
+| `2315d7f` | relax the placements into the connector envelope (P15) |
+| *this* | docs brought up to date with the two-piece clamp and the relaxation |
 
 ---
 
@@ -182,7 +189,7 @@ one level down — stop asking a rigid thing to be a curved thing — applied to
 the surface. It generalises: **when a rigid part cannot match a varying condition, shorten the part
 before improving the part.**
 
-### 2.13 The panel rim is a wedge, not a plate, so the grip cannot be a parallel slot
+### 2.13 The panel rim is a wedge, not a plate — SUPERSEDED, and the lesson is the point
 
 v1's connector used a parallel-sided channel (9.5 mm wide, 8.5 mm deep; its 28.5 mm overall is
 exactly jaw + slot + jaw). That assumes the rim is a parallel-sided plate. Reading the profile out of
@@ -190,10 +197,15 @@ exactly jaw + slot + jaw). That assumes the rim is a parallel-sided plate. Readi
 undercut is a wedge that opens with depth — 1.7 mm at 2.5 mm in, 5.7 mm at 8.5 mm. A parallel jaw of
 any useful reach cuts into the taper.
 
-Bounding the lower jaw by the taper plane itself turns the grip into a wedge engagement instead of
-an interference fit. Worth stating generally: **v1's numbers are a reference, not a spec.** They
-encode v1's geometry, and where v3's differs the numbers have to be re-derived from the hardware
-rather than carried over.
+**This finding was itself derived from a wrong section, and that is why it is kept.** The taper it
+describes exists, but the section it was read from had NO BACK FLANGE and was 3.7cm thick; the real
+panels (`updatedPanelGeo/`) are 4.1cm with a 3cm flange, and the connector now grips that flange
+rather than hooking the taper at all.
+
+The durable lesson survives twice over: **v1's numbers are a reference, not a spec** — and so were
+the four inherited profile numbers in `config.js`, which had no recorded provenance and turned out
+to describe a different panel. Anything geometric with no measurement behind it should be treated as
+a guess until a caliper says otherwise. §2.19 is what replaced this.
 
 ### 2.14 Twist needs no term in the connector geometry
 
@@ -226,7 +238,7 @@ pair light up.
 Generally: **a bounding volume is the wrong primitive for a part designed to interlock.** It is
 still the right one for "does this foul something it should be nowhere near".
 
-### 2.17 The connector's fold capacity is set by hook DEPTH alone
+### 2.17 The connector's fold capacity is set by hook DEPTH alone — SUPERSEDED by §2.20
 
 Found while checking whether the section could carry the planned threaded boss, and it is the useful
 kind of answer: the two hooks meet at their **mouth** corners as a joint folds, and the mouth sits at
@@ -241,16 +253,84 @@ across 0.6/1/1.5/2 cm gaps:
 | hook 6 → 3 mm | rises to 26.5 / 45 / 70 / 90° |
 | hook 6 → 10 mm | falls to 17 / 28.5 / 44 / 60° |
 
-So **`gripCm`, `jawCm` and `wallCm` are free; `hookCm` is the fold budget.** A threaded boss may be
-paid for by reaching the jaw inboard (13.5 mm of flange is spare, enough for M8) or by thickening it,
-and must never be paid for by deepening the hook. Asserted in
-`test-v3-connector-geometry.mjs` §3, in both directions, so a future edit cannot break it quietly.
+So **`gripCm`, `jawCm` and `wallCm` are free; `hookCm` is the fold budget.** The headroom figure —
+13.5 mm of spare flange, enough for an M8 boss — still holds and is still the answer for the planned
+locking screw.
+
+**The budget claim does not.** It was measured on the one-piece hook clamp, which no longer exists.
+On the two-piece design the fold limit contains no connector dimension at all — see §2.20.
+
+The method is what to keep: **when a section has several dimensions and one hard limit, find which
+dimensions the limit is actually a function of before designing against all of them.** Three of four
+were free then; all of them are free now.
 
 Generally: when a section has several dimensions and one hard limit, find which dimensions the limit
 is actually a function of before designing against all of them. Three of these four turned out to be
 free, which is a much better position than the intuition that everything trades.
 
-### 2.18 Site facts (unchanged from v2, still unresolved)
+### 2.19 An inherited constant with no provenance is a guess
+
+`config.js` carried four panel-profile numbers copied out of `panel-designer` with nothing recorded
+about where they came from. They described a panel **0.4cm too thin, with a 2.5cm flat lip that is
+really a 1.5cm chamfered bezel, and — the one that mattered — with NO BACK FLANGE at all**: its
+taper began at the outer wall, where the real panel has 3cm of flat material.
+
+Everything built on top inherited the error. The first connector was a wedge hook engaging a taper
+that does not exist where it was modelled, mounted on the front because the (wrongly modelled) back
+looked tighter. It was not a design mistake; it was a measurement mistake wearing a design's clothes.
+
+Two things follow, and both are now standing practice here:
+
+1. **Numbers that face the physical world get a provenance line or a caliper.** `PANEL_PROFILE` now
+   says where every value came from.
+2. **Make them parameters, not shapes.** The section is nine measurable numbers and
+   `panelSectionRings()`; the solid, the collision boxes and the connector grip all derive from it,
+   and `test-geometry.mjs` derives its expectations from the same function — including a closed-form
+   volume summed frustum by frustum — so neither the mesh nor the test can quietly agree with a
+   stale constant.
+
+### 2.20 The connector's working range belongs to the PANEL
+
+Swept exhaustively over gap × fold: the connector fouls a panel only **3–6° before the two panels
+collide with each other anyway** (15° vs 19° at a 0.4cm gap, 45° vs 49° at 1cm). Split depth, lip
+length and floor depth were all varied and **none of them moves the boundary**; only the shim does,
+by one degree.
+
+So "the connector struggles with extreme joints" had a false premise. There is nothing to expand by
+redesigning the part — at the limit it is the panels' own back corners meeting, and the closed form
+is `gap − 2·shim·cos(φ) − 2·(outerWallDepth + shim)·sin(φ) = 0`.
+
+Generalises to something worth doing before any optimisation: **measure whether the thing you are
+about to improve is actually the binding constraint.** Here it was within a few degrees of a limit
+belonging to a part nobody was proposing to change.
+
+### 2.21 A bounding volume is the wrong primitive for a part designed to interlock
+
+Restating §2.16 now that it has been acted on. A connector's OBB always encloses the rim it wraps, so
+the OBB test had to exclude the two panels each part grips — and therefore **could not, even in
+principle, see a part biting into its own panel**, which is the failure that actually matters.
+
+Both the panel and the connector are swept solids along the joint, so a 2D **section** test is exact
+for them. That is what the tool does now, at both ends of the loft. The OBB test is kept for what it
+is genuinely good at: part against a panel it does not touch, and part against part.
+
+### 2.22 A relaxation must be able to fail, and its tolerances are physical
+
+Two mistakes in the first working version of `relax.js`, both found by measuring rather than reading:
+
+- **The "unresolved" threshold was 1e-6 cm**, which reported 25 already-resolved joints as failures.
+  A threshold that fine is measuring floating point, not buildability. It is now 0.05mm — fifteen
+  times finer than the shim, and coarser than anything that could matter.
+- **A spring relaxation settles short of what it aims at.** Measured 0.14mm short on `modular` when
+  aiming exactly at the envelope. The correction now aims 0.5mm INSIDE it so the balance point lands
+  on it — biasing the target, never the acceptance test.
+
+And the property the whole thing rests on: **a relaxation that always succeeds has stopped being a
+measurement.** Its test keeps the failure path reachable by starving it of iterations rather than
+relying on a preset that happens to be hard, so it cannot start passing vacuously if the presets
+improve.
+
+### 2.23 Site facts (unchanged from v2, still unresolved)
 
 - The existing installation is 12 panels in a Toronto storefront window; `IO/DROPCEILING_STORY.md` is
   the best overview.
@@ -284,10 +364,12 @@ free, which is a much better position than the intuition that everything trades.
    usefulness (§2.9), but nothing in the repo records how many 60×121 plates the build actually has.
    That number would turn the budget from an exploration knob into a constraint.
 2. **Is a wider joint acceptable?** Going 1 cm → 2 cm is what unlocks height, at the cost of the
-   plate's exact modularity. The connector work now has something to say here: at 1 cm the parts are
-   at the tight end of the feasibility boundary (`modular`'s narrowest station is 0.60 cm, holding
-   only ±21° before the hooks meet), while 3 cm clears it with room. **A wider joint is easier to
-   connect, not just easier to fold.** Still the user's call.
+   plate's exact modularity. The connector work has three things to say now, all pushing the same
+   way: the fastener needs **1.00 cm of gap** and the check bites at depth, not at the face; the
+   fold a joint can take is `2·asin(gap / 2·outerWallDepth)`-ish, so gap buys fold directly; and
+   `modular`'s narrowest station is 0.60 cm, which the relaxation has to shove open. **A wider joint
+   is easier to connect, easier to fold, and needs less relaxation.** Still the user's call, and it
+   is now the single highest-leverage decision left.
 2b. **How many distinct printed parts is acceptable?** The kit answers to `binSpanCm` /
    `binAngleDeg`, and unlike the plate budget the cost is print queue rather than hardware — the
    user has said many unique parts is fine, so the default bins (0.5 cm / 5°) are set fine rather
@@ -303,8 +385,18 @@ free, which is a much better position than the intuition that everything trades.
    cm deep.
 5. **Is the wall structurally usable for support?** v2 asked this and it is still unanswered; v3 does
    not currently use the wall for support at all.
-6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.18 (this pointed at §2.8, which
-   is about the tiler and the placer sharing a surface; the site facts are §2.18).
+6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.23 (this pointed at §2.8, which
+   is about the tiler and the placer sharing a surface; the site facts are §2.23).
+6b. **Is bearing on the power supply housing acceptable?** The supply sits on the flange the back
+   half grips, flush to within 1mm. A relief clears the interference, but the lip then bears on a
+   driver housing rather than on the panel frame. The tool reports it per station
+   (`W_BEARS_ON_POWER_SUPPLY`, 12–50 parts per preset) and cannot decide it. If the answer is no,
+   `supplyMode: 'block'` is the honest model and 6–25 joints per preset lose their connector.
+
+6c. **Which way does each panel face?** The powered edge is currently a global convention. Panel
+   orientation is a real design freedom — it decides which joints are affected and where cables run
+   — and nothing in the tool models it.
+
 7. **What does the locking screw bite into?** The plan is a threaded area on the connector so it can
    be locked to the panel with a screw, printed or metal (§5.1). The *geometry* is settled — §2.17
    says the jaw can carry up to an M8 boss for free — but the fastening target is not, and it is not
@@ -325,22 +417,29 @@ free, which is a much better position than the intuition that everything trades.
 
 ### 5.1 Not built
 
-- **Connector design** is now built (P9–P13) — a first pass. What it does *not* yet do:
-  - **no fastening — and this is the next thing.** The part currently relies entirely on the snap fit
-    of its two channels. v1 had the same property and it held, but v1's parts sat on the outside
-    edges where they could be slid on; a mid-edge part goes on by rotation and nothing stops it
-    rotating back off. **The plan is a threaded area so the part can be locked to the panel with a
-    screw, printed or metal.** The section is already sized for it — see §2.17 for the one dimension
-    that must not pay for it, and `connectors.js`'s "PLANNED: A THREADED BOSS" for the headroom. The
-    open question is not geometry but **what the screw bites into** (§4.7).
+- **Connector design** is built and has been through two whole redesigns (P9–P15). Fastening is
+  solved — three M3 countersunk bolts into heat-set inserts, which is what the two-piece split was
+  for. What it does *not* yet do:
+  - **no separate locking screw.** The three bolts hold the halves to each other and clamp the rims
+    between them; nothing threads into the PANEL. That is still wanted, the section is sized for it
+    (§2.17's headroom figure survives), and the open question is not geometry but **what the screw
+    bites into** (§4.7).
+  - **the universal front bar is retired.** One bar width serving a band of gaps worked on the
+    well-behaved presets (1 bar for `closed` and `modular`, 2 for `drift`) and could not be made to
+    work at the extremes. Each station now gets its own. `frontBarBand` / `solveFrontBars` survive
+    for the day it becomes possible again — the kit still bins the widths, so the report still says
+    how few distinct bars a design would need.
   - **no structural analysis.** `CONNECTOR_LIMITS.maxSpanCm = 8` is a judgement about a
     9.5 mm strap, not a calculation. The spine does not thicken or rib as the span grows, so a
     15.8 cm joint gets a part that is flagged rather than redesigned.
   - **no cable routing.** The v1 photographs show power leads running through the joints; the
     current part ignores them entirely.
   - **the parts are not labelled.** The manifest maps a plate position to a part id; the printed
-    object carries no marking, so 82 parts across 16 types have to be kept in order by hand. An
-    embossed id on the spine's top face is the obvious next thing.
+    object carries no marking, so ~80 parts across ~20 types have to be kept in order by hand. An
+    embossed id is the obvious next thing, and now that there are TWO families it matters more.
+  - **the viewport does not show which joints the relaxation could not fix.** The report names them;
+    the 3D view does not highlight them, which is the thing you most want to see when it reports a
+    failure.
 - **The planar-quad target** — §4.3.
 - **Prompt-driven generation.** `core/v3/schema.js`'s doc comment is written for an LLM audience for
   exactly this. Never wired up; no API calls anywhere in the tool.
@@ -354,10 +453,9 @@ free, which is a much better position than the intuition that everything trades.
   than endpoints) but don't present the three as an ordered triple.
 - The 3D canvas can appear blank for a beat on first paint. It is screenshot-vs-first-frame timing,
   not a bug; it renders within ~2 s.
-- Changing `sheet.cols`/`rows` in the UI does **not** rescale `form.footprint`, because the store's
-  config always carries a concrete footprint after the first normalize. Growing the sheet therefore
-  extends flat tiled material past the drift rather than stretching the drift. Defensible, but it
-  surprises people — consider a "refit footprint to sheet" action.
+- ~~Changing `sheet.cols`/`rows` does not rescale `form.footprint`.~~ **Fixed.** The footprint now
+  follows the sheet until you set it by hand, which locks it; "refit to sheet" hands control back.
+  The lock is UI-only state — it governs how a LATER edit behaves, not the design.
 - `dist/` is committed from a v2 build and is stale.
 - **`tests/screenshot.mjs` is stale v2.** Its docstring still describes `endSupport`, `E_UNGROUNDABLE`
   and the `wallcrash` preset, none of which exist in v3, and it starts its own dev server on 5175
@@ -369,8 +467,8 @@ free, which is a much better position than the intuition that everything trades.
   properly (P12) and switched to a golden-ratio step on the index; `facet` would benefit from the
   same treatment.
 - The 3D viewport's default camera starts low and close; orbit out to read the drift. Not tuned.
-- Changing `sheet.cols`/`rows` does not rescale `form.footprint` (see above), so a manual pin set
-  made at one sheet size will not mean the same thing at another — overrides are keyed on `(i, j)`.
+- A manual pin set made at one sheet size does not mean the same thing at another — overrides are
+  keyed on `(i, j)`.
 
 ---
 
@@ -396,15 +494,19 @@ output comparison where available.
 
 Read in this order: **README.md** → **V3_SPEC.md** → this file → the doc comment at the top of
 `src/core/v3/target.js` (why the target is faceted, which is the crux) → `src/core/v3/placement.js`'s
-header (frames and handedness) → `src/core/v3/connectors.js`'s header (why the parts are short and
-why the grip is not v1's slot).
+header (frames and handedness) → `src/config.js`'s header (the measured panel section, and why it is
+parameters rather than a shape) → `src/core/v3/connectors.js`'s header (the two-piece clamp) →
+`src/core/v3/relax.js`'s header (why relaxation is the only lever left).
 
 Then run the suites to confirm the tree is green, and `npm run dev --prefix grid-designer` to look at
 it. Load the `shelf` preset to see the brief satisfied, then `crest` to see the report say no. Click
 two adjacent squares in the plan view to combine them and watch the report react. Turn on
 **connectors** in the viewport toolbar and drag **part length** from 10 cm to 25 cm — the worst
-wedge-per-part goes 0.45 cm → 1.13 cm, which is §2.12 happening in front of you.
+wedge-per-part goes 0.45 cm → 1.13 cm, which is §2.12 happening in front of you. Then load
+`modular` and tick **relax**: 25 joints outside the fastener envelope go to 0 for 0.3 cm of
+movement.
 
-§4.1, §4.1b, §4.2/§4.2b and §4.3 are the queue, plus the connector gaps in §5.1 — fastening first,
-since nothing currently stops a mid-edge part rotating back off. The user has flagged interface
-tuning as the next thing they want to work through themselves.
+§4.2 is now the highest-leverage question left — the joint width decides fastener fit, fold capacity
+and how hard the relaxation has to work, all at once. Then §4.6b (bearing on the supply housing) and
+§4.6c (panel orientation), both of which the tool measures and cannot decide. §4.1b, §4.3 and the
+connector gaps in §5.1 follow.
