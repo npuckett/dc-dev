@@ -118,6 +118,47 @@ export const SPAN_SAMPLES = 5
  *            NEGATIVE is a press fit (v1's 9.5mm slot on a 10mm rim was
  *            -0.5mm). Left at 0 because print tolerance is the printer's call,
  *            not the model's.
+ *
+ * =============================================================================
+ * PLANNED: A THREADED BOSS, AND WHICH DIMENSIONS IT MAY SPEND
+ * =============================================================================
+ * The part is to gain a threaded area so it can be LOCKED to the panel with a
+ * screw — printed or metal. Not built (HANDOFF §5.1), but the section below is
+ * already sized with it in mind, and one constraint is not negotiable:
+ *
+ *   `hookCm` IS THE FOLD BUDGET. `gripCm`, `wallCm` and `jawCm` ARE FREE.
+ *
+ * The two hooks meet at their MOUTH corners as a joint folds, and the mouth
+ * sits at `-(outerThickness + hookCm)` regardless of how far the jaw reaches
+ * inboard or how thick it is. Measured, and asserted in
+ * test-v3-connector-geometry.mjs §3:
+ *
+ *   grip 8.5 → 17mm      fold boundary UNCHANGED (21.5/36/55.5/77° at
+ *   jaw  9.5 → 15mm      fold boundary UNCHANGED  0.6/1/1.5/2cm gaps)
+ *   wall 3.0 → 6mm       fold boundary UNCHANGED
+ *   hook 6.0 → 3mm       boundary RISES to 26.5/45/70/90°
+ *   hook 6.0 → 10mm      boundary FALLS to 17/28.5/44/60°
+ *
+ * So a boss may be paid for by reaching the jaw further inboard or thickening
+ * it, and must NOT be paid for by deepening the hook. The headroom:
+ *
+ *   across the joint  the jaw covers 11.5mm of the panel's 25mm flange, so it
+ *                     can grow ~13.5mm inboard before it starts covering the
+ *                     diffuser. That admits an M8 boss; the current 11.5mm
+ *                     already admits M5.
+ *   through the jaw   9.5mm of thread engagement without protruding at all.
+ *   along the joint   a 10cm part has room for two bosses with space to spare.
+ *   access            the screw axis is the panel normal, so a driver comes
+ *                     straight down the lit side and never needs gap clearance
+ *                     — which the 0.60cm narrowest station would not have given
+ *                     it. A point in favour of front-mounting that was not part
+ *                     of the original reasoning.
+ *
+ * THE OPEN QUESTION IS WHAT THE SCREW BITES INTO, and it is not a geometry
+ * question — see HANDOFF §4. Threading into the panel flange means modifying
+ * existing LED fixtures; a grub screw clamping the rim avoids that but locks by
+ * friction alone. The full jaw-to-hook stack at the back of the grip is 33.3mm,
+ * so a screw passing right through the assembly is also dimensionally possible.
  */
 export const CONNECTOR_PROFILE = {
   gripCm: 0.85,

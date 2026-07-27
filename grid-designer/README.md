@@ -261,6 +261,29 @@ At the default bins no preset has an infeasible part or a clash, and 8 types cov
 **`minPerJoint` defaults to 2 for a structural reason**: a joint held by one part is free to rotate
 about it, and with no substructure that is a real degree of freedom.
 
+### Planned: a threaded boss
+
+The part is to gain a threaded area so it can be **locked to the panel with a screw**, printed or
+metal. Not built — but the section is already sized for it, and the sizing rule is worth knowing
+before anyone edits `CONNECTOR_PROFILE`:
+
+> **`hookCm` is the fold budget. `gripCm`, `jawCm` and `wallCm` are free.**
+
+The two hooks meet at their *mouth* corners as a joint folds, and the mouth's depth does not depend
+on how far the jaw reaches inboard or how thick it is. Measured: taking the grip from 8.5 mm to
+17 mm, or the jaw from 9.5 mm to 15 mm, leaves the fold boundary **completely unchanged**, while
+taking the hook from 6 mm to 10 mm drops it from 21.5° to 17° at a 0.6 cm gap. So a boss may be paid
+for by reaching the jaw further inboard — there is 13.5 mm of flange spare, enough for M8, and the
+current 11.5 mm already takes M5 — and must never be paid for by deepening the hook. Asserted in
+both directions in `tests/test-v3-connector-geometry.mjs`.
+
+Front-mounting turns out to help here too: the screw axis is the panel normal, so a driver comes
+straight down the lit side and never needs clearance in the gap — which the 0.60 cm narrowest
+station could not have given it.
+
+**The open question is what the screw bites into**, and it is not a geometry question — threading
+into the flange means modifying existing LED fixtures. See HANDOFF §4.7.
+
 ---
 
 ## The rules
@@ -396,13 +419,13 @@ node tests/test-v3-obj.mjs        #   25  OBJ round-trip
 node tests/test-geometry.mjs      #   50  the panel solid
 node tests/test-persistence.mjs   #   46  storage, version discard
 node tests/test-v3-connectors.mjs         #  140  stations, frames, the fold sign, schema
-node tests/test-v3-connector-geometry.mjs #   64  the profile, the solid, the grip
+node tests/test-v3-connector-geometry.mjs #   69  the profile, the solid, the grip
 node tests/test-v3-connector-report.mjs   #  166  flags, the kit partition, clashes
 node tests/test-v3-connector-export.mjs   #   59  plate, STL bytes, manifest, assembly OBJ
 npm run build
 ```
 
-**3730 checks.** Three conventions worth keeping:
+**3735 checks.** Three conventions worth keeping:
 
 - **Closed-form expectations**, derived in the test from the constants, never golden numbers. Sign
   and frame conventions are the classic bug source here and only a derivation catches them. The flat

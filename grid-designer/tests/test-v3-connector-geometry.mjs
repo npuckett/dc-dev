@@ -146,6 +146,38 @@ console.log('3. the self-intersection gate')
   // The limits are consistent with the gate at the gap they claim to allow.
   ok(!bad(CONNECTOR_LIMITS.minSpanCm, 10),
     `minSpanCm (${CONNECTOR_LIMITS.minSpanCm}cm) is buildable at a shallow fold`)
+
+  // --- WHICH dimension sets the boundary, and which are free -------------
+  // Load-bearing for the planned threaded boss (HANDOFF §5.1): the fold
+  // capacity is governed by the HOOK'S DEPTH BELOW THE RIM and by nothing else
+  // in the section, because the hooks meet at their MOUTH corners. So a boss may
+  // be paid for by reaching the jaw further inboard or by thickening it — both
+  // free — but never by deepening the hook.
+  const maxFold = (spanCm, profile) => {
+    let last = 0
+    for (let f = 0; f <= 90; f += 0.5) {
+      if (profileSelfIntersects(connectorProfile({ spanCm, foldDeg: f, profile }).points)) break
+      last = f
+    }
+    return last
+  }
+  const spans = [0.6, 1, 1.5, 2]
+  const baseline = spans.map((s) => maxFold(s, {}))
+
+  const same = (profile, label) => {
+    const got = spans.map((s) => maxFold(s, profile))
+    ok(got.every((v, k) => v === baseline[k]),
+      `${label} does not change the fold boundary (${got.join('/')} vs ${baseline.join('/')})`)
+  }
+  same({ gripCm: 1.7 }, 'reaching the jaw from 8.5mm to 17mm inboard')
+  same({ jawCm: 1.5 }, 'thickening the jaw from 9.5mm to 15mm')
+  same({ wallCm: 0.6 }, 'doubling the back wall')
+
+  // ...and the check is not simply insensitive: the hook DOES move it.
+  const shallower = spans.map((s) => maxFold(s, { hookCm: 0.3 }))
+  const deeper = spans.map((s) => maxFold(s, { hookCm: 1.0 }))
+  ok(shallower.every((v, k) => v > baseline[k]), `a shallower hook buys fold (${shallower.join('/')})`)
+  ok(deeper.every((v, k) => v < baseline[k]), `a deeper hook costs fold (${deeper.join('/')})`)
 }
 
 // -----------------------------------------------------------------------------

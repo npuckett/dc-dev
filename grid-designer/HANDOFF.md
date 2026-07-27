@@ -10,7 +10,7 @@ survives unchanged and is still the reason any of this is tractable:
 > Don't solve rigid origami. Place panels deterministically and **measure** what the connectors have
 > to absorb.
 
-Branch `v3-drift-tiling`. All suites green (3730 checks across 15 suites), build clean, app verified
+Branch `v3-drift-tiling`. All suites green (3735 checks across 15 suites), build clean, app verified
 in the browser.
 
 ---
@@ -226,7 +226,31 @@ pair light up.
 Generally: **a bounding volume is the wrong primitive for a part designed to interlock.** It is
 still the right one for "does this foul something it should be nowhere near".
 
-### 2.17 Site facts (unchanged from v2, still unresolved)
+### 2.17 The connector's fold capacity is set by hook DEPTH alone
+
+Found while checking whether the section could carry the planned threaded boss, and it is the useful
+kind of answer: the two hooks meet at their **mouth** corners as a joint folds, and the mouth sits at
+`-(outerThickness + hookCm)` no matter how far the jaw reaches inboard or how thick it is. Measured
+across 0.6/1/1.5/2 cm gaps:
+
+| change | fold boundary |
+|---|---|
+| grip 8.5 → 17 mm | **unchanged** (21.5 / 36 / 55.5 / 77°) |
+| jaw 9.5 → 15 mm | **unchanged** |
+| back wall 3 → 6 mm | **unchanged** |
+| hook 6 → 3 mm | rises to 26.5 / 45 / 70 / 90° |
+| hook 6 → 10 mm | falls to 17 / 28.5 / 44 / 60° |
+
+So **`gripCm`, `jawCm` and `wallCm` are free; `hookCm` is the fold budget.** A threaded boss may be
+paid for by reaching the jaw inboard (13.5 mm of flange is spare, enough for M8) or by thickening it,
+and must never be paid for by deepening the hook. Asserted in
+`test-v3-connector-geometry.mjs` §3, in both directions, so a future edit cannot break it quietly.
+
+Generally: when a section has several dimensions and one hard limit, find which dimensions the limit
+is actually a function of before designing against all of them. Three of these four turned out to be
+free, which is a much better position than the intuition that everything trades.
+
+### 2.18 Site facts (unchanged from v2, still unresolved)
 
 - The existing installation is 12 panels in a Toronto storefront window; `IO/DROPCEILING_STORY.md` is
   the best overview.
@@ -279,8 +303,21 @@ still the right one for "does this foul something it should be nowhere near".
    cm deep.
 5. **Is the wall structurally usable for support?** v2 asked this and it is still unanswered; v3 does
    not currently use the wall for support at all.
-6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.17 (this pointed at §2.8, which
-   is about the tiler and the placer sharing a surface; the site facts are §2.17).
+6. **Reconcile V1 as-built geometry** if V2 planning needs it — §2.18 (this pointed at §2.8, which
+   is about the tiler and the placer sharing a surface; the site facts are §2.18).
+7. **What does the locking screw bite into?** The plan is a threaded area on the connector so it can
+   be locked to the panel with a screw, printed or metal (§5.1). The *geometry* is settled — §2.17
+   says the jaw can carry up to an M8 boss for free — but the fastening target is not, and it is not
+   a question the tool can answer:
+   - **into the panel flange.** The strongest lock, and it means drilling or tapping the existing LED
+     fixtures. That is a decision about hardware you already own, not about the printed part.
+   - **a grub screw clamping the rim.** No panel modification at all; locks by friction, which is
+     what the snap fit already relies on, so it adds security rather than a positive lock.
+   - **right through the assembly**, jaw → panel → hook. Dimensionally possible (the stack is 33.3 mm
+     at the back of the grip) and it is a true clamp, but it needs a clear hole through the flange.
+
+   The first and third both modify the panels. **Whether that is acceptable is the question to
+   answer before the boss is designed**, because it decides the screw's axis, length and head.
 
 ---
 
@@ -289,10 +326,13 @@ still the right one for "does this foul something it should be nowhere near".
 ### 5.1 Not built
 
 - **Connector design** is now built (P9–P13) — a first pass. What it does *not* yet do:
-  - **no fastening.** The part relies entirely on the snap fit of its two channels. No screw boss,
-    no cable tie slot, no bonded option. v1 had the same property and it held, but v1's parts sat on
-    the outside edges where they could be slid on; a mid-edge part goes on by rotation and there is
-    nothing yet that stops it rotating back off.
+  - **no fastening — and this is the next thing.** The part currently relies entirely on the snap fit
+    of its two channels. v1 had the same property and it held, but v1's parts sat on the outside
+    edges where they could be slid on; a mid-edge part goes on by rotation and nothing stops it
+    rotating back off. **The plan is a threaded area so the part can be locked to the panel with a
+    screw, printed or metal.** The section is already sized for it — see §2.17 for the one dimension
+    that must not pay for it, and `connectors.js`'s "PLANNED: A THREADED BOSS" for the headroom. The
+    open question is not geometry but **what the screw bites into** (§4.7).
   - **no structural analysis.** `CONNECTOR_LIMITS.maxSpanCm = 8` is a judgement about a
     9.5 mm strap, not a calculation. The spine does not thicken or rib as the span grows, so a
     15.8 cm joint gets a part that is flagged rather than redesigned.
