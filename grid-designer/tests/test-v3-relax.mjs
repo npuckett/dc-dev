@@ -20,9 +20,9 @@ import * as THREE from 'three'
 import { solveLayout } from '../src/core/v3/placement.js'
 import { relaxLayout, jointEnvelope, RESOLVED_TOLERANCE_CM } from '../src/core/v3/relax.js'
 import { buildReport } from '../src/core/v3/report.js'
-import { normalizeConfig, DEFAULT_RELAX } from '../src/core/v3/schema.js'
+import { normalizeConfig, DEFAULT_RELAX, DEFAULT_CONFIG } from '../src/core/v3/schema.js'
 import { buildPreset, PRESET_IDS } from '../src/core/v3/presets.js'
-import { fastenerGapNeededCm, foldLimitDeg } from '../src/core/v3/connectors.js'
+import { fastenerGapNeededCm, foldLimitDeg, CONNECTOR_LIMITS } from '../src/core/v3/connectors.js'
 
 let passed = 0
 let failed = 0
@@ -209,6 +209,108 @@ console.log('5. it reports what it could not fix')
   near(easy.worstDisplacementCm, 0, 1e-6, 'and is therefore not moved at all')
   console.log(`   modular: ${starved.unresolved.length} unresolved starved, ` +
     `${full.unresolved.length} at the shipped settings, for ${full.worstDisplacementCm}cm of movement`)
+}
+
+// -----------------------------------------------------------------------------
+// 5b. THE ENVELOPE HAS TWO ENDS, AND IS MEASURED ALONG THE JOINT.
+//
+// Both halves of this were bugs found by driving a real design. The envelope had
+// a floor and no ceiling, so a joint 21.6cm open passed while the connector's
+// own limit said 8cm. And it was measured at the joint MIDPOINT, where gaps ran
+// 2.64–5.44cm on a study whose joints opened to 21.97cm at their ENDS — so even
+// once the ceiling existed it saw nothing.
+// -----------------------------------------------------------------------------
+console.log('5b. the ceiling, measured along the joint')
+{
+  const env = jointEnvelope()
+  ok(env.maxGapCm > env.minGapCm, 'the envelope has both a floor and a ceiling')
+  near(env.maxGapCm, CONNECTOR_LIMITS.maxSpanCm, 1e-12,
+    "and the ceiling is the connector's own max span, not a number restated here")
+
+  // A steeply curved study: gaps stay modest at every midpoint and blow out at
+  // the joint ends. The report must see it.
+  const steep = {
+    ...DEFAULT_CONFIG,
+    sheet: { cols: 6, rows: 6 },
+    gap: 2.9,
+    form: { ...DEFAULT_CONFIG.form, amplitude: 99, angularity: 0.22, facetCells: 3,
+      footprint: { width: 374.5, depth: 374.5 } },
+    placement: { ...DEFAULT_CONFIG.placement, relax: { ...DEFAULT_RELAX, enabled: true } },
+  }
+  const L = solveLayout(steep)
+  const rep = L.relax
+  ok(rep.initialUnresolved > 0,
+    `a design whose joints open past the connector's reach is reported (${rep.initialUnresolved} joints)`)
+  ok(rep.unresolved.some((u) => u.gapOverCm > 0), 'and named as too WIDE, not too narrow')
+  ok(rep.unresolved.every((u) => u.gapMaxCm >= u.gapMinCm), 'each carries its measured range along the joint')
+
+  // Sampling only the midpoint UNDERCOUNTS, which is the bug this replaced.
+  // Counted directly rather than asserted as a worst-case, because how badly it
+  // undercounts depends on the design; that it undercounts does not.
+  const byId = new Map(L.tiles.map((t) => [t.id, t]))
+  let midOnly = 0
+  for (const edge of L.adjacency) {
+    const A = byId.get(edge.a)
+    const B = byId.get(edge.b)
+    if (!A?.position || !B?.position) continue
+    const s = (edge.edge.from + edge.edge.to) / 2
+    if (gapOf(L, edge, A, B, s) > env.maxGapCm) midOnly++
+  }
+  const sampled = rep.unresolved.filter((u) => u.gapOverCm > 0).length
+  ok(sampled > midOnly,
+    `sampling along the joint finds violations the midpoint misses (${midOnly} → ${sampled})`)
+  ok(rep.unresolved.every((u) => u.gapMaxCm >= u.gapMinCm - 1e-9),
+    'and every reported range is ordered')
+}
+
+// -----------------------------------------------------------------------------
+// 5c. A TOO-WIDE JOINT IS NOT CORRECTED, AND THAT IS DELIBERATE.
+//
+// Pulling wide joints shut means taking the panels off the surface. Measured
+// when it was tried: 204cm of tile movement, worst deviation 19 → 154cm, shape
+// residual 0.30 → 28.53cm. The relaxation reports these and leaves them.
+// -----------------------------------------------------------------------------
+console.log('5c. holonomy is reported, not corrected')
+{
+  const steep = {
+    ...DEFAULT_CONFIG,
+    sheet: { cols: 6, rows: 6 },
+    gap: 2.9,
+    form: { ...DEFAULT_CONFIG.form, amplitude: 99, angularity: 0.22, facetCells: 3,
+      footprint: { width: 374.5, depth: 374.5 } },
+    placement: { ...DEFAULT_CONFIG.placement, relax: { ...DEFAULT_RELAX, enabled: true } },
+  }
+  const plain = solveLayout({ ...steep, placement: { ...steep.placement, relax: { ...DEFAULT_RELAX } } })
+  const relaxed = solveLayout(steep)
+  const rep = relaxed.relax
+
+  ok(rep.unresolved.every((u) => u.fixable !== undefined), 'each unresolved joint says whether it is fixable')
+  ok(rep.unfixable > 0, `and this design's are not (${rep.unfixable} of ${rep.unresolved.length})`)
+
+  // The proof that leaving them alone is right: the shape survives.
+  const Rp = buildReport({ ...steep, placement: { ...steep.placement, relax: { ...DEFAULT_RELAX } } }, plain)
+  const Rr = buildReport(steep, relaxed)
+  ok(Rr.fit.shapeResidualSigmaCm <= Rp.fit.shapeResidualSigmaCm + 0.25,
+    `the drift is not destroyed chasing them (${Rp.fit.shapeResidualSigmaCm.toFixed(2)} → ${Rr.fit.shapeResidualSigmaCm.toFixed(2)}cm)`)
+  ok(Rr.collisions.length <= Rp.collisions.length,
+    `and no new collisions are created (${Rp.collisions.length} → ${Rr.collisions.length})`)
+  console.log(`   steep study: ${rep.initialUnresolved} joints outside, ${rep.unfixable} of them holonomy, ` +
+    `residual ${Rp.fit.shapeResidualSigmaCm.toFixed(2)} → ${Rr.fit.shapeResidualSigmaCm.toFixed(2)}cm`)
+}
+
+// -----------------------------------------------------------------------------
+// 5d. "NOTHING TO DO" IS DISTINGUISHED FROM "FIXED IT".
+// -----------------------------------------------------------------------------
+console.log('5d. nothing-to-do is not reported as success')
+{
+  const easy = solveLayout(withRelax('closed', { enabled: true })).relax
+  ok(easy.hadNothingToDo === true, 'a design already inside the envelope says so')
+  ok(easy.initialUnresolved === 0, 'and reports that nothing was outside to begin with')
+
+  const worked = solveLayout(withRelax('modular', { enabled: true })).relax
+  ok(worked.hadNothingToDo === false, 'a design it actually fixed does NOT claim there was nothing to do')
+  ok(worked.initialUnresolved > 0 && worked.unresolved.length === 0,
+    `it brought ${worked.initialUnresolved} joints inside — distinguishable from having found none`)
 }
 
 // -----------------------------------------------------------------------------

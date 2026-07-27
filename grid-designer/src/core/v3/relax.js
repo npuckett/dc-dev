@@ -62,7 +62,10 @@ import {
   fastenerGapNeededCm,
   foldLimitDeg,
   CONNECTOR_PROFILE,
+  CONNECTOR_LIMITS,
 } from './connectors.js'
+import { tileOBB } from './placement.js'
+import { findCollisions, obbPenetration, aabbOverlap } from './collide.js'
 
 const DEG = 180 / Math.PI
 
@@ -77,9 +80,24 @@ const rv = (v) => [r(v.x), r(v.y), r(v.z)]
  * connectors.js — the envelope is the CONNECTOR's, and if the part changes this
  * follows it rather than restating it.
  */
-export function jointEnvelope(profile = CONNECTOR_PROFILE) {
+export function jointEnvelope(profile = CONNECTOR_PROFILE, limits = CONNECTOR_LIMITS) {
   return {
     minGapCm: fastenerGapNeededCm(profile),
+    /**
+     * THE CEILING. The envelope used to have a floor and no ceiling, so a joint
+     * 21.6cm open passed while `CONNECTOR_LIMITS.maxSpanCm` said 8cm — the flag
+     * existed and the relaxation never consulted it, which is how it came to
+     * report success on a design whose joints were 2.7x beyond any buildable
+     * part.
+     *
+     * NOTE what this is NOT: a pull toward the NOMINAL gap. That was measured
+     * and it is much worse — forcing gaps toward uniform means flattening a
+     * doubly-curved surface, so it shoves panels off the target and creates
+     * collisions (5 -> 15, shape residual 0.30 -> 5.07cm on a 6x6 study).
+     * Deviation from nominal is holonomy, not a placement error. Only the two
+     * ends of the buildable range are corrected.
+     */
+    maxGapCm: limits.maxSpanCm,
     foldLimitDeg: (gapCm) => foldLimitDeg(gapCm, profile),
   }
 }
@@ -106,9 +124,34 @@ export const RESOLVED_TOLERANCE_CM = 0.005
  */
 export const RELAX_MARGIN_CM = 0.05
 
-/** The measured state of one joint: its gap at the midpoint and its fold. */
+/** How often the collision pass runs. See the pass itself for why not every step. */
+export const COLLISION_EVERY = 4
+
+/** Samples along a joint when measuring its gap. */
+export const JOINT_SAMPLES = 5
+
+/**
+ * The measured state of one joint.
+ *
+ * SAMPLED ALONG ITS LENGTH, not just at the midpoint. A joint is very often a
+ * WEDGE — measured on a 6×6 study, midpoint gaps ran 2.64–5.44cm while the same
+ * joints opened to 21.97cm at their ends, so a midpoint-only ceiling saw 0
+ * violations where 32 of 60 joints were outside. This is the same fact
+ * `spanMinCm`/`spanMaxCm` exist for on connector stations; the relaxation was
+ * simply not using it.
+ *
+ * `wedgeCm` is the difference between the two ends — the part of a gap
+ * violation that translation cannot fix, because closing it is a rotation.
+ */
 function measureJoint(edge, A, B) {
-  const s = (edge.edge.from + edge.edge.to) / 2
+  const from = edge.edge.from
+  const to = edge.edge.to
+  const s = (from + to) / 2
+  const gaps = []
+  for (let k = 0; k < JOINT_SAMPLES; k++) {
+    const t = from + ((to - from) * k) / (JOINT_SAMPLES - 1)
+    gaps.push(jointEdgePoint(A, edge, true, t).distanceTo(jointEdgePoint(B, edge, false, t)))
+  }
   const pa = jointEdgePoint(A, edge, true, s)
   const pb = jointEdgePoint(B, edge, false, s)
   const nA = new THREE.Vector3(...A.normal)
@@ -125,7 +168,60 @@ function measureJoint(edge, A, B) {
     qHat = rHat.clone().cross(pHat)
   }
   const foldDeg = -Math.atan2(nA.clone().cross(nB).dot(rHat), nA.dot(nB)) * DEG
-  return { gapCm, foldDeg, pHat, rHat, mid: pa.clone().add(pb).multiplyScalar(0.5) }
+  const qHatOut = rHat.clone().cross(pHat)
+  return {
+    gapCm,
+    gapMinCm: Math.min(...gaps),
+    gapMaxCm: Math.max(...gaps),
+    wedgeCm: gaps[gaps.length - 1] - gaps[0],
+    lengthCm: Math.abs(to - from),
+    foldDeg,
+    pHat,
+    rHat,
+    qHat: qHatOut,
+    mid: pa.clone().add(pb).multiplyScalar(0.5),
+  }
+}
+
+/**
+ * Every joint outside the envelope, in either direction.
+ *
+ * Run BEFORE relaxing as well as after, so the report can tell "these were
+ * already inside" from "I brought them inside". Without that the panel read
+ * "every joint inside the envelope, for 0.00cm of movement" as a success when
+ * it actually meant there had been nothing to do — which is how a relaxation
+ * that was doing nothing looked like one that was working.
+ */
+function violationsOf(adjacency, byId, env) {
+  const out = []
+  adjacency.forEach((edge, idx) => {
+    const A = byId.get(edge.a)
+    const B = byId.get(edge.b)
+    if (!A?.position || !B?.position) return
+    const m = measureJoint(edge, A, B)
+    const limit = env.foldLimitDeg(Math.min(Math.max(m.gapMinCm, env.minGapCm), env.maxGapCm))
+    const gapShort = env.minGapCm - m.gapMinCm
+    const gapOver = m.gapMaxCm - env.maxGapCm
+    const foldOver = Math.abs(m.foldDeg) - limit
+    if (gapShort > RESOLVED_TOLERANCE_CM || gapOver > RESOLVED_TOLERANCE_CM || foldOver > RESOLVED_TOLERANCE_CM) {
+      out.push({
+        joint: idx,
+        a: edge.a,
+        b: edge.b,
+        gapMinCm: r(m.gapMinCm),
+        gapMaxCm: r(m.gapMaxCm),
+        foldDeg: r(m.foldDeg),
+        gapShortCm: r(Math.max(0, gapShort)),
+        gapOverCm: r(Math.max(0, gapOver)),
+        foldOverDeg: r(Math.max(0, foldOver)),
+        // Whether the relaxation can do anything about it. Too-narrow and
+        // over-folded are placement problems; too-wide is holonomy, and moving
+        // panels only makes it worse.
+        fixable: gapShort > RESOLVED_TOLERANCE_CM || foldOver > RESOLVED_TOLERANCE_CM,
+      })
+    }
+  })
+  return out
 }
 
 /** Rotate a tile's frame in place, about `axis` through the tile's centre. */
@@ -166,6 +262,13 @@ export function relaxLayout(layout, cfg) {
     normal: new THREE.Vector3(...t.normal),
   }]))
 
+  // What was wrong BEFORE anything moved — the baseline the report needs to be
+  // honest about whether it did anything.
+  const initialViolations = violationsOf(layout.adjacency, byId, env)
+  const initialCollisions = opts.separateCollisions
+    ? findCollisions(tiles.filter((t) => t.position).map(tileOBB), { minDepthCm: 0.05 }).length
+    : null
+
   for (let iter = 0; iter < iterations; iter++) {
     // --- joint pass: push each violating joint back toward the envelope ----
     layout.adjacency.forEach((edge) => {
@@ -174,12 +277,29 @@ export function relaxLayout(layout, cfg) {
       if (!A?.position || !B?.position) return
       const m = measureJoint(edge, A, B)
 
-      // GAP. Split the deficit between the two tiles, along the joint normal.
-      const deficit = env.minGapCm + RELAX_MARGIN_CM - m.gapCm
-      if (deficit > 0 && m.gapCm > 1e-9) {
-        const d = (deficit / 2) * opts.stiffness
-        A.position = [A.position[0] - m.pHat.x * d, A.position[1] - m.pHat.y * d, A.position[2] - m.pHat.z * d]
-        B.position = [B.position[0] + m.pHat.x * d, B.position[1] + m.pHat.y * d, B.position[2] + m.pHat.z * d]
+      // GAP, both ends of the buildable range. Too narrow and the fastener does
+      // not fit; too wide and the connector is a beam pretending to be a strap.
+      // Nothing pulls toward the nominal gap — see `jointEnvelope`.
+      if (m.gapCm > 1e-9) {
+        // The NARROWEST point has to clear the fastener and the WIDEST has to be
+        // reachable by a connector — measured along the joint, not at one point.
+        // ONLY THE FLOOR IS CORRECTED, and it is measured at the joint's
+        // NARROWEST point rather than its midpoint.
+        //
+        // The ceiling is reported but never corrected, and that is a finding
+        // rather than an omission. A joint too wide for any connector is wide
+        // because the surface curves away under it — the wedge, up to 22cm on a
+        // 6×6 study. Pulling it shut means taking the panels off the surface,
+        // and trying it diverges: 204cm of tile movement, worst deviation
+        // 19 → 154cm, residual 0.30 → 28.53cm. Same lesson as pulling gaps
+        // toward nominal. Widening beyond the connector's reach is holonomy,
+        // and holonomy is a FORM problem.
+        const deficit = env.minGapCm + RELAX_MARGIN_CM - m.gapMinCm
+        if (deficit > 0) {
+          const d = (deficit / 2) * opts.stiffness
+          A.position = [A.position[0] - m.pHat.x * d, A.position[1] - m.pHat.y * d, A.position[2] - m.pHat.z * d]
+          B.position = [B.position[0] + m.pHat.x * d, B.position[1] + m.pHat.y * d, B.position[2] + m.pHat.z * d]
+        }
       }
 
       // FOLD. Rotate both tiles about the joint axis, toward flatter.
@@ -192,6 +312,34 @@ export function relaxLayout(layout, cfg) {
         rotateTile(B, m.rHat, dir * step)
       }
     })
+
+    // --- collision pass: push interpenetrating panels apart ---------------
+    // Panels occupying the same space is a HARD failure, and unlike joint
+    // deviation it IS locally fixable by moving them. Run every
+    // COLLISION_EVERY iterations: the 15-axis SAT over every pair is the
+    // expensive part of this loop, and the separation does not need to be
+    // resolved every single step to converge.
+    if (opts.separateCollisions && iter % COLLISION_EVERY === 0) {
+      const placedNow = tiles.filter((t) => t.position)
+      const boxes = placedNow.map(tileOBB)
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          if (!aabbOverlap(boxes[i], boxes[j])) continue
+          const pen = obbPenetration(boxes[i], boxes[j])
+          if (!pen || pen.depthCm <= 0) continue
+          // Push along the separating axis, away from each other, half each.
+          const axis = new THREE.Vector3(...pen.axis)
+          const ci = new THREE.Vector3(...boxes[i].center)
+          const cj = new THREE.Vector3(...boxes[j].center)
+          if (axis.dot(cj.clone().sub(ci)) < 0) axis.negate()
+          const d = (pen.depthCm / 2) * opts.stiffness
+          const P = placedNow[i]
+          const Q = placedNow[j]
+          P.position = [P.position[0] - axis.x * d, P.position[1] - axis.y * d, P.position[2] - axis.z * d]
+          Q.position = [Q.position[0] + axis.x * d, Q.position[1] + axis.y * d, Q.position[2] + axis.z * d]
+        }
+      }
+    }
 
     // --- restoration pass: pull every tile back toward where it belongs ---
     for (const tile of tiles) {
@@ -247,33 +395,28 @@ export function relaxLayout(layout, cfg) {
     }
   }).sort((a, b) => b.displacementCm - a.displacementCm)
 
-  const unresolved = []
-  layout.adjacency.forEach((edge, idx) => {
-    const A = byId.get(edge.a)
-    const B = byId.get(edge.b)
-    if (!A?.position || !B?.position) return
-    const m = measureJoint(edge, A, B)
-    const limit = env.foldLimitDeg(Math.max(m.gapCm, env.minGapCm))
-    const gapShort = env.minGapCm - m.gapCm
-    const foldOver = Math.abs(m.foldDeg) - limit
-    if (gapShort > RESOLVED_TOLERANCE_CM || foldOver > RESOLVED_TOLERANCE_CM) {
-      unresolved.push({
-        joint: idx,
-        a: edge.a,
-        b: edge.b,
-        gapCm: r(m.gapCm),
-        foldDeg: r(m.foldDeg),
-        gapShortCm: r(Math.max(0, gapShort)),
-        foldOverDeg: r(Math.max(0, foldOver)),
-      })
-    }
-  })
+  const unresolved = violationsOf(layout.adjacency, byId, env)
 
   return {
     ...layout,
     tiles,
     relax: {
       iterations,
+      // THE HONEST HEADLINE: what was outside at rest, what still is, and — the
+      // distinction that was missing — whether there was ever anything to do.
+      // "0 unresolved, 0.00cm moved" previously read as success when it meant
+      // the relaxation had found nothing in its remit, which is how a pass doing
+      // literally nothing looked like one that was working.
+      initialUnresolved: initialViolations.length,
+      hadNothingToDo: initialViolations.length === 0 && (initialCollisions ?? 0) === 0,
+      // Of what is left, how much the relaxation could ever have fixed. A joint
+      // too wide for any connector is holonomy — see the gap correction.
+      unfixable: unresolved.filter((u) => !u.fixable).length,
+      initialCollisions,
+      collisions: opts.separateCollisions
+        ? findCollisions(placed.map(tileOBB), { minDepthCm: 0.05 }).length
+        : null,
+      separateCollisions: Boolean(opts.separateCollisions),
       targetWeight: pull,
       stiffness: opts.stiffness,
       minGapCm: r(env.minGapCm),

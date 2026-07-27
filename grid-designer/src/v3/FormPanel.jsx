@@ -527,11 +527,30 @@ export default function FormPanel() {
               format={int0}
             />
             <p className="form-annotation">
-              {relaxReport
-                ? relaxReport.unresolved.length === 0
-                  ? `every joint inside the envelope, for ${cm1(relaxReport.worstDisplacementCm)}cm of movement at worst`
-                  : `${relaxReport.unresolved.length} of ${relaxReport.jointCount} joints still outside — this form may be too aggressive for a ${cm1(gap)}cm joint`
-                : 'hold high to keep the authored shape; low to resolve more joints and drift further'}
+              {!relaxReport
+                ? 'hold high to keep the authored shape; low to resolve more joints and drift further'
+                : relaxReport.hadNothingToDo
+                  ? 'nothing to do — every joint was already inside the envelope. Whatever is wrong with this design is not something moving the panels can fix.'
+                  : relaxReport.unresolved.length === 0
+                    ? `brought ${relaxReport.initialUnresolved} joint${relaxReport.initialUnresolved === 1 ? '' : 's'} inside the envelope, for ${cm1(relaxReport.worstDisplacementCm)}cm of movement at worst`
+                    : relaxReport.unfixable === relaxReport.unresolved.length
+                      ? `${relaxReport.unresolved.length} of ${relaxReport.jointCount} joints are outside and moving panels cannot fix any of them — they are wider than a connector can span, which is the FORM being too curved, not a placement error`
+                      : `${relaxReport.initialUnresolved} → ${relaxReport.unresolved.length} joints outside (${relaxReport.unfixable} of those unfixable by moving panels), for ${cm1(relaxReport.worstDisplacementCm)}cm of movement`}
+            </p>
+            <label className="form-check-row">
+              <input
+                type="checkbox"
+                data-testid="form-relax-separate"
+                checked={Boolean(placement.relax.separateCollisions)}
+                onChange={(e) => setRelax({ separateCollisions: e.target.checked })}
+              />
+              <span className="slider-label">also push colliding panels apart</span>
+            </label>
+            <p className="form-hint">
+              Off by default, and measured: on a steep drift the collisions are housings converging
+              under a fold rather than panels in the wrong place, so separating them takes the panels
+              off the surface without fixing the cause — best case 40 → 35 collisions for four times
+              the shape error. Worth trying only if you believe yours are positional.
             </p>
           </>
         )}

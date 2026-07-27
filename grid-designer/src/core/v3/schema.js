@@ -480,7 +480,27 @@ export const DEFAULT_TILING = { strategy: 'flat-lie', plateFitToleranceCm: 2.0, 
 // falls from 4.0mm to under 0.2mm for 0.3cm of tile movement. Slacker settings
 // leave nearly a millimetre on the table, which is the difference between a
 // fastener fitting and not.
-export const DEFAULT_RELAX = { enabled: false, iterations: 200, targetWeight: 0.05, stiffness: 0.8 }
+/**
+ * `separateCollisions` is OFF, and the measurement is why. Pushing
+ * interpenetrating panels apart looked like an obvious win and is not: the
+ * collisions on a steep drift are HOUSINGS CONVERGING under a fold, not panels
+ * in the wrong place, so translating them apart takes them off the surface
+ * without fixing the cause. Measured over presets and two stress cases —
+ *
+ *   amp 140 / gap 1cm   collisions 40 -> 35, shape residual 0.30 -> 1.20cm
+ *   amp 200 / gap 2cm   collisions 43 -> 43, shape residual 0.47 -> 1.46cm
+ *
+ * — a 12% best case for four times the shape error, and nothing at all at worst.
+ * Kept because it is cheap to try on a design whose collisions ARE positional,
+ * but it should not be the default.
+ */
+export const DEFAULT_RELAX = {
+  enabled: false,
+  iterations: 200,
+  targetWeight: 0.05,
+  stiffness: 0.8,
+  separateCollisions: false,
+}
 export const RELAX_ITERATIONS_MIN = 1
 export const RELAX_ITERATIONS_MAX = 400
 export const RELAX_WEIGHT_MIN = 0.01
@@ -756,6 +776,7 @@ export function normalizeConfig(raw) {
         targetWeight: clamp(numberOr(cfg.placement.relax?.targetWeight, DEFAULT_RELAX.targetWeight),
           RELAX_WEIGHT_MIN, RELAX_WEIGHT_MAX),
         stiffness: clamp(numberOr(cfg.placement.relax?.stiffness, DEFAULT_RELAX.stiffness), 0.05, 1),
+        separateCollisions: Boolean(cfg.placement.relax?.separateCollisions),
       },
     },
     connectors: {
