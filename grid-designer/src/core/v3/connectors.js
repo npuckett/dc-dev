@@ -130,12 +130,22 @@ export const BOLT_M3 = {
 }
 
 export const CONNECTOR_PROFILE = {
+  /**
+   * SHIM CLEARANCE — how far every clamp face stands off the panel it bears on.
+   *
+   * The parts never touch the panels: a rubber shim goes in the gap on the real
+   * build, so the printed geometry must leave room for one. It applies to all
+   * three bearing faces — the bar over the bezel, the back half's lip under the
+   * flange, and its body against the outer walls — because all three get a shim.
+   *
+   * 0.075cm sits in the middle of the 0.5–1mm band. It is also what stops the
+   * model claiming a face-to-face fit the build will never have.
+   */
+  shimCm: 0.075,
   /** Least bearing the front bar may keep on a bezel before it is not holding. */
   frontMinLipCm: 0.4,
-  /** Depth of the bar's flat underside — inside the bezel's own 1mm drop. */
-  frontFlatDepthCm: 0.05,
-  /** How far the bar stands proud of the panel's front plane. */
-  crownCm: 0.35,
+  /** The bar's own thickness. */
+  frontThicknessCm: 0.4,
   /** Where the two pieces part. Must lie inside the outer wall — see below. */
   splitDepthCm: 0.6,
   /** The back half's lip on the flange: the load-bearing grip. */
@@ -218,8 +228,11 @@ export function solveFrontBars(gapsCm, profile = CONNECTOR_PROFILE, panel = PANE
 export function frontBarProfile(barWidthCm, profile = CONNECTOR_PROFILE) {
   const c = { ...CONNECTOR_PROFILE, ...profile }
   const h = barWidthCm / 2
-  const top = c.crownCm
-  const bot = -c.frontFlatDepthCm
+  // Its underside floats a shim above the panel's front-most plane — the bezel
+  // peak — so it clears the bezel by at least the shim everywhere along its
+  // reach, and by more as the bezel falls away toward the panel edge.
+  const bot = c.shimCm
+  const top = c.shimCm + c.frontThicknessCm
   const points = [[-h, bot], [h, bot], [h, top], [-h, top]]
   return { points, extents: extentsOf(points) }
 }
@@ -246,10 +259,14 @@ export function backHalfProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE, 
     side.rim[1] + i * side.inward[1] + d * side.deeper[1],
   ]
 
-  const aLip = at(sides[0], bg, flangeDepthAt(bg, pp))
-  const bLip = at(sides[1], bg, flangeDepthAt(bg, pp))
-  const aWall = at(sides[0], 0, pp.outerWallDepth)
-  const bWall = at(sides[1], 0, pp.outerWallDepth)
+  // Every panel-facing point is pushed off by the shim: the lips sit a shim
+  // BELOW the flange, and the body stands a shim OFF each outer wall (negative
+  // inboard offset is out into the gap). Nothing touches the panel.
+  const sh = c.shimCm
+  const aLip = at(sides[0], bg, flangeDepthAt(bg, pp) + sh)
+  const bLip = at(sides[1], bg, flangeDepthAt(bg, pp) + sh)
+  const aWall = at(sides[0], -sh, pp.outerWallDepth + sh)
+  const bWall = at(sides[1], -sh, pp.outerWallDepth + sh)
   // The floor must clear EVERY point above it, not just the lips: on a concave
   // joint the walls tilt outward and their back corners drop below the lips, and
   // a floor taken from the lips alone left them hanging through it — a
@@ -268,8 +285,8 @@ export function backHalfProfile({ spanCm, foldDeg, profile = CONNECTOR_PROFILE, 
     [bLip[0], floor],
     bLip,
     bWall,
-    at(sides[1], 0, c.splitDepthCm),
-    at(sides[0], 0, c.splitDepthCm),
+    at(sides[1], -sh, c.splitDepthCm),
+    at(sides[0], -sh, c.splitDepthCm),
     aWall,
     aLip,
   ]

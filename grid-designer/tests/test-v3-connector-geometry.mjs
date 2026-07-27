@@ -29,9 +29,10 @@ import {
   CONNECTOR_PROFILE,
   CONNECTOR_LIMITS,
 } from '../src/core/v3/connectors.js'
-import { buildConnectorGeometry, connectorTransform } from '../src/geometry/connectorGeometry.js'
+import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../src/geometry/connectorGeometry.js'
 import { PANEL_PROFILE, PANEL_METRICS } from '../src/config.js'
 import { buildPreset, PRESET_IDS } from '../src/core/v3/presets.js'
+import { buildReport } from '../src/core/v3/report.js'
 import { solveLayout } from '../src/core/v3/placement.js'
 
 let passed = 0
@@ -100,11 +101,15 @@ console.log('2. the pieces match the panel rim')
   // BACK HALF: lips on the flange, top face at the split plane.
   const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
   const { points } = backHalfProfile({ spanCm: 4, foldDeg: 0 })
+  const sh = CONNECTOR_PROFILE.shimCm
   near(points[7][0], -2 - bg, 1e-9, 'the flange lip reaches backGrip inboard')
-  near(points[7][1], -flangeDepthAt(bg), 1e-9, 'and its top face sits on the flange')
-  near(points[6][1], -PANEL_PROFILE.outerWallDepth, 1e-9, 'it runs up the outer wall from the back corner')
-  near(points[5][1], -CONNECTOR_PROFILE.splitDepthCm, 1e-9, 'to the split plane')
-  near(points[5][0], -2, 1e-9, 'and meets the panel at its outer edge')
+  near(points[7][1], -(flangeDepthAt(bg) + sh), 1e-9,
+    'and its top face sits exactly one shim below the flange — never on it')
+  near(points[6][1], -(PANEL_PROFILE.outerWallDepth + sh), 1e-9,
+    'it runs up the outer wall a shim clear of the back corner')
+  near(points[5][1], -CONNECTOR_PROFILE.splitDepthCm, 1e-9,
+    'to the split plane — which is a face against the OTHER HALF, so no shim there')
+  near(points[5][0], -2 + sh, 1e-9, 'and stands a shim off the panel edge')
   ok(CONNECTOR_PROFILE.backGripCm <= PANEL_PROFILE.flangeWidth,
     'the flange lip stays on the flange and never fouls the taper')
 
@@ -119,11 +124,12 @@ console.log('2. the pieces match the panel rim')
 
   // FRONT BAR: its underside stays within the bezel's own drop, so it bears on
   // the bezel rather than hovering above the panel or cutting into it.
-  ok(CONNECTOR_PROFILE.frontFlatDepthCm >= 0, 'the bar underside is at or behind the front plane')
-  ok(CONNECTOR_PROFILE.frontFlatDepthCm <= PANEL_PROFILE.bezelDrop + 1e-9,
-    'and no deeper than the bezel drop, so it cannot cut into the bezel')
-  ok(CONNECTOR_PROFILE.crownCm > 0,
-    'the bar stands proud — the bezel peak IS the front plane, so a lip over it has nowhere else to go')
+  const bar = frontBarProfile(5)
+  near(bar.extents.qMin, sh, 1e-12,
+    'the bar floats exactly one shim above the panel front plane — the bezel peak')
+  near(bar.extents.height, CONNECTOR_PROFILE.frontThicknessCm, 1e-12, 'and is its own thickness thick')
+  ok(sh >= 0.05 && sh <= 0.1,
+    `the shim is in the 0.5–1mm band a rubber shim needs (${(sh * 10).toFixed(2)}mm)`)
 }
 
 // -----------------------------------------------------------------------------
@@ -173,16 +179,29 @@ console.log('3. the self-intersection gate')
     }
     return last
   }
+  // The two back corners sit a shim off the panel in BOTH axes, so their
+  // separation is  gap − 2·shim·cos(φ) − 2·(outerWallDepth + shim)·sin(φ)
+  // with φ = fold/2. Solved by bisection here — derived from PANEL_PROFILE and
+  // the shim alone, owing nothing to the profile code it checks.
+  const sh = CONNECTOR_PROFILE.shimCm
+  const sep = (gap, phi) =>
+    gap - 2 * sh * Math.cos(phi) - 2 * (PANEL_PROFILE.outerWallDepth + sh) * Math.sin(phi)
   const closedForm = (gap) => {
-    const x = gap / (2 * PANEL_PROFILE.outerWallDepth)
-    return x >= 1 ? 90 : (2 * Math.asin(x) * 180) / Math.PI
+    if (sep(gap, Math.PI / 4) > 0) return 90
+    let lo = 0
+    let hi = Math.PI / 4
+    for (let k = 0; k < 60; k++) {
+      const mid = (lo + hi) / 2
+      if (sep(gap, mid) > 0) lo = mid; else hi = mid
+    }
+    return ((lo + hi) / 2) * 2 * 180 / Math.PI
   }
   let offBy = 0
   for (const gap of [0.5, 0.8, 1, 1.5, 2]) {
     const got = maxFold(gap, {})
     if (Math.abs(got - Math.min(90, closedForm(gap))) > 0.6) offBy++
   }
-  ok(offBy === 0, 'the fold limit matches 2·asin(gap / 2·outerWallDepth) at every gap')
+  ok(offBy === 0, 'the fold limit is exactly where the two shimmed back corners meet, at every gap')
 
   // And it really is independent of the connector's own dimensions.
   const spans = [0.5, 1, 1.5]
@@ -305,50 +324,90 @@ console.log('5. mesh and OBB agree')
 // -----------------------------------------------------------------------------
 // 6. Every station of every preset produces a buildable part.
 // -----------------------------------------------------------------------------
-console.log('6. preset sweep')
+console.log('6. every piece of every station renders')
 {
+  // The whole kit, both families, across every preset — closed, outward-wound,
+  // finite and placed. This is the guard that "all the connectors render
+  // properly" stays true: a single torn or inside-out piece is invisible in the
+  // viewport and fatal at the slicer.
   let total = 0
-  let infeasible = 0
-  let worstFold = 0
-  let narrowest = Infinity
-  for (const id of PRESET_IDS) {
-    const cfg = buildPreset(id)
-    const C = solveConnectors(cfg, solveLayout(cfg))
-    let bad = 0
-    for (const st of C.stations) {
-      total++
-      const { start, end } = connectorEndProfiles(st)
-      if (profileSelfIntersects(start.points) || profileSelfIntersects(end.points)) { infeasible++; continue }
-      worstFold = Math.max(worstFold, Math.abs(st.foldDeg))
-      narrowest = Math.min(narrowest, st.spanMinCm)
-      const g = buildConnectorGeometry(st)
-      if (g.getIndex().count === 0) bad++
-      if (!g.boundingBox || !Number.isFinite(g.boundingBox.min.x)) bad++
-    }
-    ok(bad === 0, `${id}: every feasible station builds a finite solid`)
-  }
-  console.log(`   ${total} stations, worst |fold| ${worstFold.toFixed(1)}°, narrowest gap ${narrowest.toFixed(2)}cm`)
-  console.log(`   ${infeasible} infeasible (hooks colliding)`)
-  ok(total > 200, `the sweep is substantial (${total} stations)`)
+  const bad = []
+  let worstOffset = 0
 
-  // Determinism: the same station must produce the same vertex buffer.
+  for (const id of PRESET_IDS) {
+    const conn = buildReport(buildPreset(id)).connectors
+    for (const st of conn.stations) {
+      const pieces = [['back half', buildConnectorGeometry(st)]]
+      pieces.push(['front bar', st.barWidthCm ? buildFrontBarGeometry(st.barWidthCm, st.lengthCm) : null])
+
+      for (const [kind, geo] of pieces) {
+        total++
+        if (!geo) { bad.push(`${id} ${st.id} ${kind}: no geometry`); continue }
+        const pos = geo.getAttribute('position')
+        const idx = geo.getIndex()
+        if (!idx || idx.count === 0) { bad.push(`${id} ${st.id} ${kind}: no triangles`); continue }
+
+        let nonFinite = 0
+        for (let i = 0; i < pos.count; i++) {
+          if (![pos.getX(i), pos.getY(i), pos.getZ(i)].every(Number.isFinite)) nonFinite++
+        }
+        if (nonFinite) { bad.push(`${id} ${st.id} ${kind}: ${nonFinite} non-finite vertices`); continue }
+
+        const key = (i) => {
+          const k = i * 3
+          return `${pos.array[k].toFixed(5)},${pos.array[k + 1].toFixed(5)},${pos.array[k + 2].toFixed(5)}`
+        }
+        const und = new Map()
+        const dir = new Map()
+        for (let t = 0; t < idx.count; t += 3) {
+          const v = [key(idx.array[t]), key(idx.array[t + 1]), key(idx.array[t + 2])]
+          for (let e = 0; e < 3; e++) {
+            const x = v[e]
+            const y = v[(e + 1) % 3]
+            dir.set(`${x}|${y}`, (dir.get(`${x}|${y}`) ?? 0) + 1)
+            const u = x < y ? `${x}|${y}` : `${y}|${x}`
+            und.set(u, (und.get(u) ?? 0) + 1)
+          }
+        }
+        if (![...und.values()].every((c) => c === 2)) bad.push(`${id} ${st.id} ${kind}: not closed`)
+        if (![...dir.values()].every((c) => c === 1)) bad.push(`${id} ${st.id} ${kind}: inconsistent winding`)
+
+        let vol = 0
+        for (let t = 0; t < idx.count; t += 3) {
+          const q = [0, 1, 2].map((e) => {
+            const k = idx.array[t + e] * 3
+            return new THREE.Vector3(pos.array[k], pos.array[k + 1], pos.array[k + 2])
+          })
+          vol += q[0].dot(new THREE.Vector3().crossVectors(q[1], q[2])) / 6
+        }
+        if (vol <= 0) bad.push(`${id} ${st.id} ${kind}: inside-out`)
+
+        const { position, quaternion } = connectorTransform(st)
+        geo.computeBoundingBox()
+        const centre = geo.boundingBox.getCenter(new THREE.Vector3()).applyQuaternion(quaternion).add(position)
+        const off = centre.distanceTo(new THREE.Vector3(...st.mid))
+        worstOffset = Math.max(worstOffset, off)
+        if (off > 12) bad.push(`${id} ${st.id} ${kind}: sits ${off.toFixed(1)}cm from its station`)
+        geo.dispose()
+      }
+    }
+  }
+  ok(bad.length === 0, bad.length
+    ? `${bad.length} bad pieces, first: ${bad[0]}`
+    : `all ${total} pieces are closed, outward-wound, finite and placed`)
+  ok(total > 800, `the sweep is substantial (${total} pieces)`)
+  // Both pieces really are being built, not just the back half twice.
+  ok(worstOffset > 0.1, 'the two pieces sit at different depths, as they must')
+  console.log(`   ${total} pieces, worst centre offset ${worstOffset.toFixed(2)}cm`)
+
   const cfg = buildPreset('drift')
-  const st = solveConnectors(cfg).stations[0]
+  const st = buildReport(cfg).connectors.stations[0]
   const g1 = buildConnectorGeometry(st)
   const g2 = buildConnectorGeometry(st)
   ok(g1.getAttribute('position').array.join(',') === g2.getAttribute('position').array.join(','),
     'the same station builds a byte-identical mesh')
 }
 
-// -----------------------------------------------------------------------------
-// 7. THE POINT OF THE WHOLE PART: it grips the rim without cutting into it.
-//
-// §2 checks the outline's coordinates. This checks the CONSEQUENCE, which is a
-// different claim: that the panel's material and the connector's material are
-// disjoint, and that the connector nonetheless closes around the rim on both
-// sides. Either half alone is satisfiable by a part that does nothing — a
-// connector floating in the gap has no interference at all.
-// -----------------------------------------------------------------------------
 console.log('7. each piece grips without cutting into the panel')
 {
   const inside = (pts, x, y) => {
@@ -361,7 +420,9 @@ console.log('7. each piece grips without cutting into the panel')
     return n
   }
   const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
-  const EPS = 0.02
+  // Probe beyond the shim: the clamp is deliberately held off the panel, so a
+  // probe inside the shim gap would find void and report no grip.
+  const EPS = CONNECTOR_PROFILE.shimCm * 2
   let interference = 0
   let noGrip = 0
   let cases = 0
@@ -389,7 +450,7 @@ console.log('7. each piece grips without cutting into the panel')
             if (inside(points, x, y)) interference++
           }
           // (b) THE GRIP — material just behind the flange must BE the back half.
-          const [gx, gy] = at(side, i, flangeDepthAt(i) + EPS)
+          const [gx, gy] = at(side, i, flangeDepthAt(i) + CONNECTOR_PROFILE.shimCm + EPS)
           if (!inside(points, gx, gy)) noGrip++
         }
       }

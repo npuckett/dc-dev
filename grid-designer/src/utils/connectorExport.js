@@ -44,7 +44,7 @@
  */
 
 import * as THREE from 'three'
-import { buildConnectorGeometry } from '../geometry/connectorGeometry.js'
+import { buildConnectorGeometry, buildFrontBarGeometry } from '../geometry/connectorGeometry.js'
 import { CONNECTOR_PROFILE } from '../core/v3/connectors.js'
 import { PANEL_PROFILE, PANEL_METRICS } from '../config.js'
 import { downloadBlob, downloadText, timestamp } from './exporters.js'
@@ -77,15 +77,24 @@ export function partStation(part) {
  * @param {Array} kit `report.connectors.kit`
  * @returns {{ positions: Float32Array, indices: Uint32Array, parts: Array }}
  */
-export function buildConnectorPlate(kit) {
+export function buildConnectorPlate(kit, bars = []) {
   const positions = []
   const indices = []
   const parts = []
   let cursorX = 0
   let vertexBase = 0
 
-  for (const part of kit) {
-    const geo = buildConnectorGeometry(partStation(part))
+  // Both families on one plate: a back half per geometry bin, then the handful
+  // of universal front bars. The bars come last so they read as a group.
+  const items = [
+    ...kit.map((part) => ({ id: part.partId, quantity: part.count, kind: 'back-half',
+      geo: () => buildConnectorGeometry(partStation(part)) })),
+    ...bars.map((bar) => ({ id: bar.barId, quantity: bar.stationIds?.length ?? bar.count, kind: 'front-bar',
+      geo: () => buildFrontBarGeometry(bar.widthCm, kit[0]?.lengthCm ?? 10) })),
+  ]
+
+  for (const part of items) {
+    const geo = part.geo()
     const pos = geo.getAttribute('position')
     const idx = geo.getIndex()
 
@@ -123,8 +132,9 @@ export function buildConnectorPlate(kit) {
     for (let t = 0; t < idx.count; t++) indices.push(idx.array[t] + vertexBase)
 
     parts.push({
-      partId: part.partId,
-      quantity: part.count,
+      partId: part.id,
+      kind: part.kind,
+      quantity: part.quantity,
       originMm: [Math.round((cursorX) * 1e4) / 1e4, 0, 0],
       sizeMm: [
         Math.round((maxX - minX) * 1e4) / 1e4,
@@ -252,8 +262,18 @@ export function connectorManifest(config, report, plateParts) {
       worstForcedSpanMm: mm(conn.summary.worstBinSpanErrorCm),
       worstForcedFoldDeg: conn.summary.worstBinFoldErrorDeg,
     },
+    bars: conn.bars.map((bar) => ({
+      partId: bar.barId,
+      kind: 'front-bar',
+      quantity: bar.stationIds.length,
+      widthMm: mm(bar.widthCm),
+      servesGapMm: [mm(bar.gapMinCm), mm(bar.gapMaxCm)],
+      bandMm: bar.bandCm.map(mm),
+      plateOriginMm: byId.get(bar.barId)?.originMm ?? null,
+    })),
     parts: conn.kit.map((part) => ({
       partId: part.partId,
+      kind: 'back-half',
       quantity: part.count,
       gapStartMm: mm(part.spanStartCm),
       gapEndMm: mm(part.spanEndCm),
@@ -282,14 +302,14 @@ export function connectorManifestPayload(config, report, plateParts) {
 // -----------------------------------------------------------------------------
 /** Download one of each unique connector type as a printable STL plate. */
 export function exportConnectorPlateSTL(report, filename = `connectors_${timestamp()}.stl`) {
-  const plate = buildConnectorPlate(report.connectors.kit)
+  const plate = buildConnectorPlate(report.connectors.kit, report.connectors.bars)
   downloadBlob(new Blob([stlPayload(plate)], { type: 'model/stl' }), filename)
   return filename
 }
 
 /** Download the manifest that says how many of each to run. */
 export function exportConnectorManifest(config, report, filename = `connectors_${timestamp()}.json`) {
-  const plate = buildConnectorPlate(report.connectors.kit)
+  const plate = buildConnectorPlate(report.connectors.kit, report.connectors.bars)
   downloadText(connectorManifestPayload(config, report, plate.parts), filename, 'application/json')
   return filename
 }

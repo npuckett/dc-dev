@@ -51,7 +51,7 @@ import { Canvas } from '@react-three/fiber'
 import { Grid, Html, OrbitControls } from '@react-three/drei'
 import useStoreV3, { getDerived } from './store.js'
 import { buildPanelGeometry } from '../geometry/panelGeometry.js'
-import { buildConnectorGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
+import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { tileOBB } from '../core/v3/placement.js'
 import { buildTarget } from '../core/v3/target.js'
 import { normalizeForm, sampleDriftMesh } from '../core/v3/form.js'
@@ -292,6 +292,8 @@ function DriftSurface() {
 // -----------------------------------------------------------------------------
 const CONNECTOR_FLAG_COLOR = '#ffb020'
 const CONNECTOR_CLASH_COLOR = '#ff2d2d'
+/** The universal front bar — neutral, because there are only ever one or two. */
+const FRONT_BAR_COLOR = '#c8ccd6'
 
 function ConnectorParts() {
   const config = useStoreV3((s) => s.config)
@@ -316,19 +318,36 @@ function ConnectorParts() {
     conn.kit.forEach((p, i) => {
       hexOf.set(p.partId, `#${new THREE.Color().setHSL((i * 0.6180339887) % 1, 0.62, 0.58).getHexString()}`)
     })
-    return conn.stations.map((st) => {
+    // BOTH PIECES per station. The back half carries the kit colour; the front
+    // bar is deliberately neutral, because it is the universal part and there
+    // are only ever one or two of them — colouring it by type would imply a
+    // variety it does not have.
+    const out = []
+    for (const st of conn.stations) {
       const { position, quaternion } = connectorTransform(st)
       const clash = st.flags.includes('W_CONNECTOR_CLASH') || st.flags.includes('W_CONNECTOR_INFEASIBLE')
       const flagged = st.flags.length > 0
-      return {
-        id: st.id,
+      const tint = clash ? CONNECTOR_CLASH_COLOR : flagged ? CONNECTOR_FLAG_COLOR : hexOf.get(partOf.get(st.id)) ?? '#d0d0d8'
+      out.push({
+        id: `${st.id}-back`,
         geometry: buildConnectorGeometry(st),
         position,
         quaternion,
-        color: clash ? CONNECTOR_CLASH_COLOR : flagged ? CONNECTOR_FLAG_COLOR : hexOf.get(partOf.get(st.id)) ?? '#d0d0d8',
+        color: tint,
         emphasis: clash || flagged,
+      })
+      if (st.barWidthCm) {
+        out.push({
+          id: `${st.id}-bar`,
+          geometry: buildFrontBarGeometry(st.barWidthCm, st.lengthCm),
+          position,
+          quaternion,
+          color: clash ? CONNECTOR_CLASH_COLOR : FRONT_BAR_COLOR,
+          emphasis: clash,
+        })
       }
-    })
+    }
+    return out
   }, [conn, showConnectors])
 
   // BufferGeometry is not garbage collected — it holds GPU buffers — so every
@@ -607,7 +626,7 @@ function ViewportToolbar() {
         type="button"
         className={`tool-btn${showConnectors ? ' tool-btn-on' : ''}`}
         data-testid="toggle-connectors"
-        title="the 3D-printed parts, coloured by kit type — a design needing four distinct parts reads as four colours; amber is flagged, red cannot be built or fouls something"
+        title="the 3D-printed parts — back halves coloured by kit type, universal front bars in neutral grey; amber is flagged, red cannot be built or fouls something"
         onClick={() => toggleConnectors()}
       >
         connectors

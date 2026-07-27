@@ -48,6 +48,7 @@ import {
   BLOCKED_CODE,
   REDUCED_CODE,
   solveFrontBars,
+  frontBarBand,
   fastenerGapNeededCm,
 } from './connectors.js'
 import { POWER_SUPPLY } from '../../config.js'
@@ -219,6 +220,25 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
   clashes.sort((x, y) => y.depthCm - x.depthCm || (x.station < y.station ? -1 : 1))
   const clashedStations = new Set(clashes.map((c) => c.station))
 
+  // TWO PART FAMILIES. The back halves bin on geometry as before — they have to
+  // sit on the flange at the joint's own fold. The FRONT BARS do not: a bar is a
+  // plain rectangle bearing on two bezels, so one width serves a whole band of
+  // gaps and the whole design usually needs one or two.
+  const kit = buildKit(C.stations, cfg.connectors)
+  const bars = solveFrontBars(C.stations.map((st) => Math.max(st.spanStartCm, st.spanEndCm)))
+    .map((b, i) => ({ ...b, barId: `B${String(i).padStart(2, '0')}`, stationIds: [] }))
+
+  // Assign every station the narrowest bar whose band covers its gap, so a
+  // station always gets the bar that leaves it the most bezel bearing.
+  const barFor = (st) => {
+    const gap = Math.max(st.spanStartCm, st.spanEndCm)
+    for (const b of bars) {
+      const [lo, hi] = frontBarBand(b.widthCm)
+      if (gap >= lo - 1e-9 && gap <= hi + 1e-9) return b
+    }
+    return bars[bars.length - 1] ?? null
+  }
+
   // --- per-station flags ---------------------------------------------------
   // Everything decidable from the station alone lives in connectors.js, so it
   // can be tested against synthetic stations; clash is the only rule that needs
@@ -226,19 +246,15 @@ function buildConnectorReport(cfg, L, placedTiles, tileBoxes) {
   const stations = C.stations.map((st) => {
     const flags = connectorStationFlags(st, limits)
     if (clashedStations.has(st.id)) flags.push('W_CONNECTOR_CLASH')
-    return { ...st, flags }
+    const bar = barFor(st)
+    if (bar) bar.stationIds.push(st.id)
+    return { ...st, flags, barId: bar?.barId ?? null, barWidthCm: bar?.widthCm ?? null }
   })
 
   // A joint held by ONE part is free to rotate about it, and with no
   // substructure that is a real degree of freedom rather than a detail.
   const singles = C.perJoint.filter((pj) => pj.count < 2)
 
-  // TWO PART FAMILIES. The back halves bin on geometry as before — they have to
-  // sit on the flange at the joint's own fold. The FRONT BARS do not: a bar is a
-  // plain rectangle bearing on two bezels, so one width serves a whole band of
-  // gaps and the whole design usually needs one or two.
-  const kit = buildKit(C.stations, cfg.connectors)
-  const bars = solveFrontBars(C.stations.map((st) => Math.max(st.spanStartCm, st.spanEndCm)))
 
   return {
     stations,

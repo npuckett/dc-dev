@@ -276,7 +276,7 @@ console.log('4. frames agree with an independent recomputation')
   {
     const SPAN = 6
     const bg = Math.min(CONNECTOR_PROFILE.backGripCm, PANEL_PROFILE.flangeWidth)
-    const lipDepth = flangeDepthAt(bg)
+    const lipDepth = flangeDepthAt(bg) + CONNECTOR_PROFILE.shimCm
     // The two flange lip contact points, taken by INDEX: backHalfProfile emits
     // [A floor, B floor, B lip, B wall, B split, A split, A wall, A lip], so the
     // lips are 2 and 7.
