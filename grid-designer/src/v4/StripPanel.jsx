@@ -59,6 +59,8 @@ import {
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
   GROUND_CLEARANCE_MIN,
+  WALL_THICKNESS_MIN,
+  WALL_THICKNESS_MAX,
   GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
@@ -127,6 +129,8 @@ export default function StripPanel() {
   const setWindowOffset = useStoreV4((s) => s.setWindowOffset)
   const setGroundToFloor = useStoreV4((s) => s.setGroundToFloor)
   const setGroundClearance = useStoreV4((s) => s.setGroundClearance)
+  const setWallThickness = useStoreV4((s) => s.setWallThickness)
+  const room = useStoreV4((s) => s.config.room)
   const setConnectorKnob = useStoreV4((s) => s.setConnectorKnob)
   const undo = useStoreV4((s) => s.undo)
   const redo = useStoreV4((s) => s.redo)
@@ -590,6 +594,16 @@ export default function StripPanel() {
           />
           <span className="slider-label">sit on the floor</span>
         </label>
+        <SliderRow
+          testId="strip-wall-thickness"
+          label="wall thickness"
+          value={room.wallThicknessCm}
+          min={WALL_THICKNESS_MIN}
+          max={WALL_THICKNESS_MAX}
+          step={0.1}
+          onChange={(v) => setWallThickness(v)}
+          format={(v) => `${cm1(v)}cm`}
+        />
         <SliderRow
           testId="strip-ground-clearance"
           // Named for the PART, not the measurement. It was "ground clearance",

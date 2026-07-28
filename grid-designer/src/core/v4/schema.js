@@ -345,6 +345,31 @@ export const WALL_ANCHORS = ['free', 'braced']
 // -----------------------------------------------------------------------------
 /** How `(xCm, zCm)` locates the box — see obstacles.js's header on why this has
  *  to be stated rather than guessed. */
+// -----------------------------------------------------------------------------
+// THE ROOM — measured fabric of the space, not part of the design
+// -----------------------------------------------------------------------------
+/**
+ * Dimensions of the space the installation goes into, measured on site.
+ *
+ * Same category as `obstacles` and for the same reason: these are FACTS about
+ * the room, so they ship as defaults rather than as choices, and nothing here
+ * ever changes the design — they exist to place it against something real.
+ *
+ * The wall plane stays at **x = 0**, which is the datum every other dimension in
+ * the tool is quoted from. `wallThicknessCm` is the wall's build-up running
+ * AWAY from the installation, so the wall occupies `x ∈ [−wallThicknessCm, 0]`
+ * and the network still starts at x = 0. Thickening the wall therefore never
+ * moves a panel — if it ever does, something has confused the room with the
+ * design.
+ */
+export const WALL_THICKNESS_MIN = 0
+export const WALL_THICKNESS_MAX = 100
+
+export const DEFAULT_ROOM = {
+  /** Measured on site, 2026-07-28. */
+  wallThicknessCm: 8.9,
+}
+
 export const OBSTACLE_ANCHORS = ['corner', 'centre']
 
 export const OBSTACLE_POS_MIN = -500
@@ -441,6 +466,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   // stop one config's overrides being mutated out from under every other config
   // that defaulted from this one.
   overrides: { cells: [], edges: [] },
+  room: { ...DEFAULT_ROOM },
   obstacles: DEFAULT_OBSTACLES.map((o) => ({ ...o })),
   connectors: { ...DEFAULT_CONNECTORS },
   meta: { notes: '' },
@@ -537,6 +563,13 @@ function withDefaults(raw) {
     // Same raw pass-through as the overrides. An ABSENT key defaults to the
     // room's known column; an explicit empty array means "no obstacles", which
     // is a different statement and has to survive normalization.
+    room: {
+      wallThicknessCm: pick(
+        isPlainObject(src.room) ? src.room : {},
+        'wallThicknessCm',
+        DEFAULT_ROOM.wallThicknessCm,
+      ),
+    },
     obstacles: src.obstacles === undefined
       ? DEFAULT_OBSTACLES.map((o) => ({ ...o }))
       : src.obstacles,
@@ -724,6 +757,13 @@ export function normalizeConfig(raw) {
       cells: sanitizeCells(cfg.overrides.cells, cols, rows),
       edges: sanitizeEdges(cfg.overrides.edges, cols, rows),
     },
+    room: {
+      wallThicknessCm: clamp(
+        numberOr(cfg.room.wallThicknessCm, DEFAULT_ROOM.wallThicknessCm),
+        WALL_THICKNESS_MIN,
+        WALL_THICKNESS_MAX,
+      ),
+    },
     obstacles: sanitizeObstacles(cfg.obstacles),
     connectors: {
       lengthCm: clamp(
@@ -852,6 +892,10 @@ export function validateConfig(config) {
   checkRange('placement.groundClearanceCm', cfg.placement.groundClearanceCm,
     GROUND_CLEARANCE_MIN, GROUND_CLEARANCE_MAX,
     'how far the lowest material stands off the floor, and how tall the ground spacers are, cm')
+  // The room, not the design: the wall builds up AWAY from the installation, so
+  // this never moves a panel. See DEFAULT_ROOM.
+  checkRange('room.wallThicknessCm', cfg.room.wallThicknessCm, WALL_THICKNESS_MIN, WALL_THICKNESS_MAX,
+    'wall build-up running away from the installation, cm')
 
   // --- enums ----------------------------------------------------------------
   const checkEnum = (path, v, list, label) => {

@@ -78,6 +78,8 @@ import {
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
   GROUND_CLEARANCE_MIN,
+  WALL_THICKNESS_MIN,
+  WALL_THICKNESS_MAX,
   GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
@@ -498,6 +500,17 @@ const useStoreV4 = create((set, get) => {
           numOr(v, draft.placement.groundClearanceCm),
           GROUND_CLEARANCE_MIN,
           GROUND_CLEARANCE_MAX,
+        )
+      }),
+
+    /** The ROOM, not the design. See schema.js's DEFAULT_ROOM: the wall builds up
+     *  away from the installation, so this moves no panel. */
+    setWallThickness: (v) =>
+      commit((draft) => {
+        draft.room.wallThicknessCm = clamp(
+          numOr(v, draft.room.wallThicknessCm),
+          WALL_THICKNESS_MIN,
+          WALL_THICKNESS_MAX,
         )
       }),
 

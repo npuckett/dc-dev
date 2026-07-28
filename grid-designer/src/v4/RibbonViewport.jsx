@@ -459,7 +459,6 @@ function SpacerPosts() {
 // Wall (x = 0) / Window-Shore (z = 0) — the world conventions, unchanged
 // -----------------------------------------------------------------------------
 const WALL_HEIGHT_CM = 250
-const WALL_THICKNESS_CM = 1.5
 const WALL_COLOR = '#3ad0c0'
 const WALL_MIN_DEPTH_CM = 200
 const WALL_DEPTH_MARGIN_CM = 40
@@ -469,11 +468,15 @@ function Wall() {
   const { chain } = getDerived(config)
   const deepest = Number.isFinite(chain.bounds.max?.[2]) ? chain.bounds.max[2] : 0
   const depth = Math.max(deepest + WALL_DEPTH_MARGIN_CM, WALL_MIN_DEPTH_CM)
+  // MEASURED, and it builds up AWAY from the installation: the wall occupies
+  // x ∈ [−t, 0] and its FACE stays on the datum at x = 0. So thickening it can
+  // never push a panel — the slab grows backwards, out of the room.
+  const t = config.room.wallThicknessCm
 
   return (
     <group>
-      <mesh position={[-WALL_THICKNESS_CM / 2, WALL_HEIGHT_CM / 2, depth / 2]}>
-        <boxGeometry args={[WALL_THICKNESS_CM, WALL_HEIGHT_CM, depth]} />
+      <mesh position={[-t / 2, WALL_HEIGHT_CM / 2, depth / 2]}>
+        <boxGeometry args={[Math.max(t, 0.01), WALL_HEIGHT_CM, depth]} />
         <meshBasicMaterial color={WALL_COLOR} toneMapped={false} transparent opacity={0.1} depthWrite={false} />
       </mesh>
       <mesh position={[0, 0.4, depth / 2]}>

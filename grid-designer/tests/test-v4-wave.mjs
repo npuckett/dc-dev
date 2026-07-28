@@ -336,30 +336,41 @@ console.log('8. every trapezoid solve is byte-identical to 71f8b15')
   }
 
   const FROZEN = [
-    ['default', 563574589, 54701, {}],
-    ['ribbon', 2279268160, 11100,
+    ['default', 888684285, 54139, {}],
+    ['ribbon', 647362578, 10538,
       { lattice: { cols: 1, rows: 5, panelType: '2x2' }, angleDeg: 30, gap: 2 }],
-    ['4x4-45-phase1', 1270986271, 61111,
+    ['4x4-45-phase1', 243507324, 60547,
       { lattice: { cols: 4, rows: 4, panelType: '2x2' }, angleDeg: 45, gap: 3.5, pattern: { kind: 'trapezoid', phase: 1 } }],
-    ['flat', 2145001656, 14020,
+    ['flat', 2459399168, 13457,
       { lattice: { cols: 2, rows: 3, panelType: '2x2' }, angleDeg: 0, gap: 0.4 }],
-    ['braced-62.5-8', 724145845, 60815,
+    ['braced-62.5-8', 2080408362, 60248,
       { lattice: { cols: 3, rows: 5, panelType: '2x2' }, angleDeg: 62.5, gap: 8, placement: { wallAnchor: 'braced', groundToFloor: true, groundClearanceCm: 15, wallOffsetCm: 12, windowOffsetCm: 7 } }],
-    ['overrides', 1549316338, 31071,
+    ['overrides', 2362091016, 30377,
       { lattice: { cols: 5, rows: 2, panelType: '2x2' }, angleDeg: 20, gap: 1.25, overrides: { cells: [{ i: 1, j: 0, present: false }, { i: 3, j: 1, flipped: true }], edges: [{ i: 2, j: 1, axis: 'x', present: false }] } }],
-    ['6x6-braced', 1401608702, 157006,
+    ['6x6-braced', 3464671071, 156438,
       { lattice: { cols: 6, rows: 6, panelType: '2x2' }, angleDeg: 33.3, gap: 2.4, placement: { wallAnchor: 'braced' } }],
   ]
 
+  // Hash the GEOMETRY, not the whole solve. The record also carries the
+  // normalized `config` it was solved from, so hashing that too made this fire
+  // on any additive schema field — `room.wallThicknessCm` moved all seven by
+  // exactly 31 bytes while not a single panel changed. That is a false alarm,
+  // and a regression check that cries wolf gets its numbers rubber-stamped,
+  // which is the one thing it must never train anyone to do. What this section
+  // is for is that the SOLVER's output is frozen; the config envelope has
+  // schema.js's own idempotence tests.
+  const geometryOf = (o) =>
+    JSON.stringify({ lattice: o.lattice, panels: o.panels, joints: o.joints, bounds: o.bounds })
+
   for (const [name, hash, length, cfg] of FROZEN) {
-    const s = JSON.stringify(solveLattice(cfg))
+    const s = geometryOf(solveLattice(cfg))
     ok(s.length === length, `${name}: solve is ${length} bytes (got ${s.length})`)
     ok(fnv1a(s) === hash, `${name}: solve hashes to ${hash} (got ${fnv1a(s)})`)
   }
 
   // The hash is not a constant: change one knob and it must move.
-  const moved = JSON.stringify(solveLattice({ angleDeg: 30.5 }))
-  ok(fnv1a(moved) !== 563574589, 'and a different angle hashes differently — the check can fail')
+  const moved = geometryOf(solveLattice({ angleDeg: 30.5 }))
+  ok(fnv1a(moved) !== FROZEN[0][1], 'and a different angle hashes differently — the check can fail')
 
   // The trapezoid record has no wave-only fields on it.
   const T = solveLattice({})
