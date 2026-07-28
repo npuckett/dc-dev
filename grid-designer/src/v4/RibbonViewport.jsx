@@ -621,8 +621,10 @@ function Obstacles() {
             )}
             {/* A solid skirt at the base: the footprint is the part that
                 actually constrains anything, and a translucent column alone
-                reads as fog from most angles. */}
-            <mesh position={[c[0], 1, c[2]]}>
+                reads as fog from most angles. Pinned to the obstacle's OWN
+                base, not to y = 1 — a mullion starts 25cm below the floor, and
+                a skirt left at floor level would float free of it. */}
+            <mesh position={[c[0], o.extents.min[1] + 1, c[2]]}>
               <boxGeometry args={[w, 2, d]} />
               <meshBasicMaterial
                 color={color}
@@ -631,7 +633,10 @@ function Obstacles() {
                 opacity={zone ? 0.35 : 1}
               />
             </mesh>
-            <Html position={[c[0], h * 0.42, c[2]]} center distanceFactor={520} zIndexRange={[10, 0]}>
+            {/* Relative to the obstacle's own base, for the same reason as the
+                skirt: `h * 0.42` alone is an absolute height and drifts off
+                anything that does not start at the floor. */}
+            <Html position={[c[0], o.extents.min[1] + h * 0.42, c[2]]} center distanceFactor={520} zIndexRange={[10, 0]}>
               <div className={`obstacle-label${hit ? ' obstacle-label-hit' : ''}`}>
                 {o.label.toUpperCase()}
                 {hit ? ` · ${o.hitCount} PANEL${o.hitCount === 1 ? '' : 'S'} THROUGH IT` : ''}

@@ -388,6 +388,11 @@ export const OBSTACLE_KINDS = ['solid', 'zone']
 
 export const OBSTACLE_POS_MIN = -500
 export const OBSTACLE_POS_MAX = 2000
+/** How far an obstacle's base may sit above or BELOW the floor. Negative is
+ *  real and routine: a mullion runs down past floor level into the build-up. */
+export const OBSTACLE_BASE_Y_MIN = -500
+export const OBSTACLE_BASE_Y_MAX = 2000
+
 export const OBSTACLE_SIZE_MIN = 1
 /**
  * Room-scale, not column-scale. This was 500, which silently CLAMPED the 594cm
@@ -415,6 +420,7 @@ export const DEFAULT_OBSTACLES = [
     widthCm: 50,
     depthCm: 50,
     heightCm: 300,
+    baseYCm: 0,
     anchor: 'corner',
   },
   {
@@ -438,6 +444,27 @@ export const DEFAULT_OBSTACLES = [
     widthCm: 594,
     depthCm: 59.7,
     heightCm: 20,
+    baseYCm: 0,
+    anchor: 'corner',
+  },
+  {
+    // First window mullion, measured on site 2026-07-28. Its x,z min corner is
+    // ALIGNED WITH THE HEATING GAP'S OWN min corner (−81.3, −59.7) — the datum
+    // called out above — so the two share that edge exactly. The remaining
+    // mullions are the same section stepped along x from here.
+    //
+    // It starts 25cm BELOW the floor and runs 400 up, so it spans y −25 → 375.
+    // That is what `baseYCm` exists for; before it, this could only have been
+    // faked by inflating heightCm, which would have put the top 25cm out.
+    id: 'mullion-1',
+    label: 'mullion 1',
+    kind: 'solid',
+    xCm: -81.3,
+    zCm: -59.7,
+    widthCm: 6.35,
+    depthCm: 19.05,
+    heightCm: 400,
+    baseYCm: -25,
     anchor: 'corner',
   },
 ]
@@ -697,6 +724,7 @@ function sanitizeObstacles(raw) {
       widthCm: clamp(numberOr(o.widthCm, 50), OBSTACLE_SIZE_MIN, OBSTACLE_SIZE_MAX),
       depthCm: clamp(numberOr(o.depthCm, 50), OBSTACLE_SIZE_MIN, OBSTACLE_SIZE_MAX),
       heightCm: clamp(numberOr(o.heightCm, 300), OBSTACLE_SIZE_MIN, 1000),
+      baseYCm: clamp(numberOr(o.baseYCm, 0), OBSTACLE_BASE_Y_MIN, OBSTACLE_BASE_Y_MAX),
       anchor: oneOf(OBSTACLE_ANCHORS, o.anchor, 'corner'),
       kind: oneOf(OBSTACLE_KINDS, o.kind, 'solid'),
     })

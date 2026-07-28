@@ -42,10 +42,9 @@
  * run is the first of these: x −81.3 → 512.7, z −59.7 → 0, which also reaches
  * past the wall face at x = 0.
  *
- * KNOWN GAP: every obstacle currently stands ON the floor — `obstacleExtents`
- * fixes `min.y = 0`. A mullion or a soffit starting partway up needs a
- * `baseYCm`, and that is the next thing to add here rather than a reason to
- * fudge `heightCm`.
+ * Obstacles carry a `baseYCm`, so they need not stand on the floor — the window
+ * mullions start 25cm BELOW it. y is given outright rather than anchored:
+ * "how far up does it start" has no corner/centre ambiguity to resolve.
  *
  * `anchor` says which part of the box `(xCm, zCm)` locates, because the two
  * readings differ by half its width and there is no way to guess from a pair of
@@ -94,12 +93,19 @@ export function obstacleExtents(o) {
   const w = o.widthCm
   const d = o.depthCm
   const h = o.heightCm ?? DEFAULT_OBSTACLE_HEIGHT_CM
+  // `baseYCm` is where the box STARTS in y, and it is routinely negative — a
+  // mullion runs down past floor level. This used to be hardcoded to 0, which
+  // silently pinned everything to the floor; the only way to place something
+  // starting below it was to inflate `heightCm`, which puts the TOP in the
+  // wrong place. Anchoring applies to x and z only: y is stated outright,
+  // because "how far up does it start" has no corner/centre ambiguity.
+  const y0 = o.baseYCm ?? 0
   const x0 = o.anchor === 'centre' ? o.xCm - w / 2 : o.xCm
   const z0 = o.anchor === 'centre' ? o.zCm - d / 2 : o.zCm
   return {
-    min: [r(x0), 0, r(z0)],
-    max: [r(x0 + w), r(h), r(z0 + d)],
-    centre: [r(x0 + w / 2), r(h / 2), r(z0 + d / 2)],
+    min: [r(x0), r(y0), r(z0)],
+    max: [r(x0 + w), r(y0 + h), r(z0 + d)],
+    centre: [r(x0 + w / 2), r(y0 + h / 2), r(z0 + d / 2)],
     size: [r(w), r(h), r(d)],
   }
 }
