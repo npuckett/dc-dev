@@ -8,10 +8,17 @@
  * see its header for the full inventory of what the frozen core does not expose
  * and is assembled there instead.
  *
- * Four things leave this tool, and they answer different questions:
+ * Five things leave this tool, and they answer different questions:
  *
- *   OBJ       the assembly — every PRESENT panel and every connector,
- *             world-baked, for looking at it somewhere else.
+ *   OBJ+MTL   the assembly — every PRESENT panel and every connector,
+ *             world-baked, for looking at it somewhere else. TWO FILES: the OBJ
+ *             names its materials and the MTL defines them, and an importer that
+ *             splits a mesh by material needs both or it merges the lot into one
+ *             surface. They download together for that reason; a zip would be a
+ *             dependency to solve a problem two clicks already solve.
+ *   GLB       the same assembly, one self-contained binary, one material per
+ *             object with a real emissive strength. The better import for
+ *             per-panel brightness — see src/v4/glbExport.js for why not FBX.
  *   JSON      the config — the single source of truth; re-import restores the
  *             design exactly.
  *   STL       one of each unique connector type, in MILLIMETRES, oriented for
@@ -22,10 +29,11 @@
  */
 
 import useStoreV4, { getDerived } from './store.js'
-import { downloadText, exportConfigJSON, timestamp } from '../utils/exporters.js'
+import { downloadBlob, downloadText, exportConfigJSON, timestamp } from '../utils/exporters.js'
 import { exportConnectorPlateSTL, exportConnectorManifest } from '../utils/connectorExport.js'
 import { getConnectorKit } from './exportAdapter.js'
-import { objPayloadV4 } from './objExport.js'
+import { objMtlPairV4 } from './objExport.js'
+import { glbPayloadV4 } from './glbExport.js'
 
 export default function ExportButtons() {
   const config = useStoreV4((s) => s.config)
@@ -47,17 +55,32 @@ export default function ExportButtons() {
         title={
           `${panelCount} diffusers as individual objects, ready for per-panel brightness, plus ` +
           `merged groups: frame, connectors (${summary.count} parts), spacers (${spacers.spacers.length} posts) ` +
-          'and power supplies'
+          'and power supplies. Downloads TWO files — keep the .mtl beside the .obj or it imports as one surface'
         }
-        onClick={() =>
-          downloadText(
-            objPayloadV4(config, chain, connectors, spacers),
-            `drop-ceiling_${timestamp()}.obj`,
-            'model/obj',
-          )
-        }
+        onClick={() => {
+          // One basename for both, so the OBJ's `mtllib` names a file that is
+          // actually on disk next to it. Two downloads rather than a zip.
+          const pair = objMtlPairV4(config, chain, connectors, spacers, `drop-ceiling_${timestamp()}`)
+          downloadText(pair.mtl, pair.mtlName, 'model/mtl')
+          downloadText(pair.obj, pair.objName, 'model/obj')
+        }}
       >
-        Export OBJ
+        Export OBJ + MTL
+      </button>
+      <button
+        type="button"
+        className="preset-btn"
+        data-testid="export-glb"
+        title={
+          `the same assembly as one self-contained .glb — ${panelCount} named diffuser objects, ` +
+          'each with its own emissive material, plus the merged frame, connector, spacer and supply groups'
+        }
+        onClick={async () => {
+          const buffer = await glbPayloadV4(config, chain, connectors, spacers)
+          downloadBlob(new Blob([buffer], { type: 'model/gltf-binary' }), `drop-ceiling_${timestamp()}.glb`)
+        }}
+      >
+        Export GLB
       </button>
       <button
         type="button"

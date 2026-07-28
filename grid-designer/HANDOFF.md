@@ -1034,6 +1034,52 @@ Two things worth keeping:
 `src/utils/exporters.js` is untouched — it is shared with the retired v3 UI and its suite pins its
 output, so this is a parallel builder rather than a flag on that one.
 
+### 9.10a Correct grouping is not the same as importable grouping
+
+The export above was right and still imported **as a single surface**. Worth understanding, because
+the failure looked like a geometry bug and was not one.
+
+The OBJ had 41 `o` blocks, 14128 vertices, global cumulative face indices and zero forward
+references — structurally perfect. It also emitted `usemtl <name>` for all 41 objects and shipped
+**no `mtllib` line and no `.mtl` file**. Every material name resolved to nothing. Importers that
+split a mesh by material — which is most of them — found no materials to split on and merged the
+lot. *The splitting information was in the file; the thing that makes a reader act on it was not.*
+
+Two fixes, both consuming the same `buildSceneGroup`:
+
+- **The OBJ now ships its library.** `mtlPayloadV4` walks the scene group and emits one `newmtl` per
+  material actually found, so the two files cannot disagree — hardcoding a parallel palette was the
+  obvious alternative and is precisely the drift that caused this. The button downloads **both**
+  files, named from one stamp so the `mtllib` points at a file the user really has. Two downloads
+  rather than a zip: a zip is a dependency to solve a problem two clicks already solve.
+- **A GLB export**, `src/v4/glbExport.js`. One self-contained binary, a named node per object, one
+  material per mesh, and a real emissive strength. For "37 diffusers each with their own brightness"
+  it is the better import; OBJ stays for readers that only speak OBJ.
+
+**Why not FBX**, which was asked for first: three.js ships an FBXLoader and **no FBXExporter**, and
+never has. Writing one means hand-emitting the binary FBX record tree — a format documented by
+reverse engineering — or taking a dependency. Every target that reads FBX also reads GLB.
+
+Two details that were verified rather than assumed:
+
+- **Every mesh gets its own material instance**, including the merged groups. `GLTFExporter` does no
+  material deduplication across instances (checked), so 41 instances become 41 glTF materials and 37
+  diffusers get 37 addressable brightnesses. A hoisted shared material — which reads as an
+  optimisation — would collapse them to one, and "give this panel its own brightness" would mean
+  "change all 37". `test-v4-export.mjs` §5 pins it at the source.
+- **`emissiveIntensity` stays at exactly 1.** `GLTFExporter`'s `KHR_materials_emissive_strength`
+  writer returns early at 1.0, so the default file carries a plain `emissiveFactor` and no
+  extension — correct, since there is no strength to declare yet. Drive a panel to anything else and
+  the extension appears with that value. The test asserts the absence at 1 and the presence at 4.25,
+  because asserting the extension were always present would pin a bug.
+
+Verified by parsing the artefacts back, not by checking the exporter ran: `tests/test-v4-export.mjs`
+(69 checks) decodes the GLB container by hand — header magic, chunk lengths, BIN against the declared
+buffer, node/mesh/material counts, diffuser material distinctness — resolves every `usemtl` against
+every `newmtl`, re-checks index integrity, and asserts the OBJ `o` list and the glTF node list both
+equal `buildSceneGroup`'s so the two writers cannot drift. `tests/screenshot-v4-export.mjs` clicks
+the real buttons and parses the files that actually land on disk.
+
 ### 9.12 The clearance and the spacer are two different things, and keeping them apart is what makes either checkable
 
 The brief was one sentence — *everything laying flat on the ground needs a 15cm spacer or gap,

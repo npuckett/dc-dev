@@ -274,7 +274,30 @@ src/v4/
   ReportPanel.jsx            joints, flags, the envelope headroom readout
   RibbonViewport.jsx         the 3D scene
   JsonPanel.jsx / SlotsPanel.jsx / ExportButtons.jsx   ported from v3
+  objExport.js               the export scene, the OBJ, and its .mtl library
+  glbExport.js               the same scene as one self-contained binary glTF
 ```
+
+### The exported document
+
+Both writers consume one `buildSceneGroup`, so they describe the same scene by construction:
+
+| object | what |
+|---|---|
+| `diffuser_NNN_<id>` | **one per present panel** — its own object AND its own material, because per-panel brightness is the point |
+| `frame` | every panel's housing, merged |
+| `connectors` | every printed part, both pieces, merged |
+| `spacers` | every ground spacer post, merged (omitted when grounding is off) |
+| `power_supplies` | every driver box, merged (omitted when `powerEdge: 'none'`) |
+
+**OBJ + MTL** downloads as two files from one button. The `.mtl` is not optional decoration: an OBJ
+whose `usemtl` names resolve to nothing imports as a single merged surface, which is exactly the bug
+this replaced. Keep the `.mtl` beside the `.obj`.
+
+**GLB** is one self-contained binary — named nodes, one material per mesh, emissive diffusers, and
+`KHR_materials_emissive_strength` once a panel is driven off 1.0. The better import when the job is
+per-panel brightness. **Not FBX**: three.js ships no FBX *exporter*, and every FBX target reads GLB.
+See HANDOFF §9.10a.
 
 `src/main.jsx` mounts `AppV4`. The v3 UI stays on disk, unmounted.
 

@@ -38,6 +38,32 @@
  *
  * Every mesh carries a NAMED material, so the OBJ gets `usemtl` lines and the
  * grouping survives import into anything that reads them.
+ *
+ * =============================================================================
+ * WHY THERE IS AN .MTL AT ALL
+ * =============================================================================
+ * The first cut of this emitted `usemtl <name>` for all 41 objects and shipped
+ * no material library — no `mtllib` line, no `.mtl` file. Every one of those
+ * names resolved to nothing, and an importer that splits a mesh BY MATERIAL
+ * (which is how most of them do it) found no materials to split on and merged
+ * the lot into one surface. That was the whole reported bug: the `o` blocks were
+ * correct the entire time, the materials they named did not exist.
+ *
+ * So the library is written from the SAME `buildSceneGroup` the geometry comes
+ * from — `mtlPayloadV4` walks the group's meshes and emits one `newmtl` per
+ * material it actually finds. A material cannot appear in one file and not the
+ * other, because there is only one list. Hardcoding a parallel palette here was
+ * the obvious alternative and is exactly the drift that caused the bug.
+ *
+ * =============================================================================
+ * WHY THE DIFFUSERS ARE EMISSIVE
+ * =============================================================================
+ * Per-panel brightness is the reason the diffusers are split out one-by-one, and
+ * emission is the channel that carries brightness. Each panel therefore gets its
+ * OWN material instance rather than 37 references to a shared one — a shared
+ * material would make "give this panel its own brightness" mean "change all 37",
+ * which defeats the split. The merged groups are non-emissive and given
+ * distinguishable colours so the outliner is readable before anyone re-lights it.
  */
 
 import * as THREE from 'three'
@@ -63,6 +89,53 @@ export const GROUP_CONNECTORS = 'connectors'
 export const GROUP_SPACERS = 'spacers'
 export const GROUP_SUPPLIES = 'power_supplies'
 export const DIFFUSER_PREFIX = 'diffuser'
+
+/** Default companion-library name, for callers that do not stamp their files. */
+export const DEFAULT_MTL_NAME = 'drop-ceiling.mtl'
+
+/**
+ * The look of each group, as MeshStandardMaterial parameters.
+ *
+ * Colours are chosen only to be TELLABLE APART on import — nobody is shipping
+ * these as the final render, and a plausible-looking aluminium would be a worse
+ * default because it hides which object you clicked. The diffuser entry is the
+ * one with meaning: `emissive` white at `emissiveIntensity` 1 is a neutral
+ * starting point that the user turns up or down per panel.
+ *
+ * `emissiveIntensity` is deliberately left at exactly 1. Verified against
+ * GLTFExporter: its KHR_materials_emissive_strength writer returns early when
+ * the intensity is 1.0, so the default file carries a plain `emissiveFactor`
+ * and no extension — which is right, since there is no strength to declare yet.
+ * Set it to anything else and the extension appears with that value, so the
+ * channel is there the moment a panel is actually driven.
+ */
+const DIFFUSER_LOOK = {
+  color: 0xf4f4f2,
+  emissive: 0xffffff,
+  emissiveIntensity: 1,
+  roughness: 0.9,
+  metalness: 0,
+}
+const GROUP_LOOKS = {
+  [GROUP_FRAME]: { color: 0x2e3033, roughness: 0.55, metalness: 0.4 },
+  [GROUP_CONNECTORS]: { color: 0xd06a2c, roughness: 0.8, metalness: 0 },
+  [GROUP_SPACERS]: { color: 0x2f6f9f, roughness: 0.8, metalness: 0 },
+  [GROUP_SUPPLIES]: { color: 0x3f8f5a, roughness: 0.6, metalness: 0.2 },
+}
+
+/**
+ * A fresh material for one exported object.
+ *
+ * ALWAYS A NEW INSTANCE, never a shared singleton, even for the merged groups:
+ * GLTFExporter writes one glTF material per distinct instance, so sharing would
+ * silently collapse the 37 diffusers into one entry and take per-panel
+ * brightness with it. The merged groups gain nothing from sharing either — there
+ * is exactly one mesh each.
+ */
+function materialFor(name) {
+  const look = name.startsWith(`${DIFFUSER_PREFIX}_`) ? DIFFUSER_LOOK : GROUP_LOOKS[name]
+  return new THREE.MeshStandardMaterial({ name, ...(look ?? {}) })
+}
 
 /**
  * Which panel-local edge carries the driver, from the same `connectors.powerEdge`
@@ -173,7 +246,7 @@ function Merger() {
 }
 
 function meshOf(geometry, name) {
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ name }))
+  const mesh = new THREE.Mesh(geometry, materialFor(name))
   mesh.name = name
   mesh.updateMatrixWorld(true)
   return mesh
@@ -277,13 +350,99 @@ export function buildSceneGroup(config, chain, connectors, spacers = null) {
   return group
 }
 
+/** sRGB triplet for an MTL colour statement. MTL predates colour management, and
+ *  every reader treats these as display-referred, so the linear working values
+ *  three.js stores internally are converted back on the way out. */
+function mtlRGB(color) {
+  const c = color.clone().convertLinearToSRGB()
+  return `${c.r.toFixed(6)} ${c.g.toFixed(6)} ${c.b.toFixed(6)}`
+}
+
+/**
+ * Serialize the material library that the OBJ's `usemtl` lines refer to.
+ *
+ * Derived from the scene group, so the set of `newmtl` blocks is by construction
+ * the set of materials the geometry actually uses. `Ke` (emissive) is not in the
+ * original Wavefront spec but is read by Blender, Maya, Cinema 4D and every
+ * other target that matters here; a reader that ignores it still gets a valid
+ * material to split the mesh on, which is the part that was broken.
+ *
+ * @returns {string} MTL text, one `newmtl` block per exported object
+ */
+export function mtlPayloadV4(config, chain, connectors, spacers = null) {
+  return mtlFromGroup(buildSceneGroup(config, chain, connectors, spacers))
+}
+
+/** The library for an already-built group, so the pair builder can walk the
+ *  scene once instead of solving it twice. */
+function mtlFromGroup(group) {
+  const lines = [
+    '# grid-designer v4 — material library',
+    '# One material per exported object. The diffusers are emissive (Ke) and',
+    '# individual so each panel can be given its own brightness.',
+    '',
+  ]
+  for (const mesh of group.children) {
+    const m = mesh.material
+    // Emission is folded into Ke: MTL has no strength multiplier, so the
+    // intensity that glTF carries as KHR_materials_emissive_strength has to be
+    // baked here or silently dropped. Clamped, because Ke > 1 is meaningless.
+    const ke = m.emissive
+      ? m.emissive.clone().multiplyScalar(Math.min(m.emissiveIntensity ?? 1, 1))
+      : new THREE.Color(0, 0, 0)
+    lines.push(
+      `newmtl ${m.name}`,
+      `Kd ${mtlRGB(m.color)}`,
+      'Ka 0.000000 0.000000 0.000000',
+      `Ks ${(0.5 * (1 - (m.roughness ?? 1))).toFixed(6)} ${(0.5 * (1 - (m.roughness ?? 1))).toFixed(6)} ${(0.5 * (1 - (m.roughness ?? 1))).toFixed(6)}`,
+      `Ns ${(Math.max(1 - (m.roughness ?? 1), 0) ** 2 * 900 + 2).toFixed(6)}`,
+      'd 1.000000',
+      // illum 2 = colour on, ambient on, specular on. The reader needs a lighting
+      // model declared or some importers skip the block entirely.
+      'illum 2',
+      `Ke ${mtlRGB(ke)}`,
+      '',
+    )
+  }
+  return lines.join('\n')
+}
+
 /**
  * Serialize to OBJ text. Headless — no DOM — so the grouping is testable.
  *
- * @returns {string} OBJ text: one `o` block per diffuser, then the merged groups
+ * `mtlName` is written into the `mtllib` line and MUST be the filename the
+ * companion `mtlPayloadV4` output is actually saved under, in the same folder.
+ * A `mtllib` naming a file that is not there is the same failure as no `mtllib`
+ * at all, so the UI derives both names from one stamp rather than typing them.
+ *
+ * @returns {string} OBJ text: a `mtllib`, then one `o` block per diffuser, then
+ *   the merged groups
  */
-export function objPayloadV4(config, chain, connectors, spacers = null) {
-  return new OBJExporter().parse(buildSceneGroup(config, chain, connectors, spacers))
+export function objPayloadV4(config, chain, connectors, spacers = null, mtlName = DEFAULT_MTL_NAME) {
+  const body = new OBJExporter().parse(buildSceneGroup(config, chain, connectors, spacers))
+  return `mtllib ${mtlName}\n${body}`
+}
+
+/**
+ * Both halves of the OBJ export, named consistently, from ONE solve.
+ *
+ * This is what the UI should call: the two files are not independently useful —
+ * an OBJ whose `mtllib` names a file the user did not save is back to the
+ * original bug — so they are produced together and their names derived from one
+ * basename rather than assembled twice at the call site.
+ *
+ * @param {string} basename filename stem, no extension
+ * @returns {{objName: string, mtlName: string, obj: string, mtl: string}}
+ */
+export function objMtlPairV4(config, chain, connectors, spacers = null, basename = 'drop-ceiling') {
+  const group = buildSceneGroup(config, chain, connectors, spacers)
+  const mtlName = `${basename}.mtl`
+  return {
+    objName: `${basename}.obj`,
+    mtlName,
+    obj: `mtllib ${mtlName}\n${new OBJExporter().parse(group)}`,
+    mtl: mtlFromGroup(group),
+  }
 }
 
 /**
