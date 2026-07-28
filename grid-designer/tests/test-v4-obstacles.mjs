@@ -154,19 +154,41 @@ console.log('4. the report surfaces it, and never enforces it')
   const quiet = buildReportV4({ ...DEFAULT_CONFIG, lattice: { cols: 3, rows: 5, panelType: '2x2' } })
   ok(quiet.warnings.every((x) => x.code !== OBSTACLE_HIT_CODE), 'a clear design raises no obstacle warning')
 
-  // The config contract: absent means "the room's column", [] means "none".
+  // The config contract, three rules — see schema.js's `mergeObstacles`.
   ok(normalizeConfig({}).obstacles.length === DEFAULT_OBSTACLES.length,
     'an absent obstacles key defaults to the room as measured')
   ok(normalizeConfig({ obstacles: [] }).obstacles.length === 0,
     'while an explicit empty list means there is nothing there — a different statement')
+
+  // A PARTIAL list still gets the whole room. This is the regression that made
+  // the heating gap and all five mullions invisible to anyone with a working
+  // config saved before they were measured: the list was taken verbatim, so a
+  // save that predated an element could withhold it forever. Obstacles are site
+  // measurements, not design choices, and a design must not be able to do that.
+  const partial = normalizeConfig({ obstacles: [{ id: 'column', xCm: 380, zCm: 285, widthCm: 50, depthCm: 50 }] })
+  ok(partial.obstacles.length === DEFAULT_OBSTACLES.length,
+    `a save carrying only the column still loads the whole room (got ${partial.obstacles.length})`)
+  ok(partial.obstacles.some((o) => o.id === 'heating') && partial.obstacles.filter((o) => o.id.startsWith('mullion')).length === 5,
+    'including the heating gap and all five mullions')
+  // ...and a tuned entry is not overwritten by the default it merges onto.
+  const tuned = normalizeConfig({ obstacles: [{ id: 'column', xCm: 999, zCm: 285, widthCm: 50, depthCm: 50, heightCm: 300 }] })
+  ok(tuned.obstacles.find((o) => o.id === 'column').xCm === 999,
+    'while an entry the user tuned survives the merge')
+  // An id that is not a default is kept rather than silently dropped.
+  const extra = normalizeConfig({ obstacles: [{ id: 'duct', xCm: 10, zCm: 10, widthCm: 20, depthCm: 20, heightCm: 50 }] })
+  ok(extra.obstacles.some((o) => o.id === 'duct') && extra.obstacles.length === DEFAULT_OBSTACLES.length + 1,
+    'and an element added by hand is appended, not dropped')
   const round = normalizeConfig(normalizeConfig({}))
   ok(JSON.stringify(round.obstacles) === JSON.stringify(normalizeConfig({}).obstacles),
     'and normalizing twice changes nothing')
 
   // Garbage in an obstacle record is clamped, not obeyed, and never throws.
   const junk = normalizeConfig({ obstacles: [{ id: 'a', xCm: 'x', widthCm: -99 }, null, { id: 'a' }] })
-  ok(junk.obstacles.length === 2, 'non-objects are dropped')
-  ok(junk.obstacles[0].xCm === 0 && junk.obstacles[0].widthCm >= 1, 'and bad numbers are replaced or clamped')
+  // The room's own elements come through the merge too, so the junk is counted
+  // by what it added rather than by the whole length.
+  const added = junk.obstacles.filter((o) => !DEFAULT_OBSTACLES.some((d) => d.id === o.id))
+  ok(added.length === 2, `non-objects are dropped (got ${added.length} added)`)
+  ok(added[0].xCm === 0 && added[0].widthCm >= 1, 'and bad numbers are replaced or clamped')
   ok(junk.obstacles[0].id !== junk.obstacles[1].id, 'a duplicate id is renamed rather than losing a column')
 }
 

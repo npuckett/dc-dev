@@ -462,6 +462,52 @@ function mullions() {
   return out
 }
 
+/**
+ * Fold a saved obstacle list onto the room's known elements, BY ID.
+ *
+ * Obstacles are site measurements, not design choices, so a design saved before
+ * an element was measured must not be able to withhold it. The first cut took
+ * the saved list verbatim whenever it was present, and the failure was exactly
+ * that: a working config saved when only the column existed kept loading with
+ * only the column, so the heating gap and all five mullions were invisible to
+ * anyone who had used the tool before they were added. It looked like a render
+ * bug and was a persistence one.
+ *
+ * Three rules, and the middle one is deliberately kept from the older contract:
+ *
+ *   absent      the room as measured.
+ *   []          DELIBERATELY no room — a way to study the design on its own.
+ *               An empty list is unambiguous intent when typed; it was never
+ *               what a stale save carried, so honouring it does not reopen the
+ *               bug above.
+ *   non-empty   the room as measured, with these entries overriding BY ID, and
+ *               any unknown id appended. So anything tuned survives, an element
+ *               added by hand in the JSON panel is not dropped, and a list
+ *               written before an element existed still gets it.
+ *
+ * Order is defaults-first in their declared order, which keeps output
+ * deterministic regardless of what order a save happened to hold.
+ */
+function mergeObstacles(saved) {
+  if (Array.isArray(saved) && saved.length === 0) return []
+  const bySavedId = new Map()
+  if (Array.isArray(saved)) {
+    for (const o of saved) {
+      if (isPlainObject(o) && typeof o.id === 'string') bySavedId.set(o.id, o)
+    }
+  }
+  const out = DEFAULT_OBSTACLES.map((d) =>
+    bySavedId.has(d.id) ? { ...d, ...bySavedId.get(d.id) } : { ...d },
+  )
+  const defaultIds = new Set(DEFAULT_OBSTACLES.map((d) => d.id))
+  if (Array.isArray(saved)) {
+    for (const o of saved) {
+      if (isPlainObject(o) && !defaultIds.has(o.id)) out.push(o)
+    }
+  }
+  return out
+}
+
 export const DEFAULT_OBSTACLES = [
   {
     id: 'column',
@@ -692,9 +738,7 @@ function withDefaults(raw) {
         DEFAULT_ROOM.wallThicknessCm,
       ),
     },
-    obstacles: src.obstacles === undefined
-      ? DEFAULT_OBSTACLES.map((o) => ({ ...o }))
-      : src.obstacles,
+    obstacles: mergeObstacles(src.obstacles),
     connectors: {
       lengthCm: pick(connectorsSrc, 'lengthCm', DEFAULT_CONNECTORS.lengthCm),
       spacingCm: pick(connectorsSrc, 'spacingCm', DEFAULT_CONNECTORS.spacingCm),
