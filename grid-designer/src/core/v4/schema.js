@@ -410,6 +410,55 @@ export const OBSTACLE_SIZE_MAX = 2000
  * choice about the design — the same category as the wall plane at x = 0. A
  * design made without it on screen is a design made against the wrong room.
  */
+/**
+ * THE WINDOW MULLIONS, measured on site 2026-07-28.
+ *
+ * All the same section and the same height; what differs is where they sit
+ * along x. The measurement taken on site was CENTRE TO CENTRE, so that is what
+ * is written here and the min corners are DERIVED — transcribing five
+ * hand-computed corners would put the arithmetic in a place no test can see,
+ * and a 3.175cm half-width slip would look entirely plausible in the result.
+ *
+ * Mullion 1 is the anchor: its x,z min corner sits ON the heating gap's own
+ * (−81.3, −59.7) datum, so the two share that edge exactly. Everything else
+ * steps from its CENTRE.
+ *
+ * A useful consistency check that fell out of this, not designed in: mullion 5
+ * ends at x = 511.75 and the heating run ends at 512.7. Two independent site
+ * measurements landing 0.95cm apart is the kind of agreement that says both
+ * were read correctly.
+ */
+const MULLION_X0_CM = -81.3
+const MULLION_Z0_CM = -59.7
+const MULLION_SECTION = { widthCm: 6.35, depthCm: 19.05, heightCm: 400, baseYCm: -25 }
+/** Centre-to-centre, walking in +x from mullion 1. */
+const MULLION_SPACINGS_CM = [129.5, 152.4, 152.4, 152.4]
+
+function mullions() {
+  const half = MULLION_SECTION.widthCm / 2
+  let centre = MULLION_X0_CM + half
+  const out = []
+  for (let k = 0; k <= MULLION_SPACINGS_CM.length; k++) {
+    if (k > 0) centre += MULLION_SPACINGS_CM[k - 1]
+    out.push({
+      id: `mullion-${k + 1}`,
+      label: `mullion ${k + 1}`,
+      kind: 'solid',
+      // Rounded to the grid the rest of the core rounds to, so a half-width of
+      // 3.175 cannot leave 1e-13 of float dust in a config that is compared by
+      // deep equality and round-tripped through JSON.
+      xCm: Math.round((centre - half) * 1e9) / 1e9,
+      zCm: MULLION_Z0_CM,
+      widthCm: MULLION_SECTION.widthCm,
+      depthCm: MULLION_SECTION.depthCm,
+      heightCm: MULLION_SECTION.heightCm,
+      baseYCm: MULLION_SECTION.baseYCm,
+      anchor: 'corner',
+    })
+  }
+  return out
+}
+
 export const DEFAULT_OBSTACLES = [
   {
     id: 'column',
@@ -447,26 +496,7 @@ export const DEFAULT_OBSTACLES = [
     baseYCm: 0,
     anchor: 'corner',
   },
-  {
-    // First window mullion, measured on site 2026-07-28. Its x,z min corner is
-    // ALIGNED WITH THE HEATING GAP'S OWN min corner (−81.3, −59.7) — the datum
-    // called out above — so the two share that edge exactly. The remaining
-    // mullions are the same section stepped along x from here.
-    //
-    // It starts 25cm BELOW the floor and runs 400 up, so it spans y −25 → 375.
-    // That is what `baseYCm` exists for; before it, this could only have been
-    // faked by inflating heightCm, which would have put the top 25cm out.
-    id: 'mullion-1',
-    label: 'mullion 1',
-    kind: 'solid',
-    xCm: -81.3,
-    zCm: -59.7,
-    widthCm: 6.35,
-    depthCm: 19.05,
-    heightCm: 400,
-    baseYCm: -25,
-    anchor: 'corner',
-  },
+  ...mullions(),
 ]
 
 /** Which edge of every panel carries its power supply — a GLOBAL convention.
