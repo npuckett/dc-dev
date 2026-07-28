@@ -104,6 +104,12 @@ import {
   OBSTACLE_POS_MAX,
   OBSTACLE_SIZE_MIN,
   OBSTACLE_SIZE_MAX,
+  PATTERN_KINDS,
+  DEFAULT_WAVE,
+  SCRUNCH_MIN,
+  SCRUNCH_MAX,
+  ATTRACTOR_MIN,
+  ATTRACTOR_MAX,
 } from '../core/v4/schema.js'
 import { solveLattice } from '../core/v4/lattice.js'
 import { solveConnectorsV4 } from '../core/v4/connectors.js'
@@ -397,8 +403,63 @@ const useStoreV4 = create((set, get) => {
         draft.placement.wallAnchor = oneOf(WALL_ANCHORS, v, draft.placement.wallAnchor)
       }),
 
+    /**
+     * Switch between the two fold patterns (`core/v4/wave.js`).
+     *
+     * This is a change of MODEL, not of a parameter: the checkerboard has two
+     * levels and one angle, the wave has a separable height field and one angle
+     * per edge, and the checkerboard provably cannot carry the second. So the
+     * notice says what actually changed rather than letting the viewport be the
+     * first place you find out the network is a different shape.
+     *
+     * Switching to 'wave' writes the neutral knobs if the config has none;
+     * switching away drops the block (normalizeConfig does that, not this).
+     */
+    setPatternKind: (kind) => {
+      const next = oneOf(PATTERN_KINDS, kind, get().config.pattern.kind)
+      if (next === get().config.pattern.kind) return true
+      const ok = commit((draft) => {
+        draft.pattern.kind = next
+        if (next === 'wave' && !draft.pattern.wave) draft.pattern.wave = { ...DEFAULT_WAVE }
+      })
+      if (ok) {
+        set({
+          lastActionNotice:
+            next === 'wave'
+              ? 'wave — the height field is now h(i,j) = f(i) + g(j), so the levels are no longer a ' +
+                'checkerboard: at zero scrunch this is a uniform egg-crate with three storeys, not two. ' +
+                'That is the only family that can carry a varying angle'
+              : 'trapezoid — back to the two-level checkerboard and one angle everywhere',
+        })
+      }
+      return ok
+    },
+
+    /**
+     * One of the wave's four knobs. Clamped on the way in, like every other
+     * setter here, so a slider drag can never produce a rejected commit.
+     *
+     * Ignored outright when the pattern is not a wave: `normalizeConfig` would
+     * drop the block anyway, and committing it would push a no-op onto the undo
+     * stack for a control that is not even on screen.
+     *
+     * @param {'scrunchX'|'scrunchZ'|'attractorX'|'attractorZ'} key
+     */
+    setWaveKnob: (key, value) =>
+      commit((draft) => {
+        if (draft.pattern.kind !== 'wave') return
+        if (!draft.pattern.wave) draft.pattern.wave = { ...DEFAULT_WAVE }
+        const w = draft.pattern.wave
+        const [lo, hi] = key === 'scrunchX' || key === 'scrunchZ'
+          ? [SCRUNCH_MIN, SCRUNCH_MAX]
+          : [ATTRACTOR_MIN, ATTRACTOR_MAX]
+        if (!Object.prototype.hasOwnProperty.call(DEFAULT_WAVE, key)) return
+        w[key] = clamp(numOr(value, w[key]), lo, hi)
+      }),
+
     /** Which level cell (0,0) starts on. The field has period 2, so this is a
-     *  straight swap of ground and high across the whole lattice. */
+     *  straight swap of ground and high across the whole lattice. Does nothing
+     *  under the wave, which has no checkerboard to shift. */
     setPhase: (n) =>
       commit((draft) => {
         draft.pattern.phase = clamp(Math.round(numOr(n, draft.pattern.phase)), PHASE_MIN, PHASE_MAX)

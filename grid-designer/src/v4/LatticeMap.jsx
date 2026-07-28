@@ -91,6 +91,11 @@ export default function LatticeMap() {
   const { cols, rows } = config.lattice
   const levels = chain.lattice.levels
   const counts = report.metrics.counts
+  // On the wave there is no G/H to draw: the field has as many storeys as it has
+  // distinct heights, so a two-glyph alphabet would be a lie about the shape.
+  // Each tile carries its own height in cm instead — which is also the number you
+  // are actually reading the plan for once the grid scrunches.
+  const heights = chain.lattice.wave?.heights ?? null
 
   // Which panels actually exist, so a tile can show "switched off" apart from
   // "impossible" — a ramp whose cell is gone is neither present nor editable.
@@ -146,10 +151,12 @@ export default function LatticeMap() {
       if (cellCol && cellRow) {
         const id = `Ci${i}j${j}`
         const ov = overrideFor(config, i, j)
-        const high = levels[i]?.[j] === 1
+        const high = levels[i]?.[j] !== 0
+        const heightCm = heights ? heights[i]?.[j] : null
         const on = ov.present
         const cls = [
           'lm-cell',
+          heights ? 'lm-wave' : '',
           high ? 'lm-high' : 'lm-ground',
           on ? '' : 'lm-off',
           ov.flipped ? 'lm-flipped' : '',
@@ -166,11 +173,16 @@ export default function LatticeMap() {
             onMouseLeave={() => setHoveredUnit(null)}
             onClick={(e) => (e.shiftKey ? toggleCellFlipped(i, j) : toggleCell(i, j))}
             title={
-              `cell (${i}, ${j}) — ${high ? 'high' : 'ground'}${ov.flipped ? ', flipped' : ''}\n` +
+              `cell (${i}, ${j}) — ${heights === null ? (high ? 'high' : 'ground')
+                : `${heightCm.toFixed(1)}cm, storey ${levels[i]?.[j]}`}` +
+              `${ov.flipped ? ', flipped' : ''}\n` +
               `${on ? 'click to remove' : 'click to add'} · shift-click to flip`
             }
           >
-            {on ? (ov.flipped ? '⊘' : high ? 'H' : 'G') : '+'}
+            {!on ? '+'
+              : ov.flipped ? '⊘'
+                : heights ? Math.round(heightCm)
+                  : high ? 'H' : 'G'}
           </button>,
         )
         continue
@@ -254,7 +266,11 @@ export default function LatticeMap() {
 
       <p className="grid-map-hint">
         <b>every tile is one panel — click it to take it out or put it back.</b> The big squares are
-        the flat cells (<code>G</code> ground, <code>H</code> high); the ones between them are the
+        the flat cells{' '}
+        {heights
+          ? <>(each showing its <b>height in cm</b> — the wave has {chain.lattice.wave.storeyCount} storeys,
+            so there is no G/H to draw)</>
+          : <>(<code>G</code> ground, <code>H</code> high)</>}; the ones between them are the
         angled panels (<code>╱</code> <code>╲</code>). <code>+</code> is an empty slot: click it to
         grow the network there. <b>Shift-click</b> a flat to flip it.
       </p>

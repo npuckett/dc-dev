@@ -461,7 +461,9 @@ range needs both ends.
 - **Additive / translational height fields for exact planar quads.** On a rectangular plan lattice,
   all-quads-planar ⟺ `h(i,j) = f(i) + g(j)`. That family **cannot** be zero along two intersecting
   edges and still be a mound, so it is incompatible with the brief's grounded edges. Recorded because
-  it is the obvious next idea and it does not work.
+  it is the obvious next idea and it does not work. **REHABILITATED for v4 by §9.14** — as a *drift
+  surface* it is still wrong, but as a *folded network* it is the only family whose cycles close at a
+  varying angle, and it is what the wave is built on. The fact did not change; the question did.
 - **`gapTolerance` as a buildability gate.** v2 shipped presets with 49 cm worst deviation and
   flagged 40/74 joints; the report is information, not a veto. Only collisions and support are hard.
 
@@ -1093,8 +1095,88 @@ what keeps meaning the right thing if a third level ever arrives.
   outer wall where the foot lands and does not reach full thickness until `bodyInset` inboard, so
   the load path there is a real question. Same contract as the wall anchor: do not invent a bracket.
 
+### 9.14 The wave — a varying angle, and why the checkerboard cannot have one
+
+**V4_SPEC §9.14** is the spec. `pattern.kind` gained a second value; **`trapezoid` is untouched and
+is still the default**, and `tests/test-v4-wave.mjs` §8 proves it byte for byte (FNV-1a over
+`JSON.stringify(solveLattice(cfg))` for seven configs, taken from `71f8b15`).
+
+#### THE FINDING: a two-level checkerboard cannot carry a varying angle. Measured.
+
+This is the durable result of the package, and it is written here because **the next person will
+otherwise try to make the checkerboard scrunch.**
+
+Alignment ("nothing gets out of basic alignment") forces the plan grid to be a product grid, so the
+x-ramp angle depends only on `i` and the z-ramp angle only on `j`. On a checkerboard the levels
+alternate around every 4-cycle, so the four steps are `+R(θx)`, `−R(θz)`, `+R(θx)`, `−R(θz)` and
+closure demands `2·R(θx) − 2·R(θz) = 0` — **every angle equal**. With
+`R(θ) = 60·sin θ + 2·gap·sin(θ/2)`, measured at gap 2:
+
+| x-ramp | z-ramp | cycle left open by |
+|---|---|---|
+| 30° | 35° | **9.164 cm** |
+| 30° | 40° | **17.800 cm** |
+
+Varying the **gap** to hold `R` constant does not rescue it. Holding `R = 31.035`:
+
+| θ | gap needed |
+|---|---|
+| 20° | **30.27 cm** |
+| 25° | **13.12 cm** |
+| 35° | **−5.62 cm** |
+| 40° | **−11.01 cm** |
+
+All outside the connector envelope's 1–8 cm; two negative. There is no such network.
+
+#### The family that works is the one §3 rejected, read the other way round
+
+`h(i,j) = f(i) + g(j)` makes the 4-cycle residual an identity, so the angles are free. Measured with
+5 different x-angles and 6 different z-angles: **worst residual 7.1e-15 cm.**
+
+§3's rejection of "additive / translational height fields" **still stands for the problem it was
+about** — v3 needed a field zero along two intersecting edges *and* a mound in between, and this
+family cannot be that. v4 is not asking for a mound. It is asking for a foldable network, and
+separability is the exact condition for one. §5.3's last paragraph said this would be the move.
+
+**The price, and it is not a bug:** `f` and `g` each zig-zag by ±R, so `h` takes three values, not
+two. Even at zero scrunch the wave is a uniform **egg-crate with three storeys**. Do not "fix" it
+back to two levels — that is the constraint the proof above says kills it.
+
+#### What is linear is the plan advance, not the angle
+
+`E(θ) = 60·cos θ + 2·gap·cos(θ/2)` is compressed on a straight ramp to `scrunch` at `attractor`, and
+the angle that delivers it is bisected (60 fixed steps, on `[base, ANGLE_MAX]`). That is what
+"compress in a simple linear fashion" reads as on the floor; equal steps in *degrees* would not.
+`θ(0) === angleDeg` exactly. At 30°/2cm the steepest reachable scrunch is ~66.5%, so
+`W_SCRUNCH_UNREACHABLE` is a real outcome inside the 0–0.9 band and names the edge it pins.
+
+#### Three things the wave forced elsewhere, all worth the record
+
+1. **`level` had to stop being binary**, and the honest generalisation was to rank cells by MEASURED
+   height rather than to invent a third enum. `level === 0` still means "on the floor", which is the
+   only thing anything downstream ever asked of it.
+2. **`spacers.js` was already right, and this is the payoff.** §9.12 chose to *measure* undersides
+   rather than test `level === 0`, "in case a third level ever arrives". It arrived. On a scrunched
+   wave the module correctly props the **one** cell actually resting on the floor — which is itself
+   a finding: a scrunched wave stands on one corner and is grounded as a rigid body, not laid on the
+   floor.
+3. **The envelope stopped being a property of `(gap, θ)`** and the report had to say so rather than
+   keep quoting one boundary. `maxAngleDeg` under the wave means *the largest **base** angle*;
+   `envelope.perJoint` carries the distinct-fold count, the dirty count and the worst joint. The
+   worst joint is ranked by **signed** fold, not magnitude: ridges pinch and valleys diverge, so the
+   first cut of this reported a 55° valley carrying no flags at all as the worst thing in a network
+   with 18 genuinely dirty ridges.
+
+#### Refused rather than approximated
+
+The **wall anchor** is not built on a wave. §9.4's anchor descends exactly one level rise to the
+floor; the wave has no such level, so the toe would land in mid-air. `braced` emits nothing and
+`W_WAVE_NO_ANCHOR` says so. A per-cell anchor angle solved to reach the floor is a real design and
+belongs in its own pass — the standing rule here is that the geometry does not invent a bracket.
+
 ### 9.13 Open
 
+0. **A wall anchor for the wave** (§9.14) — see "refused rather than approximated" above.
 1. **The corner section test** (§9.5) — the one real gap.
 2. **The front bar's concave section** (§8.4) — still the open hardware question, and the network
    makes it worse: *every* ramp meets its ground cell in a valley, so exactly half of every
@@ -1103,4 +1185,5 @@ what keeps meaning the right thing if a third level ever arrives.
    modelled.
 4. **Whether the spacer's foot can bear on the rim** (§9.12) — the geometry places it; nothing
    says the section is strong enough there.
-5. Flippable ramps (§9.4); per-cell angle; plateaus of same-level flats; plates.
+5. Flippable ramps (§9.4); plateaus of same-level flats; plates. *(Per-cell angle and >2 levels are
+   delivered by §9.14 for the separable family; on the checkerboard they are impossible, proven.)*

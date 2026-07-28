@@ -65,6 +65,35 @@
  * drifting (the same discipline schema.js applies to the gap band).
  *
  * =============================================================================
+ * TWO PATTERN KINDS, AND WHY THE SECOND ONE IS A DIFFERENT SHAPE
+ * =============================================================================
+ * Everything above describes `pattern.kind: 'trapezoid'`, which is the DEFAULT
+ * and is frozen — designs exist in it and its solve is asserted byte-identical to
+ * the commit before the wave arrived (`tests/test-v4-wave.mjs` §8).
+ *
+ * `pattern.kind: 'wave'` replaces the two-level checkerboard with the SEPARABLE
+ * field `h(i,j) = f(i) + g(j)`, and gives every lattice edge its own angle. It is
+ * not a knob on the trapezoid: the checkerboard PROVABLY cannot carry a varying
+ * angle, because on it every 4-cycle demands `2·R(θx) − 2·R(θz) = 0`, i.e. every
+ * angle equal. `wave.js`'s header has that proof with its measured residuals, and
+ * this file's job is only to build whichever field it is handed.
+ *
+ * The three places the two kinds part company are marked below, and they are the
+ * only three: THE PLAN LINES (uniform `i·P` vs. a cumulative run), THE HEIGHT
+ * FIELD (a checkerboard vs. `f(i)+g(j)`), and THE EDGE ANGLE (one θ vs. one per
+ * edge). Everything else — handedness, the bisector step, the joint record,
+ * grounding, the overrides — is shared, because none of it ever depended on the
+ * angle being the same everywhere.
+ *
+ * One thing is deliberately NOT built for the wave: the WALL ANCHOR. §9.4's
+ * anchor is a ramp descending exactly one level rise to the floor, and on the
+ * wave there is no such number — a cell at `f(0)+g(j)` is not `R` above anything
+ * in particular, so the toe would land in mid-air. `braced` therefore emits
+ * nothing under 'wave' and `report.js` says so out loud (`W_WAVE_NO_ANCHOR`)
+ * rather than quietly dropping the request. Inventing a per-cell anchor angle to
+ * reach the floor is a real design and belongs in its own pass.
+ *
+ * =============================================================================
  * HANDEDNESS — the failure this file is most likely to have
  * =============================================================================
  * A ramp's width direction is FIXED by right-handedness, not chosen:
@@ -124,6 +153,7 @@
 
 import * as THREE from 'three'
 import { normalizeConfig } from './schema.js'
+import { solveWave } from './wave.js'
 import { PANEL_DIMENSIONS, PANEL_PROFILE } from '../../config.js'
 
 const RAD = Math.PI / 180
@@ -254,6 +284,49 @@ export function solveLattice(config) {
   const step = latticeStep({ gapCm: gap, angleDeg: cfg.angleDeg, lengthCm: L })
   const { pitchCm: P, riseCm: R, stepPlanCm, stepRiseCm } = step
 
+  // -------------------------------------------------------------------------
+  // THE THREE PLACES THE PATTERN KINDS PART COMPANY (see the file header).
+  //
+  // `wave` is null for the checkerboard, and every accessor below then reduces
+  // to the expression that was there before — the same variables, in the same
+  // order, so the floats are bit-identical rather than merely equal. That is not
+  // fastidiousness: `tests/test-v4-wave.mjs` §8 diffs the whole JSON solve
+  // against the commit before this file grew a second kind, and a reassociated
+  // `L/2 + i*P` would fail it.
+  // -------------------------------------------------------------------------
+  const wave = cfg.pattern.kind === 'wave' ? solveWave(cfg, L) : null
+
+  /** The plan coordinate of cell line `i` / `j`, measured from line 0. */
+  const xLineOf = wave ? (i) => wave.x.lineCm[i] : (i) => i * P
+  const zLineOf = wave ? (j) => wave.z.lineCm[j] : (j) => j * P
+
+  /** The reference height of cell (i, j), before grounding. */
+  const heightOf = wave
+    ? (i, j) => wave.x.heightCm[i] + wave.z.heightCm[j]
+    : (i, j) => (levelAt(i, j, phase) === 1 ? R : 0)
+
+  /** The angle of the ramp on edge (i, j, axis), in degrees and in radians. */
+  const edgeAngleDeg = wave
+    ? (i, j, axis) => (axis === 'x' ? wave.x.angleDeg[i] : wave.z.angleDeg[j])
+    : () => cfg.angleDeg
+  const edgeAngleRad = wave
+    ? (i, j, axis) => edgeAngleDeg(i, j, axis) * RAD
+    : () => theta
+
+  /** The half-angle gap step for one edge — §9.1's bisector, per angle. */
+  const edgeStepOf = wave
+    ? (th) => ({ plan: gap * Math.cos(th / 2), rise: gap * Math.sin(th / 2) })
+    : () => ({ plan: stepPlanCm, rise: stepRiseCm })
+
+  /**
+   * Does the edge climb as its index grows? On the checkerboard that is the
+   * level of the low-index cell; on the wave it is the zig-zag's own sign, which
+   * depends on ONE index only — which is what keeps the plan grid aligned.
+   */
+  const edgeClimbs = wave
+    ? (i, j, axis) => (axis === 'x' ? wave.x.sign[i] : wave.z.sign[j]) > 0
+    : (i, j) => levelAt(i, j, phase) === 0
+
   const Y = new THREE.Vector3(0, 1, 0)
   const AX = new THREE.Vector3(1, 0, 0)
 
@@ -262,6 +335,27 @@ export function solveLattice(config) {
   for (const ov of cfg.overrides.cells) cellOv.set(`${ov.i},${ov.j}`, ov)
   const edgeOv = new Map()
   for (const ov of cfg.overrides.edges) edgeOv.set(`${ov.i},${ov.j},${ov.axis}`, ov)
+
+  // The level field.
+  //
+  // On the checkerboard `level` is `(i+j+phase) mod 2` and is the design. On the
+  // wave it is DERIVED FROM THE HEIGHT: the rank of the cell's height among the
+  // distinct heights present, so 0 is the storey resting on the floor and the
+  // count is however many storeys the field actually has (three at zero scrunch,
+  // and as many as there are cells once the angles differ). Generalising it this
+  // way rather than forcing it back to 0/1 is the honest reading — see the file
+  // header — and it keeps `level === 0` meaning "lowest", which is the only thing
+  // anything downstream ever asked of it.
+  const cellHeights = []
+  for (let i = 0; i < cols; i++) {
+    cellHeights.push([])
+    for (let j = 0; j < rows; j++) cellHeights[i].push(heightOf(i, j))
+  }
+  // Ranked on the ROUNDED height, so two cells the geometry puts on the same
+  // storey are not split into two by a picometre of float noise.
+  const storeys = wave
+    ? [...new Set(cellHeights.flat().map(r))].sort((a, b) => a - b)
+    : null
 
   const levels = []
   const cellPresent = []
@@ -272,7 +366,7 @@ export function solveLattice(config) {
     cellFlipped.push([])
     for (let j = 0; j < rows; j++) {
       const ov = cellOv.get(`${i},${j}`)
-      levels[i].push(levelAt(i, j, phase))
+      levels[i].push(wave ? storeys.indexOf(r(cellHeights[i][j])) : levelAt(i, j, phase))
       cellPresent[i].push(ov ? ov.present : true)
       cellFlipped[i].push(ov ? ov.flipped : false)
     }
@@ -280,7 +374,7 @@ export function solveLattice(config) {
 
   /** The plan centre of cell (i, j), at its own reference height. */
   const cellCentre = (i, j) =>
-    new THREE.Vector3(L / 2 + i * P, levelAt(i, j, phase) === 1 ? R : 0, L / 2 + j * P)
+    new THREE.Vector3(L / 2 + xLineOf(i), heightOf(i, j), L / 2 + zLineOf(j))
 
   // ---------------------------------------------------------------------------
   // A panel, built from its reference segment and its frame.
@@ -342,7 +436,12 @@ export function solveLattice(config) {
         axis: null,
         anchor: false,
         level,
-        role: level === 1 ? 'high' : 'ground',
+        // "ground" is the storey on the floor, "high" is everything held up by
+        // ramps. Written as `level === 0` rather than `level === 1` so the wave's
+        // third and later storeys read as high rather than falling through to
+        // ground — the same string on every design the checkerboard can make.
+        role: level === 0 ? 'ground' : 'high',
+        heightCm: cellHeights[i][j],
         tiltDeg: 0,
         present: cellPresent[i][j],
         flipped: cellFlipped[i][j],
@@ -370,7 +469,7 @@ export function solveLattice(config) {
   function edgeGeometry(i, j, axis) {
     const a = { i, j }
     const b = axis === 'x' ? { i: i + 1, j } : { i, j: j + 1 }
-    const aIsGround = levelAt(a.i, a.j, phase) === 0
+    const aIsGround = edgeClimbs(i, j, axis)
     const lo = aIsGround ? a : b
     const hi = aIsGround ? b : a
     // ê points from the ground cell to the high one, so it is +axis when the
@@ -378,17 +477,24 @@ export function solveLattice(config) {
     const sign = aIsGround ? 1 : -1
     const dir = PLAN_DIRS[dirKey(axis, sign)]
     const e = new THREE.Vector3(...dir.vec)
-    const u = e.clone().multiplyScalar(Math.cos(theta)).addScaledVector(Y, Math.sin(theta))
+    const th = edgeAngleRad(i, j, axis)
+    const u = e.clone().multiplyScalar(Math.cos(th)).addScaledVector(Y, Math.sin(th))
     const w = new THREE.Vector3().crossVectors(Y, e)
-    return { lo, hi, e, u, w, yaw: dir.yaw, sign }
+    return { lo, hi, e, u, w, yaw: dir.yaw, sign, th, step: edgeStepOf(th) }
   }
 
-  /** The reference segment of the ramp rising out of `loCentre` along `ê`. */
-  function rampSegment(loCentre, e, u) {
+  /**
+   * The reference segment of the ramp rising out of `loCentre` along `ê`.
+   *
+   * `step` is the edge's OWN half-angle gap step. On the checkerboard it is the
+   * one global pair; on the wave every edge brings its own, which is the whole
+   * mechanism by which a joint keeps spanning exactly `gap` while the angles vary.
+   */
+  function rampSegment(loCentre, e, u, stp) {
     const refStart = loCentre.clone()
       .addScaledVector(e, L / 2)
-      .addScaledVector(e, stepPlanCm)
-      .addScaledVector(Y, stepRiseCm)
+      .addScaledVector(e, stp.plan)
+      .addScaledVector(Y, stp.rise)
     return { refStart, refEnd: refStart.clone().addScaledVector(u, L) }
   }
 
@@ -412,8 +518,8 @@ export function solveLattice(config) {
     const jMax = axis === 'z' ? rows - 1 : rows
     for (let i = 0; i < iMax; i++) {
       for (let j = 0; j < jMax; j++) {
-        const { lo, hi, e, u, w, yaw, sign } = edgeGeometry(i, j, axis)
-        const { refStart, refEnd } = rampSegment(cellCentre(lo.i, lo.j), e, u)
+        const { lo, hi, e, u, w, yaw, sign, th, step: stp } = edgeGeometry(i, j, axis)
+        const { refStart, refEnd } = rampSegment(cellCentre(lo.i, lo.j), e, u, stp)
         const ov = edgeOv.get(`${i},${j},${axis}`)
         const cellsPresent = cellPresent[lo.i][lo.j] || cellPresent[hi.i][hi.j]
         push({
@@ -428,14 +534,17 @@ export function solveLattice(config) {
           // reads as a rise, one that loses it as a fall. The GEOMETRY does not
           // distinguish them — both are built rising out of their ground cell.
           role: sign > 0 ? 'rise' : 'fall',
-          tiltDeg: sign * cfg.angleDeg,
+          tiltDeg: sign * edgeAngleDeg(i, j, axis),
           present: cellsPresent && (ov ? ov.present : true),
           flipped: false,
           refStart,
           refEnd,
           w,
           yaw,
-          tiltMagnitude: theta,
+          tiltMagnitude: th,
+          // The height its ground end starts at — the wave's plan grid has no
+          // single "level" to read this off, so the panel carries it.
+          heightCm: cellHeights[lo.i][lo.j],
           lo,
           hi,
           e,
@@ -459,7 +568,14 @@ export function solveLattice(config) {
   //
   // What these attach to at the wall is NOT modelled and is an open hardware
   // question. The geometry says where the toe lands, nothing more.
-  if (cfg.placement.wallAnchor === 'braced') {
+  //
+  // NOT BUILT UNDER 'wave', and refused rather than approximated: the anchor's
+  // whole construction is "a virtual ground cell one pitch back, on the floor",
+  // and it only lands there because a high cell is exactly `R` up. On the wave a
+  // cell sits at `f(i)+g(j)`, which is not `R` above anything, so the toe would
+  // hang in mid-air and the joint at the top would not close. `report.js` raises
+  // `W_WAVE_NO_ANCHOR` so the setting is visibly ignored — see the file header.
+  if (cfg.placement.wallAnchor === 'braced' && !wave) {
     for (let j = 0; j < rows; j++) {
       if (levels[0][j] !== 1) continue
       const e = new THREE.Vector3(1, 0, 0)
@@ -467,7 +583,7 @@ export function solveLattice(config) {
       const w = new THREE.Vector3().crossVectors(Y, e)
       // The virtual ground cell: one pitch back from the high cell, on the floor.
       const virtualLo = cellCentre(0, j).clone().setX(L / 2 - P).setY(0)
-      const { refStart, refEnd } = rampSegment(virtualLo, e, u)
+      const { refStart, refEnd } = rampSegment(virtualLo, e, u, { plan: stepPlanCm, rise: stepRiseCm })
       push({
         id: `Aj${j}`,
         kind: 'ramp',
@@ -485,6 +601,7 @@ export function solveLattice(config) {
         w,
         yaw: PLAN_DIRS['+x'].yaw,
         tiltMagnitude: theta,
+        heightCm: 0,
         lo: null, // there is no cell here — that is what makes it an anchor
         hi: { i: 0, j },
         e,
@@ -547,6 +664,11 @@ export function solveLattice(config) {
       level: p.level,
       role: p.role,
       glyph: ROLE_GLYPH[p.role],
+      // WAVE ONLY, and conditional on purpose. `level` alone cannot say where a
+      // panel sits once the field has more than two storeys, so the wave carries
+      // the height itself; the trapezoid record is frozen byte for byte, so it
+      // does not grow a field it has no use for (test-v4-wave.mjs §8).
+      ...(wave ? { heightCm: r(p.heightCm + shift.y) } : {}),
       tiltDeg: r(p.tiltDeg),
       present: p.present,
       flipped: p.flipped,
@@ -699,10 +821,56 @@ export function solveLattice(config) {
       wallAnchor: cfg.placement.wallAnchor,
       levels,
       shiftCm: rv(shift),
+      // WAVE ONLY — the per-axis edge tables, and the height field they build.
+      // `pitchCm` / `riseCm` above stay the BASE angle's numbers under the wave:
+      // they are what edge 0 does, and the tables here are what every other edge
+      // does. Quoting one number as though it were the pitch would be the
+      // "silently keep quoting a single-angle boundary" failure in the brief.
+      ...(wave
+        ? {
+          kind: 'wave',
+          wave: {
+            x: axisReadout(wave.x),
+            z: axisReadout(wave.z),
+            heights: cellHeights.map((col) => col.map((h) => r(h + shift.y))),
+            storeyCount: storeys.length,
+            warnings: wave.warnings,
+          },
+        }
+        : {}),
     },
     panels,
     joints,
     bounds: latticeBounds(panels),
+  }
+}
+
+/**
+ * One axis of the wave, rounded for emission — the table the metrics panel draws
+ * and the tests read.
+ *
+ * `pitchCm` is `L + advance`, restated per edge so a reader never has to add the
+ * panel length back on; `riseCm` is signed, because the sign is the zig-zag and
+ * dropping it would make an alternating run look like a staircase.
+ */
+function axisReadout(a) {
+  return {
+    edgeCount: a.edgeCount,
+    angleDeg: a.angleDeg.map(r),
+    advanceCm: a.advanceCm.map(r),
+    pitchCm: a.advanceCm.map((_, k) => r(a.lineCm[k + 1] - a.lineCm[k])),
+    riseCm: a.riseCm.map((v, k) => r(a.sign[k] * v)),
+    scrunchFactor: a.factor.map(r),
+    lineCm: a.lineCm.map(r),
+    // The axis's OWN contribution to the height field, before grounding —
+    // `h(i,j) = x.heightCm[i] + z.heightCm[j]`. The grounded world height is
+    // `lattice.wave.heights[i][j]`; adding the shift to both halves would count
+    // it twice.
+    heightCm: a.heightCm.map(r),
+    baseAdvanceCm: r(a.baseAdvanceCm),
+    planRunCm: r(a.planRunCm),
+    unscrunchedRunCm: r(a.unscrunchedRunCm),
+    compression: a.unscrunchedRunCm > 0 ? r(a.planRunCm / a.unscrunchedRunCm) : null,
   }
 }
 

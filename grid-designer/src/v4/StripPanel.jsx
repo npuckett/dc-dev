@@ -72,6 +72,11 @@ import {
   CONNECTOR_BIN_ANGLE_MAX,
   CONNECTOR_POWER_EDGES,
   CONNECTOR_SUPPLY_MODES,
+  PATTERN_KINDS,
+  SCRUNCH_MIN,
+  SCRUNCH_MAX,
+  ATTRACTOR_MIN,
+  ATTRACTOR_MAX,
 } from '../core/v4/schema.js'
 
 const fixed = (n) => (v) => v.toFixed(n)
@@ -114,6 +119,8 @@ export default function StripPanel() {
   const setAngleDeg = useStoreV4((s) => s.setAngleDeg)
   const setGap = useStoreV4((s) => s.setGap)
   const setPhase = useStoreV4((s) => s.setPhase)
+  const setPatternKind = useStoreV4((s) => s.setPatternKind)
+  const setWaveKnob = useStoreV4((s) => s.setWaveKnob)
   const setWallAnchor = useStoreV4((s) => s.setWallAnchor)
   const setObstacleField = useStoreV4((s) => s.setObstacleField)
   const setWallOffset = useStoreV4((s) => s.setWallOffset)
@@ -132,6 +139,12 @@ export default function StripPanel() {
   const spacers = report.spacers
   const { envelope } = report
   const counts = report.metrics.counts
+  const isWave = pattern.kind === 'wave'
+  const waveCfg = pattern.wave ?? { scrunchX: 0, scrunchZ: 0, attractorX: 1, attractorZ: 1 }
+  // The SOLVED wave, not the config — the readout has to show what the angles
+  // came out at, which is the thing the knobs do not say.
+  const waveOut = chain.lattice.wave
+  const pinned = waveOut ? waveOut.warnings.length : 0
 
   // The glyph readout is now a COLUMN of the lattice — i = 0 read from the
   // window back — which is exactly the ribbon it grew out of, and still the
@@ -196,14 +209,27 @@ export default function StripPanel() {
         <p className="form-annotation">
           the lattice is counted in <b>flat cells</b> — the angled panels are derived, one per edge
           between two present cells. {lattice.cols} × {lattice.rows} is{' '}
-          <b>{counts.cells} cells + {counts.ramps} ramps = {counts.panels} panels</b>. Levels
-          alternate like a checkerboard, so every cell's neighbours are the opposite level and every
-          edge has somewhere to go.
+          <b>{counts.cells} cells + {counts.ramps} ramps = {counts.panels} panels</b>.{' '}
+          {isWave
+            ? `The heights are h(i,j) = f(i) + g(j), so this network has ${
+              chain.lattice.wave?.storeyCount ?? 0} distinct storeys rather than two.`
+            : 'Levels alternate like a checkerboard, so every cell\'s neighbours are the opposite '
+              + 'level and every edge has somewhere to go.'}
         </p>
 
-        <div className="glyph-readout" data-testid="strip-glyphs" title="the strip's pattern, unit 1 at the window">
-          {glyphs || '—'}
-        </div>
+        {/* The glyph readout has a two-symbol alphabet for the flats, so it can
+            only describe a two-level field. Under the wave it would draw a row of
+            `-` and claim the column was flat at one height, which is worse than
+            drawing nothing — the wave's profile is the height row below it. */}
+        {isWave ? (
+          <div className="glyph-readout" data-testid="strip-glyphs" title="column 0's heights, from the window back">
+            {(chain.lattice.wave?.heights?.[0] ?? []).map((h) => Math.round(h)).join(' · ') || '—'}
+          </div>
+        ) : (
+          <div className="glyph-readout" data-testid="strip-glyphs" title="the strip's pattern, unit 1 at the window">
+            {glyphs || '—'}
+          </div>
+        )}
 
         <div className="slider-row">
           <span className="slider-label">angle θ</span>
@@ -235,6 +261,23 @@ export default function StripPanel() {
 
         {/* The permission, stated where the knob is. See the file header. */}
         <div className="limit-block" data-testid="strip-limits">
+          {/* Under the wave `maxAngleDeg` is the largest BASE angle the design
+              admits, not the largest fold the connector takes — every joint has
+              its own fold, so the two are different numbers and merging them
+              would be the "silently keep quoting a single-angle boundary"
+              failure. The per-joint reading is stated beside it. */}
+          {envelope.angleIsPerJoint && envelope.perJoint && (
+            <LimitLine testId="limit-per-joint" over={!envelope.perJoint.allClean}>
+              {envelope.perJoint.distinctFolds} distinct folds over{' '}
+              {envelope.perJoint.jointCount} joints
+              {envelope.perJoint.allClean
+                ? ' — every one of them inside the connector envelope'
+                : `; ${envelope.perJoint.dirtyJointCount} outside it, worst at ` +
+                  `${envelope.perJoint.worst.foldDeg.toFixed(2)}° on ${envelope.perJoint.worst.id}` +
+                  `${envelope.perJoint.worst.flags.length ? ` (${envelope.perJoint.worst.flags.join(', ')})` : ''}`}
+              . The limit below is on the <b>base</b> angle, not on any one fold.
+            </LimitLine>
+          )}
           {envelope.maxAngleDeg === null ? (
             <LimitLine testId="limit-connector" over>
               no angle works at this gap — the connector is outside its envelope even flat
@@ -301,22 +344,147 @@ export default function StripPanel() {
         </p>
       </div>
 
-      {/* --- the pattern ------------------------------------------------------ */}
+      {/* --- the pattern ------------------------------------------------------
+          The KIND is a change of model, not a knob: the checkerboard has two
+          levels and one angle, the wave has a separable height field and one
+          angle per lattice edge. They do not interpolate, and the controls below
+          the switch change entirely with it — `phase` means nothing on a wave and
+          the scrunch means nothing on a checkerboard, so neither is shown when it
+          is dead. */}
       <div className="col-profile form-block">
-        <SliderRow
-          testId="strip-phase"
-          label="phase"
-          value={pattern.phase}
-          min={PHASE_MIN}
-          max={PHASE_MAX}
-          step={1}
-          onChange={(v) => setPhase(v)}
-          format={(v) => (v ? '1 · high at the wall' : '0 · ground at the wall')}
-        />
-        <p className="form-annotation">
-          which level cell (0, 0) sits on. The checkerboard has period 2, so this simply swaps
-          ground and high across the whole lattice.
-        </p>
+        <div className="form-check-row">
+          <span className="slider-label">pattern</span>
+          <div className="seg-group" data-testid="pattern-kind">
+            {PATTERN_KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`seg-btn${pattern.kind === k ? ' seg-btn-on' : ''}`}
+                data-testid={`pattern-kind-${k}`}
+                onClick={() => setPatternKind(k)}
+                title={
+                  k === 'trapezoid'
+                    ? 'the two-level checkerboard — one angle everywhere'
+                    : 'a separable height field with a per-edge angle, so the grid can scrunch'
+                }
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isWave ? (
+          <>
+            <SliderRow
+              testId="wave-scrunch-x"
+              label="scrunch x"
+              value={waveCfg.scrunchX}
+              min={SCRUNCH_MIN}
+              max={SCRUNCH_MAX}
+              step={0.01}
+              onChange={(v) => setWaveKnob('scrunchX', v)}
+              format={(v) => `${(v * 100).toFixed(0)}%`}
+            />
+            <SliderRow
+              testId="wave-attractor-x"
+              label="attractor x"
+              value={waveCfg.attractorX}
+              min={ATTRACTOR_MIN}
+              max={ATTRACTOR_MAX}
+              step={0.05}
+              onChange={(v) => setWaveKnob('attractorX', v)}
+              format={(v) => (v === 0 ? 'uniform' : `${(v * 100).toFixed(0)}% along`)}
+            />
+            <SliderRow
+              testId="wave-scrunch-z"
+              label="scrunch z"
+              value={waveCfg.scrunchZ}
+              min={SCRUNCH_MIN}
+              max={SCRUNCH_MAX}
+              step={0.01}
+              onChange={(v) => setWaveKnob('scrunchZ', v)}
+              format={(v) => `${(v * 100).toFixed(0)}%`}
+            />
+            <SliderRow
+              testId="wave-attractor-z"
+              label="attractor z"
+              value={waveCfg.attractorZ}
+              min={ATTRACTOR_MIN}
+              max={ATTRACTOR_MAX}
+              step={0.05}
+              onChange={(v) => setWaveKnob('attractorZ', v)}
+              format={(v) => (v === 0 ? 'uniform' : `${(v * 100).toFixed(0)}% along`)}
+            />
+
+            {/* What the knobs actually did, in the units of the thing being
+                compressed. The scrunch is a percentage of PLAN ADVANCE, and the
+                angles are whatever delivers it — so quoting the angle range
+                beside the run is the only way to read the control honestly. */}
+            <div className="limit-block" data-testid="wave-readout">
+              {['x', 'z'].map((ax) => {
+                const w = waveOut?.[ax]
+                if (!w || w.edgeCount === 0) {
+                  return (
+                    <LimitLine key={ax} testId={`wave-run-${ax}`}>
+                      no {ax} edges — a single line of cells has nothing to scrunch
+                    </LimitLine>
+                  )
+                }
+                const lo = Math.min(...w.angleDeg)
+                const hi = Math.max(...w.angleDeg)
+                return (
+                  <LimitLine key={ax} testId={`wave-run-${ax}`}>
+                    <b>{ax}</b> · θ {lo.toFixed(1)}°→{hi.toFixed(1)}° · pitch{' '}
+                    {w.pitchCm[0].toFixed(1)}→{w.pitchCm[w.pitchCm.length - 1].toFixed(1)}cm · run{' '}
+                    {w.planRunCm.toFixed(1)} of {w.unscrunchedRunCm.toFixed(1)}cm (
+                    {((1 - w.compression) * 100).toFixed(1)}% shorter)
+                  </LimitLine>
+                )
+              })}
+              {pinned > 0 && (
+                <LimitLine testId="wave-pinned" over>
+                  {pinned} edge{pinned === 1 ? '' : 's'} could not compress that far and{' '}
+                  {pinned === 1 ? 'is' : 'are'} pinned at {ANGLE_MAX}° — the scrunch asked for a plan
+                  advance no angle in the band delivers.
+                </LimitLine>
+              )}
+            </div>
+
+            <p className="form-annotation">
+              the <b>angle above is the base angle, at the front</b>, and it is the lowest in the
+              design — scrunching only ever steepens. What varies linearly is the <b>plan advance</b>,
+              not the angle: each edge gives up its share of{' '}
+              <code>60·cos θ + 2·gap·cos(θ/2)</code> and the angle that delivers it is solved for. The
+              attractor is where full scrunch is reached; past it the grid stays uniformly tight.
+            </p>
+            <p className="form-hint">
+              the wave is a <b>different shape</b>, not a setting on the checkerboard. Its height
+              field is <code>h(i,j) = f(i) + g(j)</code>, which is the only family whose cycles close
+              at a varying angle — a two-level checkerboard forces every angle equal, and there is no
+              gap that buys it back. So even at 0% this is an <b>egg-crate with three storeys</b>,
+              not the two-level board. <b>Braced</b> builds no wall anchors here: there is no single
+              level rise for one to descend.
+            </p>
+          </>
+        ) : (
+          <>
+            <SliderRow
+              testId="strip-phase"
+              label="phase"
+              value={pattern.phase}
+              min={PHASE_MIN}
+              max={PHASE_MAX}
+              step={1}
+              onChange={(v) => setPhase(v)}
+              format={(v) => (v ? '1 · high at the wall' : '0 · ground at the wall')}
+            />
+            <p className="form-annotation">
+              which level cell (0, 0) sits on. The checkerboard has period 2, so this simply swaps
+              ground and high across the whole lattice.
+            </p>
+          </>
+        )}
 
         <div className="form-check-row">
           <span className="slider-label">brace to wall</span>

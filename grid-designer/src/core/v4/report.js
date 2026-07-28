@@ -53,6 +53,23 @@
  * is a property of (gap, θ) and nothing else, which is what makes it usable as a
  * permission BEFORE a design exists.
  *
+ * THE WAVE BREAKS THAT SENTENCE, and the report has to stop saying it.
+ *
+ * Under `pattern.kind: 'wave'` every joint has its OWN fold — that is the point
+ * of the mode — so `maxAngleDeg` is no longer a property of `(gap, θ)`. It is
+ * still a true and useful number, because every angle in the design is derived
+ * from `angleDeg` and steepens with it, so the bisection is bisecting the one
+ * knob the user actually holds: the answer means "the largest BASE angle this
+ * design admits", not "the largest fold the connector takes". What must not
+ * happen is the report quoting it as though it were the second thing.
+ *
+ * So under 'wave' the envelope carries `perJoint` as well: the worst fold in the
+ * design, which joint it is on, how many joints are dirty, and how many folds
+ * there actually are. `angleIsPerJoint` is the flag that says which reading
+ * applies. Under 'trapezoid' none of it is emitted and the old sentence stands —
+ * `tests/test-v4-report.mjs` §2 still asserts the 1 × 2 and the 4 × 4 report the
+ * same boundary, and that has to keep passing.
+ *
  * A fixed 60 steps, never "until converged": determinism is the standing rule in
  * this core, and 60 halvings of a 75° range is 6.5e-17°, far below anything that
  * could matter.
@@ -361,6 +378,68 @@ export function solveFrontBarLimit(gapCm) {
 }
 
 /**
+ * The per-joint reading the wave needs: which joint is worst, and whether every
+ * one of them is clean.
+ *
+ * The flags are taken from the REAL stations of the REAL design — the same
+ * `connectorStationFlags` the envelope bisection asks — so "every joint is clean"
+ * here and `envelope.clean` can never disagree. `worst` is the largest |fold|,
+ * because that is the joint the connector is closest to running out on, and it is
+ * named so that a design past the limit says WHERE rather than only THAT.
+ */
+function perJointEnvelope(cfg, C) {
+  const K = solveConnectorsV4(cfg, C)
+  const dirty = new Map()
+  for (const st of K.stations) {
+    const bad = connectorStationFlags(st, CONNECTOR_LIMITS).filter((f) => ENVELOPE_HARD_FLAGS.includes(f))
+    if (bad.length === 0) continue
+    const have = dirty.get(st.jointIndex) ?? new Set()
+    for (const f of bad) have.add(f)
+    dirty.set(st.jointIndex, have)
+  }
+
+  // The worst joint is the largest CONVEX fold, not the largest |fold|.
+  //
+  // That is not a preference, it is what binds: on a ridge the two housings pinch
+  // toward each other and every rule in `ENVELOPE_HARD_FLAGS` tightens; in a
+  // valley they diverge and the connector is unconstrained by them (this file's
+  // header, "WHY THE ENVELOPE IS BISECTED"). Ranking by magnitude picked the
+  // deepest valley on the first design this was run against — a 55° joint
+  // carrying no flags at all, reported as the worst thing in a network that had
+  // 18 genuinely dirty ridges. Signed max is the question actually being asked.
+  let worst = null
+  for (const j of C.joints) {
+    const fold = jointFrame(j).foldDeg
+    if (worst === null || fold > worst.foldDeg) {
+      worst = { id: j.id, jointIndex: j.jointIndex, foldDeg: fold, edge: j.edge, end: j.end }
+    }
+  }
+
+  // How many DISTINCT folds there are, to the degree the part types are binned
+  // at — a wave whose joints all land in one bin is, for connector purposes, a
+  // trapezoid, and the number says so without anyone having to eyeball a table.
+  const folds = new Set(C.joints.map((j) => r(Math.abs(jointFrame(j).foldDeg))))
+
+  return {
+    jointCount: C.joints.length,
+    distinctFolds: folds.size,
+    dirtyJointCount: dirty.size,
+    allClean: dirty.size === 0,
+    worst: worst && {
+      ...worst,
+      foldDeg: r(worst.foldDeg),
+      flags: [...(dirty.get(worst.jointIndex) ?? [])].sort(),
+    },
+    dirty: [...dirty.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([jointIndex, flags]) => {
+        const j = C.joints.find((x) => x.jointIndex === jointIndex)
+        return { jointIndex, id: j?.id ?? null, foldDeg: r(jointFrame(j).foldDeg), flags: [...flags].sort() }
+      }),
+  }
+}
+
+/**
  * Where this design sits inside the connector envelope, and how much room it has
  * left in each direction.
  *
@@ -392,13 +471,15 @@ export function solveEnvelope(config) {
   // it — see "THE FRONT BAR AND THE VALLEYS". `worstConcaveDeg` comes from the
   // network's actual joints, not from θ.
   const barLimit = solveFrontBarLimit(cfg.gap)
+  const C = solveLattice(cfg)
   let worstConcave = 0
-  for (const j of solveLattice(cfg).joints) {
+  for (const j of C.joints) {
     const fold = jointFrame(j).foldDeg
     if (fold < -FLAT_FOLD_DEG) worstConcave = Math.max(worstConcave, -fold)
   }
 
   return {
+    ...(cfg.pattern.kind === 'wave' ? { angleIsPerJoint: true, perJoint: perJointEnvelope(cfg, C) } : {}),
     angleDeg: cfg.angleDeg,
     gapCm: cfg.gap,
     clean,
@@ -552,6 +633,27 @@ export function buildReportV4(config, lattice = null, connectors = null, spacers
   const S = spacers ?? solveSpacers(cfg, C)
 
   const warnings = [...K.warnings]
+
+  // --- the wave's own findings ----------------------------------------------
+  // Both are about a REQUEST THE MODEL DID NOT HONOUR, which is the one category
+  // that must never be silent: an edge pinned at ANGLE_MAX because the scrunch
+  // asked for more compression than the angle band can deliver, and a wall anchor
+  // asked for on a field that has no level for it to descend to (lattice.js's
+  // header). Neither is a defect in the design — they are the tool declining to
+  // invent geometry, and saying so.
+  if (C.lattice.wave) {
+    for (const w of C.lattice.wave.warnings) warnings.push(w)
+    if (cfg.placement.wallAnchor === 'braced') {
+      warnings.push({
+        code: 'W_WAVE_NO_ANCHOR',
+        message:
+          'placement.wallAnchor is "braced", and the wave builds no anchor ramps. The anchor of ' +
+          'V4_SPEC §9.4 descends exactly one level rise to the floor, and the wave\'s height field ' +
+          'h(i,j) = f(i) + g(j) has no such level — the toe would land in mid-air. The wall column ' +
+          'cantilevers off its own edge here, exactly as it does with "free"',
+      })
+    }
+  }
 
   // --- joints ---------------------------------------------------------------
   const stationsByJoint = new Map()
@@ -907,6 +1009,9 @@ function buildMetrics(cfg, C) {
     axis: p.axis,
     anchor: p.anchor,
     level: p.level,
+    // Wave only — carried through rather than recomputed, so the table and the
+    // 3-D view can never quote two different heights for one panel.
+    ...(p.heightCm !== undefined ? { heightCm: p.heightCm } : {}),
     role: p.role,
     glyph: p.glyph,
     tiltDeg: p.tiltDeg,
@@ -938,6 +1043,9 @@ function buildMetrics(cfg, C) {
       stepRiseCm: C.lattice.stepRiseCm,
       levels: C.lattice.levels,
       shiftCm: C.lattice.shiftCm,
+      // Wave only. `pitchCm` / `riseCm` above are the BASE angle's numbers under
+      // the wave — what edge 0 does — and this is what every other edge does.
+      ...(C.lattice.wave ? { kind: 'wave', wave: C.lattice.wave } : {}),
     },
     counts,
     material: {

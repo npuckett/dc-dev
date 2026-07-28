@@ -1306,6 +1306,11 @@ body {
 .lm-ground { background: #fbf4e4; }
 .lm-high   { background: #8fb9ff; }
 
+/* Wave tiles carry a number rather than a glyph, and the number can be three
+   digits — so they get a smaller face and tighter tracking. The ground/high
+   fill still applies underneath: 0 is the storey on the floor. */
+.lm-cell.lm-wave { font-size: 9px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
 /* Off is a slot, not a panel — outlined and dark, so a ragged edge reads as
    deliberate rather than as a rendering hole. */
 .lm-cell.lm-off {

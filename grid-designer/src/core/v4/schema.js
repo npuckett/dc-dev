@@ -120,6 +120,8 @@
  *   gap                      0.4 .. 8   cm
  *   angleDeg                 0 .. 75    degrees
  *   pattern.phase            0 .. 1     (integer)
+ *   pattern.wave.scrunchX/Z  0 .. 0.9   (present only when kind is 'wave')
+ *   pattern.wave.attractorX/Z 0 .. 1    (ditto)
  *   placement.wallOffsetCm   0 .. 200   cm
  *   placement.windowOffsetCm 0 .. 200   cm
  *   placement.groundClearanceCm 0 .. 50 cm
@@ -165,6 +167,22 @@
  *                              a way to measure what the constraint costs
  *   W_OVERRIDE_NO_OP           an override that is entirely default and will be
  *                              dropped by normalizeConfig
+ *   W_WAVE_SETTINGS_IGNORED    `pattern.wave` is set while the kind is not
+ *                              'wave' — the block does nothing and will be
+ *                              dropped
+ *   W_PHASE_IGNORED            `pattern.phase` is non-zero under 'wave', where
+ *                              there is no checkerboard to shift
+ *
+ * =============================================================================
+ * THE WAVE BLOCK IS CONDITIONAL, AND THAT IS DELIBERATE
+ * =============================================================================
+ * `pattern.wave` appears in `normalizeConfig`'s output ONLY when
+ * `pattern.kind === 'wave'`. It is the same rule the overrides follow — a field
+ * that says nothing about the design is not written down — and here it has a
+ * second, harder job: every checkerboard design that already exists must
+ * serialize, and SOLVE, byte for byte as it did before the wave was built.
+ * Emitting four dead numbers into every trapezoid config would break that on the
+ * first save. `tests/test-v4-wave.mjs` §8 is the check.
  */
 
 // -----------------------------------------------------------------------------
@@ -260,12 +278,53 @@ export const CONNECTOR_BIN_ANGLE_MAX = 30
 export const PANEL_TYPES = ['2x2']
 
 /**
- * The only pattern kind. The name is the ribbon's, and it is still the right
- * one: a profile cut through the network along either axis reads `_ / - \`,
- * which is what the word describes. It is an enum rather than a boolean because
- * the shape of that profile is exactly the axis a second kind would move along.
+ * The fold patterns.
+ *
+ *   'trapezoid'  the two-level checkerboard of §9.1. `level = (i+j+phase) mod 2`,
+ *        one angle everywhere. THE DEFAULT, and frozen: designs exist in it and
+ *        `tests/test-v4-wave.mjs` §8 asserts its solve is byte-identical to the
+ *        commit that introduced the wave.
+ *   'wave'       the separable field `h(i,j) = f(i) + g(j)`, with a per-edge
+ *        angle that steepens toward an attractor (`wave.js`). It is a DIFFERENT
+ *        SHAPE, not a parameterisation of the trapezoid — at zero scrunch it is
+ *        a uniform egg-crate with three levels, not a checkerboard with two —
+ *        because the checkerboard provably cannot carry a varying angle at all.
+ *        wave.js's header has the proof and its measured residuals.
+ *
+ * An enum rather than a boolean because it selects a MODEL: `pattern.phase`
+ * means nothing under 'wave' (there is no checkerboard to shift) and
+ * `pattern.wave` means nothing under 'trapezoid'.
  */
-export const PATTERN_KINDS = ['trapezoid']
+export const PATTERN_KINDS = ['trapezoid', 'wave']
+
+// -----------------------------------------------------------------------------
+// The wave's four knobs — V4_SPEC §9.14
+// -----------------------------------------------------------------------------
+/**
+ * How much of the base plan advance the far end of an axis gives up.
+ *
+ * The ceiling is 0.9 rather than 1 because 1 would ask for a zero-length plan
+ * advance, which is a 90° ramp — outside `ANGLE_MAX` and outside the connector
+ * envelope by a wide margin. 0.9 is already well past what the angle band can
+ * deliver at any realistic gap (at 30°/2cm the steepest edge `ANGLE_MAX` allows
+ * is a 66.5% scrunch), so the band's top is a place the solver REPORTS from —
+ * `W_SCRUNCH_UNREACHABLE`, naming the edge — rather than a promise it keeps.
+ */
+export const SCRUNCH_MIN = 0
+export const SCRUNCH_MAX = 0.9
+
+/**
+ * Where along the axis full scrunch is reached, as a fraction of the edge run.
+ *
+ * 1 spreads the compression over the whole axis, which is the plain reading of
+ * "compress in a simple linear fashion" and the default. 0.5 finishes it half way
+ * and leaves the far half uniformly tight. 0 is the degenerate end — everything
+ * is already past the attractor, so the whole axis compresses uniformly — and it
+ * is kept in the band because it is a real thing to ask for, with the caveat that
+ * it is the one setting where edge 0 does NOT sit at the base angle.
+ */
+export const ATTRACTOR_MIN = 0
+export const ATTRACTOR_MAX = 1
 
 /** Which axis a lattice edge runs along. */
 export const EDGE_AXES = ['x', 'z']
@@ -335,6 +394,15 @@ export const DEFAULT_GAP = 2.0
  *  `envelope`, which reports the headroom rather than asserting it here. */
 export const DEFAULT_ANGLE_DEG = 30
 export const DEFAULT_PATTERN = { kind: 'trapezoid', phase: 0 }
+/**
+ * The wave's neutral setting: no scrunch, the attractor at the far end.
+ *
+ * Note what this is NOT. `{ kind: 'wave', ...DEFAULT_WAVE }` is not the same
+ * network as `{ kind: 'trapezoid' }` — it is the uniform-angle EGG-CRATE, three
+ * levels rather than two (wave.js's header). The neutral wave is the wave with
+ * its scrunch off, not the trapezoid by another name.
+ */
+export const DEFAULT_WAVE = { scrunchX: 0, scrunchZ: 0, attractorX: 1, attractorZ: 1 }
 /**
  * `groundClearanceCm` defaults to 15, not 0: the brief is that everything laying
  * flat on the ground stands off it by 15cm, so 15 is the design and 0 is the
@@ -440,6 +508,17 @@ function withDefaults(raw) {
     pattern: {
       kind: pick(patternSrc, 'kind', DEFAULT_PATTERN.kind),
       phase: pick(patternSrc, 'phase', DEFAULT_PATTERN.phase),
+      // The wave block is RAW and CONDITIONAL. Raw, like the overrides, so a
+      // malformed knob is reported rather than silently defaulted. Conditional,
+      // because it means nothing under 'trapezoid': filling it in there would
+      // make `validateConfig` report on a block the user never wrote, and would
+      // put a key in `normalizeConfig`'s output that changes the serialization of
+      // every checkerboard design that already exists.
+      ...(patternSrc.wave !== undefined
+        ? { wave: patternSrc.wave }
+        : patternSrc.kind === 'wave'
+          ? { wave: { ...DEFAULT_WAVE } }
+          : {}),
     },
     placement: {
       wallOffsetCm: pick(placementSrc, 'wallOffsetCm', DEFAULT_PLACEMENT.wallOffsetCm),
@@ -547,6 +626,25 @@ function sanitizeObstacles(raw) {
   return out
 }
 
+/**
+ * PRIVATE. The wave's four knobs, filled and clamped.
+ *
+ * There is no "drop the no-op" rule here, unlike the overrides: the block is
+ * emitted whole or not at all (by KIND, in normalizeConfig), so a wave config
+ * always carries all four numbers and two wave designs still compare equal iff
+ * they are the same design.
+ */
+function sanitizeWave(raw) {
+  const src = isPlainObject(raw) ? raw : {}
+  const num = (key, lo, hi) => clamp(numberOr(src[key], DEFAULT_WAVE[key]), lo, hi)
+  return {
+    scrunchX: num('scrunchX', SCRUNCH_MIN, SCRUNCH_MAX),
+    scrunchZ: num('scrunchZ', SCRUNCH_MIN, SCRUNCH_MAX),
+    attractorX: num('attractorX', ATTRACTOR_MIN, ATTRACTOR_MAX),
+    attractorZ: num('attractorZ', ATTRACTOR_MIN, ATTRACTOR_MAX),
+  }
+}
+
 function sanitizeEdges(raw, cols, rows) {
   if (!Array.isArray(raw)) return []
   const claimed = new Set()
@@ -583,6 +681,9 @@ export function normalizeConfig(raw) {
   const cols = clampInt(cfg.lattice.cols, DEFAULT_LATTICE.cols, LATTICE_COLS_MIN, LATTICE_COLS_MAX)
   const rows = clampInt(cfg.lattice.rows, DEFAULT_LATTICE.rows, LATTICE_ROWS_MIN, LATTICE_ROWS_MAX)
 
+  // The kind decides whether the wave block exists at all — see `withDefaults`.
+  const patternKind = oneOf(PATTERN_KINDS, cfg.pattern.kind, DEFAULT_PATTERN.kind)
+
   const out = {
     version: cfg.version !== undefined ? cfg.version : 4,
     lattice: {
@@ -593,9 +694,12 @@ export function normalizeConfig(raw) {
     gap: clamp(numberOr(cfg.gap, DEFAULT_GAP), GAP_MIN, GAP_MAX),
     angleDeg: clamp(numberOr(cfg.angleDeg, DEFAULT_ANGLE_DEG), ANGLE_MIN, ANGLE_MAX),
     pattern: {
-      kind: oneOf(PATTERN_KINDS, cfg.pattern.kind, DEFAULT_PATTERN.kind),
+      kind: patternKind,
       // Clamped rather than wrapped, as every other integer knob here clamps.
+      // Kept under 'wave' even though it does nothing there — dropping it would
+      // lose the setting the moment you looked at a wave and switched back.
       phase: clampInt(cfg.pattern.phase, DEFAULT_PATTERN.phase, PHASE_MIN, PHASE_MAX),
+      ...(patternKind === 'wave' ? { wave: sanitizeWave(cfg.pattern.wave) } : {}),
     },
     placement: {
       wallOffsetCm: clamp(
@@ -762,6 +866,48 @@ export function validateConfig(config) {
   }
   checkEnum('lattice.panelType', cfg.lattice.panelType, PANEL_TYPES, 'panel footprint')
   checkEnum('pattern.kind', cfg.pattern.kind, PATTERN_KINDS, 'the fold pattern')
+
+  // --- the wave's four knobs ------------------------------------------------
+  // Checked whenever the block is PRESENT, not only when the kind is 'wave': a
+  // config carrying `scrunchX: 5` is wrong whether or not it is currently being
+  // used, and reporting it only after the kind is switched would make the error
+  // appear to come from the switch.
+  if (cfg.pattern.wave !== undefined) {
+    if (!isPlainObject(cfg.pattern.wave)) {
+      err(
+        'E_SHAPE',
+        `pattern.wave must be an object with scrunchX / scrunchZ / attractorX / attractorZ ` +
+          `(got ${JSON.stringify(cfg.pattern.wave)})`,
+        'pattern.wave',
+      )
+    } else {
+      const w = cfg.pattern.wave
+      checkRange('pattern.wave.scrunchX', w.scrunchX, SCRUNCH_MIN, SCRUNCH_MAX,
+        'fraction of the base plan advance given up across x')
+      checkRange('pattern.wave.scrunchZ', w.scrunchZ, SCRUNCH_MIN, SCRUNCH_MAX,
+        'fraction of the base plan advance given up across z')
+      checkRange('pattern.wave.attractorX', w.attractorX, ATTRACTOR_MIN, ATTRACTOR_MAX,
+        'where along x full scrunch is reached, as a fraction of the edge run')
+      checkRange('pattern.wave.attractorZ', w.attractorZ, ATTRACTOR_MIN, ATTRACTOR_MAX,
+        'where along z full scrunch is reached, as a fraction of the edge run')
+    }
+    if (cfg.pattern.kind !== 'wave') {
+      warn(
+        'W_WAVE_SETTINGS_IGNORED',
+        `pattern.wave is set but pattern.kind is ${JSON.stringify(cfg.pattern.kind)} — the wave knobs ` +
+          'do nothing on the checkerboard, and normalizeConfig will drop the block',
+        'pattern.wave',
+      )
+    }
+  }
+  if (cfg.pattern.kind === 'wave' && cfg.pattern.phase !== DEFAULT_PATTERN.phase) {
+    warn(
+      'W_PHASE_IGNORED',
+      'pattern.phase does nothing under the wave — there is no checkerboard to shift. The wave\'s ' +
+        'height field is `h(i,j) = f(i) + g(j)` and both runs start at 0 by construction',
+      'pattern.phase',
+    )
+  }
   checkEnum('placement.wallAnchor', cfg.placement.wallAnchor, WALL_ANCHORS,
     'what holds the network up on the wall side')
 

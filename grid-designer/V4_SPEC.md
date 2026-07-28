@@ -611,7 +611,153 @@ until `bodyInset` inboard, so a foot bearing on the rim bears on the thin part. 
 where the post stands and how tall it is; it does not say it is strong enough. Same contract as the
 wall anchor (§9.4) — **do not invent a bracket**.
 
+## 9.14 The wave — a varying angle, and the proof the checkerboard cannot have one
+
+`pattern.kind` gains a second value. **`trapezoid` is unchanged and stays the default**; everything
+in §9.1–§9.13 above describes it, and its solve is asserted byte-identical to the commit before this
+section existed (`tests/test-v4-wave.mjs` §8, seven configs, FNV-1a over `JSON.stringify`).
+
+### The requirement
+
+> a wave based angle, but in the simplest way possible. base angle at the front which will be the
+> lowest, but the mesh needs to compress in a simple linear fashion. nothing gets out of basic
+> alignment, but there should be % scrunching in the rows and columns towards a basic attractor.
+> everything stays linear, with the new gap
+
+### THE IMPOSSIBILITY — read this before trying to make the checkerboard scrunch
+
+**A two-level checkerboard cannot carry a varying angle.** This is proven and measured, not
+suspected.
+
+"Nothing gets out of basic alignment" means the plan grid stays a **product grid**: the x of column
+`i` must not depend on `j`. That forces the x-ramp angle to depend only on `i` and the z-ramp angle
+only on `j`. Now walk any 4-cycle `(i,j) → (i+1,j) → (i+1,j+1) → (i,j+1) → (i,j)`. On a checkerboard
+the levels alternate around it, so the four height steps are `+R(θx(i))`, `−R(θz(j))`, `+R(θx(i))`,
+`−R(θz(j))`, and closure demands
+
+```
+2·R(θx(i)) − 2·R(θz(j)) = 0        ⟹        every angle equal
+R(θ) = 60·sin θ + 2·gap·sin(θ/2)
+```
+
+Measured residuals at gap 2, in cm:
+
+| x-ramp | z-ramp | loop left open by |
+|---|---|---|
+| 30° | 35° | **9.164** |
+| 30° | 40° | **17.800** |
+
+The escape hatch of varying the **gap** to hold `R` constant is dead too. Holding `R = 31.035` (the
+30°/2cm value) needs:
+
+| θ | gap needed |
+|---|---|
+| 20° | **30.27 cm** |
+| 25° | **13.12 cm** |
+| 35° | **−5.62 cm** |
+| 40° | **−11.01 cm** |
+
+Every one outside the connector envelope's 1–8cm, and two of them negative. There is no such
+network — not "it is hard to find".
+
+### What works: the separable field
+
+```
+h(i, j) = f(i) + g(j)
+```
+
+makes the 4-cycle residual an algebraic identity rather than a constraint, so the angles are free.
+Measured over a lattice with 5 different x-angles and 6 different z-angles: worst 4-cycle residual
+**7.1e-15 cm**.
+
+This is exactly the family **HANDOFF §3 rejected** — and the rejection still stands *for the problem
+it was about*. v3 needed a field that was zero along two intersecting edges and a mound in between,
+and this family cannot be that. v4 is not asking for a mound; it is asking for a foldable network,
+and separability is the exact condition for one. HANDOFF §5.3's closing paragraph predicted this
+would be the move.
+
+**Consequence, and it must not be "fixed":** with `f` and `g` each zig-zagging by ±R, `h` takes
+three values (0, R, 2R), not two. Cell (1,1) is two rises up where the checkerboard would put it
+back on the floor. **Even at zero scrunch the wave is a uniform egg-crate with three storeys, not a
+checkerboard.** Forcing it back to two levels is precisely the constraint the proof above says kills
+it.
+
+### The model
+
+Edges are indexed `k = 0 … cols−2` (x) and `0 … rows−2` (z).
+
+```
+E(θ) = 60·cos θ + 2·gap·cos(θ/2)      plan advance across one ramp    (cell pitch = 60 + E)
+R(θ) = 60·sin θ + 2·gap·sin(θ/2)      rise across one ramp
+
+f(0) = 0 ;  f(i+1) = f(i) + σ(i)·R(θx(i)) ,  σ(i) = (−1)^i        (and g, on z)
+x(i+1) = x(i) + 60 + E(θx(i))                                     (and z, on j)
+```
+
+Plan lines and height runs are cumulative and depend on **one index only** — that is the alignment.
+
+### The scrunch
+
+`config.angleDeg` is the **base angle at the front**, the lowest in the design; scrunching only
+steepens. `pattern.wave` carries four knobs:
+
+```js
+wave: { scrunchX: 0, scrunchZ: 0, attractorX: 1, attractorZ: 1 }
+```
+
+For edge `k` of an axis with `N` edges, `t = N > 1 ? k/(N−1) : 0`:
+
+```
+factor(t)   = scrunch · min(1, t / attractor)      ( = scrunch when attractor = 0 )
+E_target(k) = E(angleDeg) · (1 − factor(t))
+θ(k)        = the θ solving E(θ) = E_target(k), by 60 fixed bisection steps on [angleDeg, ANGLE_MAX]
+```
+
+**The thing that is linear is the plan advance, not the angle** — which is what "compress in a
+simple linear fashion" reads as on the floor. `E` is strictly decreasing in θ, so the bisection is
+well posed; 60 halvings, never "until converged", per this core's standing rule.
+
+`θ(0) === angleDeg` exactly (early return, no bisection) at any `attractor > 0`. At `attractor = 0`
+the whole axis compresses uniformly and edge 0 is **not** at the base angle — the one documented
+exception, kept because "a tighter grid at one angle" is a real thing to ask for.
+
+`W_SCRUNCH_UNREACHABLE` names any edge whose target advance is past what `ANGLE_MAX` delivers; the
+edge is pinned there. At 30°/2cm the steepest reachable scrunch is ~66.5%, so the band's top (0.9)
+is a place the solver reports from, not a promise.
+
+### Downstream
+
+- **`level` is no longer binary.** On the wave it is the cell's **rank among the distinct heights**,
+  so 0 still means "on the floor" and the count is whatever the field has. `panel.heightCm`,
+  `lattice.wave.heights[i][j]` and `lattice.wave.storeyCount` carry the truth. Both fields are
+  emitted **only under `kind: 'wave'`** — the trapezoid record is frozen.
+- **`lattice.pitchCm` / `riseCm` stay the base angle's numbers** under the wave, i.e. what edge 0
+  does. `lattice.wave.x` / `.z` carry the per-edge tables (angle, scrunch factor, advance, pitch,
+  signed rise, cumulative line, plan run against the unscrunched run).
+- **The envelope is no longer a property of `(gap, θ)`.** `maxAngleDeg` is still meaningful and is
+  still bisected, but it now means *the largest **base** angle this design admits*. `envelope.
+  angleIsPerJoint` and `envelope.perJoint` (distinct folds, dirty count, worst joint by **signed**
+  fold — convex is what binds) are emitted alongside it, wave only.
+- **Spacers were already right.** `spacers.js` measures undersides rather than testing `level === 0`
+  (§9.12), so on the wave's uneven floor it props exactly the cells that are on it. Once the angles
+  differ that is usually **one cell** — which is correct and is worth knowing: a scrunched wave is
+  not sitting on the floor, it is standing on one corner and grounded as a rigid body.
+- **The wall anchor is not built under the wave**, and is refused rather than approximated: §9.4's
+  anchor descends exactly one level rise to the floor and the wave has no such level, so the toe
+  would hang in mid-air. `W_WAVE_NO_ANCHOR` says so.
+
+### The surface drifts down as it compresses
+
+`f` is `0, R₀, R₀−R₁, R₀−R₁+R₂ …`, and scrunching only steepens, so the negative terms outweigh the
+positive ones and each axis sheds height as it tightens. A run of folds whose far end is steeper
+than its near end does that; it is a property of the shape, not an artefact. Grounding then tilts
+the whole rigid assembly. Reported (the tables carry every `f(i)`), not corrected — correcting it
+would mean breaking the zig-zag, and the zig-zag is what makes the panels alternate.
+
 ## 9.8 Not in this pass
 
-Per-cell angle, more than two levels, plateaus of same-level flats, plates (`2x4`), cross-network
-bracing other than the wall anchor, and any physical design for the wall attachment.
+Plateaus of same-level flats, plates (`2x4`), cross-network bracing other than the wall anchor, a
+wall anchor for the wave (§9.14), and any physical design for the wall attachment.
+
+*(Per-cell angle and more than two levels were on this list until §9.14, which delivers both — for
+the separable family only. On the checkerboard they remain impossible, and §9.14 has the proof.)*

@@ -124,10 +124,104 @@ export default function MetricsPanel() {
           </div>
         </div>
         <p className="form-hint">
-          the <b>cell pitch</b> is <code>60 + 2·gap·cos(θ/2) + 60·cos θ</code> and it is the same in
-          x and z — which is why every cycle in the network closes exactly, with nothing left over.
+          the <b>cell pitch</b> is <code>60 + 2·gap·cos(θ/2) + 60·cos θ</code>
+          {lattice.wave
+            ? <> at the <b>base</b> angle — under the wave every edge has its own, and the tables
+              below are the truth. The cycles still close exactly, because the height field is
+              separable rather than because the pitch is uniform.</>
+            : <> and it is the same in x and z — which is why every cycle in the network closes
+              exactly, with nothing left over.</>}
         </p>
       </div>
+
+      {/* --- the wave's per-axis edge tables ---------------------------------
+          One row per lattice EDGE, which is one ramp. This is the whole content
+          of the mode: the angle is no longer a single number, and a panel that
+          reported only `lattice.pitchCm` would be quoting edge 0 as though it
+          were the design. The total run is stated against the run the same
+          lattice would have had at a uniform base angle, because "how much
+          shorter did the scrunch make it" is the question the knob is asked. */}
+      {lattice.wave && ['x', 'z'].map((ax) => {
+        const w = lattice.wave[ax]
+        return (
+          <div className="report-section" key={ax}>
+            <h4 className="report-section-title">wave · {ax} edges</h4>
+            {w.edgeCount === 0 ? (
+              <p className="form-hint">no {ax} edges — a single line of cells has nothing to scrunch.</p>
+            ) : (
+              <>
+                <div className="metrics-scroll">
+                  <table className="metrics-table" data-testid={`metrics-wave-${ax}`}>
+                    <thead>
+                      <tr>
+                        <th>k</th>
+                        <th>θ</th>
+                        <th>scrunch</th>
+                        <th>advance</th>
+                        <th>pitch</th>
+                        <th>rise</th>
+                        <th>{ax} line</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {w.angleDeg.map((deg, k) => (
+                        <tr key={k}>
+                          <td>{k}</td>
+                          <td>{deg.toFixed(2)}°</td>
+                          <td>{(w.scrunchFactor[k] * 100).toFixed(0)}%</td>
+                          <td>{n1(w.advanceCm[k])}</td>
+                          <td>{n1(w.pitchCm[k])}</td>
+                          <td className={w.riseCm[k] < 0 ? 'metrics-fall' : undefined}>
+                            {w.riseCm[k] > 0 ? '+' : ''}
+                            {n1(w.riseCm[k])}
+                          </td>
+                          <td>{n1(w.lineCm[k + 1])}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="form-hint" data-testid={`metrics-wave-${ax}-run`}>
+                  total plan run <b>{n1(w.planRunCm)} cm</b> against {n1(w.unscrunchedRunCm)} cm
+                  unscrunched — <b>{((1 - w.compression) * 100).toFixed(1)}% shorter</b>. θ runs{' '}
+                  {Math.min(...w.angleDeg).toFixed(2)}° to {Math.max(...w.angleDeg).toFixed(2)}°;
+                  the base angle is the one at edge 0, at the front.
+                </p>
+              </>
+            )}
+          </div>
+        )
+      })}
+
+      {lattice.wave && (
+        <div className="report-section">
+          <h4 className="report-section-title">wave · height field</h4>
+          <div className="metrics-scroll">
+            <table className="metrics-table" data-testid="metrics-wave-heights">
+              <thead>
+                <tr>
+                  <th>i \ j</th>
+                  {lattice.wave.heights[0].map((_, j) => <th key={j}>{j}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {lattice.wave.heights.map((col, i) => (
+                  <tr key={i}>
+                    <td>{i}</td>
+                    {col.map((h, j) => <td key={j}>{n1(h)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="form-hint">
+            <code>h(i,j) = f(i) + g(j)</code>, in cm off the floor, over{' '}
+            <b>{lattice.wave.storeyCount} distinct storeys</b>. Separability is not a simplification
+            — it is the exact condition for every 4-cycle to close, and the only reason the angles
+            are allowed to differ at all.
+          </p>
+        </div>
+      )}
 
       {/* --- per column (i, running away from the window) -------------------- */}
       <div className="report-section">
@@ -255,7 +349,10 @@ export default function MetricsPanel() {
         <p className="form-hint">
           x and z are read off the reference plane — the panels' lit face — from the wall and the
           window respectively. <b>rise</b> is the tilt acting over the panel's own length, so it is
-          0 on every flat cell and ±{n1(lattice.riseCm)} on every ramp.
+          0 on every flat cell and{' '}
+          {lattice.wave
+            ? 'whatever that ramp\'s own angle gives on every ramp — see the edge tables above'
+            : <>±{n1(lattice.riseCm)} on every ramp</>}.
         </p>
       </div>
 
