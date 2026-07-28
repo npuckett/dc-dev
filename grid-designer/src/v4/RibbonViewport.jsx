@@ -569,7 +569,7 @@ function ShoreLine() {
         <meshBasicMaterial color="#3fa9ff" toneMapped={false} />
       </mesh>
       <Html position={[GRID_CENTER[0], 4, -30]} center distanceFactor={420} zIndexRange={[10, 0]}>
-        <div className="shore-label">WINDOW / SHORE</div>
+        <div className="shore-label">WINDOW SIDE — z = 0</div>
       </Html>
     </group>
   )
@@ -597,6 +597,10 @@ function Obstacles() {
         const color = hit ? OBSTACLE_HIT_COLOR : OBSTACLE_COLOR
         const [w, h, d] = o.extents.size
         const c = o.extents.centre
+        // A ZONE is reserved empty space, not material. It gets an edge outline
+        // and a fainter body so it cannot be mistaken for something to bolt to;
+        // a solid keeps the denser fill. Both are tested identically.
+        const zone = o.kind === 'zone'
         return (
           <group key={o.id}>
             <mesh position={c}>
@@ -605,16 +609,27 @@ function Obstacles() {
                 color={color}
                 toneMapped={false}
                 transparent
-                opacity={hit ? 0.3 : 0.16}
+                opacity={hit ? 0.3 : zone ? 0.09 : 0.16}
                 depthWrite={false}
               />
             </mesh>
+            {zone && (
+              <lineSegments position={c}>
+                <edgesGeometry args={[new THREE.BoxGeometry(w, h, d)]} />
+                <lineBasicMaterial color={color} toneMapped={false} transparent opacity={0.7} />
+              </lineSegments>
+            )}
             {/* A solid skirt at the base: the footprint is the part that
                 actually constrains anything, and a translucent column alone
                 reads as fog from most angles. */}
             <mesh position={[c[0], 1, c[2]]}>
               <boxGeometry args={[w, 2, d]} />
-              <meshBasicMaterial color={color} toneMapped={false} />
+              <meshBasicMaterial
+                color={color}
+                toneMapped={false}
+                transparent={zone}
+                opacity={zone ? 0.35 : 1}
+              />
             </mesh>
             <Html position={[c[0], h * 0.42, c[2]]} center distanceFactor={520} zIndexRange={[10, 0]}>
               <div className={`obstacle-label${hit ? ' obstacle-label-hit' : ''}`}>

@@ -9,10 +9,16 @@
  * =============================================================================
  * WHAT AN OBSTACLE IS, AND WHAT IT IS NOT
  * =============================================================================
- * An axis-aligned box standing on the floor: a structural column, a duct, a
- * plinth. It is **not** part of the design and nothing about it is derived from
- * the lattice — it is a fact about the room, in the same category as the wall
- * plane at x = 0 and the window line at z = 0.
+ * An axis-aligned box standing on the floor. Two kinds, drawn differently and
+ * tested identically (schema.js's `OBSTACLE_KINDS`):
+ *
+ *   'solid'  material in the room — a structural column, a duct, a plinth.
+ *   'zone'   RESERVED EMPTY SPACE the installation must keep out of — the
+ *            heating run along the window, a service route, a swing clearance.
+ *
+ * Neither is part of the design and nothing about either is derived from the
+ * lattice — they are facts about the room, in the same category as the wall
+ * plane at x = 0.
  *
  * So this module only ever ANSWERS QUESTIONS about the design; it never changes
  * it. Nothing here removes a panel, moves the lattice, or refuses a
@@ -24,9 +30,22 @@
  * =============================================================================
  * WHERE THE NUMBERS ARE MEASURED FROM
  * =============================================================================
- * The room datum is the corner where the window meets the wall: **x = 0 is the
- * wall plane, z = 0 is the window/shore line**, the same origin every other
- * dimension in the tool is quoted in.
+ * The room datum is **x = 0 at the wall's room-side face, y = 0 at the floor,
+ * z = 0 at the window side** — the origin every other dimension in the tool is
+ * quoted from, and the one `RibbonViewport`'s origin triad draws.
+ *
+ * **z = 0 IS A REFERENCE PLANE, NOT THE GLASS.** It marks the window SIDE of
+ * the room, and the actual window — its position, its mullions — is being
+ * measured in as a set of elements sitting at NEGATIVE z. So obstacles legally
+ * take negative coordinates and the ranges are signed; anything here that
+ * assumed the room lives in the positive quadrant would be wrong. The heating
+ * run is the first of these: x −81.3 → 512.7, z −59.7 → 0, which also reaches
+ * past the wall face at x = 0.
+ *
+ * KNOWN GAP: every obstacle currently stands ON the floor — `obstacleExtents`
+ * fixes `min.y = 0`. A mullion or a soffit starting partway up needs a
+ * `baseYCm`, and that is the next thing to add here rather than a reason to
+ * fudge `heightCm`.
  *
  * `anchor` says which part of the box `(xCm, zCm)` locates, because the two
  * readings differ by half its width and there is no way to guess from a pair of
@@ -171,6 +190,9 @@ export function solveObstacles(lattice, obstacles) {
     return {
       id: o.id,
       label: o.label ?? o.id,
+      // Carried through for the viewport: a reserved ZONE and a SOLID are drawn
+      // differently and tested identically (schema.js's OBSTACLE_KINDS).
+      kind: o.kind ?? 'solid',
       extents,
       hits,
       hitCount: hits.length,

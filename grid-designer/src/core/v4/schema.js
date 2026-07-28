@@ -372,10 +372,30 @@ export const DEFAULT_ROOM = {
 
 export const OBSTACLE_ANCHORS = ['corner', 'centre']
 
+/**
+ * What an obstacle IS, which decides how it draws — not how it is tested.
+ *
+ *   'solid'  material standing in the room: a column, a duct. Drawn opaque.
+ *   'zone'   RESERVED EMPTY SPACE the installation must keep out of: a heating
+ *            gap, a service run, a maintenance swing. Drawn as a translucent
+ *            volume, because a keep-out that looks like a wall reads as
+ *            something you could bolt to.
+ *
+ * Both are tested identically — the design must not enter either — so this
+ * never touches `solveObstacles`.
+ */
+export const OBSTACLE_KINDS = ['solid', 'zone']
+
 export const OBSTACLE_POS_MIN = -500
 export const OBSTACLE_POS_MAX = 2000
 export const OBSTACLE_SIZE_MIN = 1
-export const OBSTACLE_SIZE_MAX = 500
+/**
+ * Room-scale, not column-scale. This was 500, which silently CLAMPED the 594cm
+ * heating run to 500 and put its far end 94cm short — a wrong number that looks
+ * entirely plausible, which is the worst kind. An obstacle can legitimately span
+ * a whole elevation, so the ceiling is now the room's own scale.
+ */
+export const OBSTACLE_SIZE_MAX = 2000
 
 /**
  * The room's structural column, measured on site: 380cm in x, 285cm in z from
@@ -389,11 +409,35 @@ export const DEFAULT_OBSTACLES = [
   {
     id: 'column',
     label: 'column',
+    kind: 'solid',
     xCm: 380,
     zCm: 285,
     widthCm: 50,
     depthCm: 50,
     heightCm: 300,
+    anchor: 'corner',
+  },
+  {
+    // The heating run along the window side, measured on site 2026-07-28.
+    // Occupies x −81.3 → 512.7, z −59.7 → 0: it lies on the WINDOW SIDE of the
+    // z = 0 reference plane, and reaches past the wall face at x = 0.
+    //
+    // Its min corner (−81.3, −59.7) is a stated DATUM — the user places
+    // subsequent window elements from it, so it must not be quietly re-anchored
+    // to a centre or re-derived from the network.
+    //
+    // heightCm is NOT measured. 20cm is a placeholder chosen to sit below the
+    // network's own 15cm standoff so it cannot silently pass a clash test it
+    // should fail; it is flagged in the UI as unmeasured rather than presented
+    // as a dimension.
+    id: 'heating',
+    label: 'heating gap',
+    kind: 'zone',
+    xCm: -81.3,
+    zCm: -59.7,
+    widthCm: 594,
+    depthCm: 59.7,
+    heightCm: 20,
     anchor: 'corner',
   },
 ]
@@ -654,6 +698,7 @@ function sanitizeObstacles(raw) {
       depthCm: clamp(numberOr(o.depthCm, 50), OBSTACLE_SIZE_MIN, OBSTACLE_SIZE_MAX),
       heightCm: clamp(numberOr(o.heightCm, 300), OBSTACLE_SIZE_MIN, 1000),
       anchor: oneOf(OBSTACLE_ANCHORS, o.anchor, 'corner'),
+      kind: oneOf(OBSTACLE_KINDS, o.kind, 'solid'),
     })
   })
   return out
