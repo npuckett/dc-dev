@@ -728,6 +728,10 @@ body {
 
 .slider-row input[type='range']:disabled { accent-color: #3a3a50; }
 
+/* a knob that has nothing to act on — the ground clearance with grounding off */
+.slider-row-disabled .slider-label,
+.slider-row-disabled .slider-value { opacity: 0.4; }
+
 .slider-value {
   flex: 0 0 36px;
   text-align: right;

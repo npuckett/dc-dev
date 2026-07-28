@@ -29,7 +29,7 @@ import { objPayloadV4 } from './objExport.js'
 
 export default function ExportButtons() {
   const config = useStoreV4((s) => s.config)
-  const { chain, connectors } = getDerived(config)
+  const { chain, connectors, spacers } = getDerived(config)
   const kit = getConnectorKit(config, chain, connectors)
   const panelCount = chain.panels.filter((p) => p.present).length
   // The two connector exporters read `report.connectors.*`, so they are handed a
@@ -46,11 +46,12 @@ export default function ExportButtons() {
         data-testid="export-obj"
         title={
           `${panelCount} diffusers as individual objects, ready for per-panel brightness, plus ` +
-          `three merged groups: frame, connectors (${summary.count} parts) and power supplies`
+          `merged groups: frame, connectors (${summary.count} parts), spacers (${spacers.spacers.length} posts) ` +
+          'and power supplies'
         }
         onClick={() =>
           downloadText(
-            objPayloadV4(config, chain, connectors),
+            objPayloadV4(config, chain, connectors, spacers),
             `drop-ceiling_${timestamp()}.obj`,
             'model/obj',
           )

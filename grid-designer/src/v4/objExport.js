@@ -13,9 +13,10 @@
  *                      own brightness — that is the whole reason for the split.
  *   frame              every panel's housing, merged into one object
  *   connectors         every printed part, back halves and front bars, merged
+ *   spacers            every ground spacer post, merged
  *   power_supplies     every driver box, merged
  *
- * The three merged groups are things that take ONE material each, so keeping
+ * The merged groups are things that take ONE material each, so keeping
  * them apart as hundreds of objects is only clutter in the outliner.
  *
  * =============================================================================
@@ -49,11 +50,17 @@ import {
 } from '../geometry/panelGeometry.js'
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
+import { solveSpacers } from '../core/v4/spacers.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
 export const GROUP_FRAME = 'frame'
 export const GROUP_CONNECTORS = 'connectors'
+/** The posts under the floor-resting flat cells (core/v4/spacers.js). Their own
+ *  group rather than part of `connectors`: they are a different part, in a
+ *  different material, and merging them would make the connector object mean
+ *  "printed parts and also some legs". */
+export const GROUP_SPACERS = 'spacers'
 export const GROUP_SUPPLIES = 'power_supplies'
 export const DIFFUSER_PREFIX = 'diffuser'
 
@@ -173,7 +180,7 @@ function meshOf(geometry, name) {
 }
 
 /**
- * Build the export scene: individual diffusers, then the three merged groups.
+ * Build the export scene: individual diffusers, then the merged groups.
  *
  * ABSENT PANELS ARE NOT EXPORTED. `present: false` means the panel is not there;
  * the chain keeps its record so removal stays non-destructive, but the OBJ is a
@@ -182,15 +189,17 @@ function meshOf(geometry, name) {
  * @param {object} config normalized v4 config
  * @param {object} chain `solveLattice` output
  * @param {object} connectors `solveConnectorsV4` output
+ * @param {object} [spacers] `solveSpacers` output; solved here if omitted
  * @returns {THREE.Group}
  */
-export function buildSceneGroup(config, chain, connectors) {
+export function buildSceneGroup(config, chain, connectors, spacers = null) {
   const group = new THREE.Group()
   group.name = 'drop_ceiling'
 
   const frame = Merger()
   const supplies = Merger()
   const parts = Merger()
+  const posts = Merger()
   const supplyEdge = supplyEdgeFor(config.connectors?.powerEdge)
 
   const present = chain.panels.filter((p) => p.present)
@@ -243,10 +252,25 @@ export function buildSceneGroup(config, chain, connectors) {
     }
   }
 
+  // The ground spacers, merged. Built from the solver's OBB rather than from a
+  // separate geometry module because a post IS its box — there is no profile to
+  // loft — so a `buildSpacerGeometry` would be a second place to state the same
+  // three numbers and a second place for them to drift.
+  const S = spacers ?? solveSpacers(config, chain)
+  for (const sp of S.spacers) {
+    const [hx, hy, hz] = sp.obb.halfExtents
+    const box = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2)
+    box.applyMatrix4(new THREE.Matrix4().makeTranslation(...sp.obb.center))
+    posts.add(box)
+    box.dispose()
+  }
+
   // Emitted only when non-empty: an empty `o frame` block is a trap in an
-  // importer, and 'none' supply mode should leave no supply object at all.
+  // importer, 'none' supply mode should leave no supply object at all, and a
+  // design with grounding off has no spacers to export.
   if (!frame.isEmpty()) group.add(meshOf(frame.build(), GROUP_FRAME))
   if (!parts.isEmpty()) group.add(meshOf(parts.build(), GROUP_CONNECTORS))
+  if (!posts.isEmpty()) group.add(meshOf(posts.build(), GROUP_SPACERS))
   if (!supplies.isEmpty()) group.add(meshOf(supplies.build(), GROUP_SUPPLIES))
 
   group.updateMatrixWorld(true)
@@ -256,16 +280,16 @@ export function buildSceneGroup(config, chain, connectors) {
 /**
  * Serialize to OBJ text. Headless — no DOM — so the grouping is testable.
  *
- * @returns {string} OBJ text: one `o` block per diffuser, then the three groups
+ * @returns {string} OBJ text: one `o` block per diffuser, then the merged groups
  */
-export function objPayloadV4(config, chain, connectors) {
-  return new OBJExporter().parse(buildSceneGroup(config, chain, connectors))
+export function objPayloadV4(config, chain, connectors, spacers = null) {
+  return new OBJExporter().parse(buildSceneGroup(config, chain, connectors, spacers))
 }
 
 /**
  * The object names this export will produce, in order. Cheap enough to call for
  * a UI hint, and it is what the export tests assert against.
  */
-export function objObjectNames(config, chain, connectors) {
-  return buildSceneGroup(config, chain, connectors).children.map((m) => m.name)
+export function objObjectNames(config, chain, connectors, spacers = null) {
+  return buildSceneGroup(config, chain, connectors, spacers).children.map((m) => m.name)
 }

@@ -263,6 +263,8 @@ src/core/v4/                 headless zone — explicit .js extensions, three ma
   chain.js                   roles, kinematics, world placement, OBBs, bounds
   connectors.js              v4 stations → v3's part machinery
   report.js                  joints, flags, envelope headroom, collisions, metrics
+  obstacles.js               the room's boxes, tested against the design (§9.11)
+  spacers.js                 the posts under the floor-resting flat cells (§9.12)
 src/v4/
   store.js                   zustand, same contract as v3's store
   AppV4.jsx                  shell
@@ -411,7 +413,8 @@ network**, so that its material's minimum x (respectively z) sits at that offset
 mean what a tape measure would read — including with the anchor ramps, whose toes become the
 minimum x. On a `cols: 1`, `wallAnchor: 'free'` design this is identical to today's behaviour.
 
-`groundToFloor` is unchanged and applied the same way, in y.
+`groundToFloor` is applied the same way, in y — but to `placement.groundClearanceCm` rather than to
+0. See §9.12.
 
 ## 9.6 Report additions
 
@@ -541,6 +544,72 @@ nearest panel** when nothing is hit, so "clear" is a distance rather than a sile
 The overlap test uses the panels' full OBBs, which overstate the real section near the rim. Here that
 bias is the right way round and is left alone: a false "this fouls the column" costs one click, a
 false "it clears" costs a site visit. Clearance is reported as a **lower bound** for the same reason.
+
+## 9.12 The ground spacer
+
+> everything laying 'flat' on the ground needs a 15cm spacer or gap, matching the pattern of the
+> other connectors
+
+Two things, built in two places, and the split is the point.
+
+### The gap is grounding, not a part
+
+`placement.groundClearanceCm`, **default 15**, range **0..50**. When `groundToFloor` is on, the
+network is translated in y so the lowest material sits at the clearance instead of at 0. It is a
+**rigid translation of the whole network**, exactly like `wallOffsetCm` and `windowOffsetCm` —
+raising only the cells that rest on the floor would tear every joint between them, because the
+network is one rigid assembly.
+
+0 stays in the band deliberately: it is the old behaviour, it is the non-vacuous other end of every
+test, and "put it straight on the floor" is a real request. The ceiling is where a post under a flat
+cell stops being a spacer and becomes a leg.
+
+With `groundToFloor` **off** the clearance is inert. There is nothing anchoring the design to the
+floor for a clearance to be measured from, so it changes nothing and no spacers are solved.
+
+### The spacer is a part — `src/core/v4/spacers.js`
+
+A post standing on the floor under a flat cell that rests on it.
+
+- **Which cells.** Only the ones at the network's lowest level. A high cell is held up by the four
+  ramps that reach it — that is what the checkerboard is FOR — and a post under one would be a
+  redundant load path and, at any real θ, a leg two thirds of a metre tall in the middle of the
+  room. The qualifying set is found by **measuring** each present cell's underside and keeping those
+  within 1e-6 of the lowest, not by testing `level === 0`: the two agree on every design the
+  checkerboard can make, and the measurement keeps meaning the right thing if a third level ever
+  arrives (§9.8).
+- **Where the stations go.** `stationCount(edgeLength, { spacingCm, minPerJoint })` from
+  `core/v3/connectors.js` — the same function, reading the same `config.connectors.*` knobs the
+  joint connectors read — on **each of the cell's four edges**, spaced by the same "evenly, and
+  symmetric within the stretch" rule `solveConnectorsV4` uses (centres at `(m + 0.5)/n`). That is
+  what "matching the pattern of the other connectors" means, and it is testable: moving
+  `connectors.spacingCm` has to move the spacer count exactly as it moves the connector count.
+  On the shipped default that is **2 per edge × 4 edges × 8 floor cells = 64 posts**.
+- **The post.** Square in section, `PANEL_PROFILE.overallThickness` (4.1cm) — as wide as the housing
+  it stands under, derived rather than chosen. Set in by half its section from the rim line, so its
+  outer face is flush with the rim and none of it hangs outside the panel. It carries an `obb` in
+  the shape `collide.js` consumes; a flat cell is axis-aligned whichever way up it is turned, so the
+  quaternion is identity.
+- **`heightCm` is MEASURED**, from the floor to the underside it bears on — never restated as
+  `groundClearanceCm`. That is what makes the cross-check below able to detect anything.
+
+### The report cross-check
+
+`report.spacers` carries the count, the count per cell, the clearance asked for, and the **distinct
+heights**. The clearance is applied by `lattice.js` as a translation; the heights are measured by
+`spacers.js` off the resulting undersides. Two modules, two quantities, and their agreement is
+evidence rather than tautology. **There should be exactly one distinct height, equal to the
+clearance.** Anything else raises `W_SPACER_MISMATCH` and names the worst post — which happens when
+the lowest flat cells are not the lowest thing in the design, so the posts under them are the wrong
+length for the gap they are meant to hold open.
+
+### Not modelled
+
+What the post is made of, how it fixes to the panel, and whether the rim can take the load there.
+The outer wall is only 1.2cm deep at the very edge and the section does not reach full thickness
+until `bodyInset` inboard, so a foot bearing on the rim bears on the thin part. The geometry says
+where the post stands and how tall it is; it does not say it is strong enough. Same contract as the
+wall anchor (§9.4) — **do not invent a bracket**.
 
 ## 9.8 Not in this pass
 

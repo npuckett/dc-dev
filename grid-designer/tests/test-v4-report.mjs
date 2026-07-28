@@ -470,7 +470,8 @@ console.log('6. metrics')
   near(m.overall.size[2], 4 * Pexact + L, 1e-9, 'and five rows 4·P + 60 in z')
   near(m.overall.size[1], R.metrics.lattice.riseCm + T, 1e-9,
     'the height is the level rise plus one housing thickness')
-  ok(m.overall.min[1] === 0, 'and it sits on the floor')
+  ok(m.overall.min[1] === 15,
+    `and it sits at the 15cm ground clearance (got ${m.overall.min[1]})`)
 
   // Counts by role — V4_SPEC §9.6.
   ok(m.counts.cells === 15, '15 cells')
@@ -631,6 +632,52 @@ console.log('8. the front bar bites the bezels in a deep enough valley')
   const shallow = buildReportV4({ angleDeg: 8, gap: 2 })
   ok(shallow.envelope.frontBar.clears === true, 'an 8° wave clears the bar')
   ok(shallow.warnings.every((w) => w.code !== FRONT_BAR_CODE), 'and raises no bar warning')
+}
+
+// -----------------------------------------------------------------------------
+// 9. THE SPACERS SECTION
+//
+// The section exists to CROSS-CHECK grounding against the spacer solver, so what
+// is worth asserting is that the two numbers came from different places and
+// still agree — and that the report notices when they cannot.
+// -----------------------------------------------------------------------------
+console.log('9. report.spacers')
+{
+  const R = buildReportV4({ ...DEFAULT_CONFIG })
+  ok(R.spacers.grounded === true, 'the default design is grounded')
+  ok(R.spacers.count === 64, `and takes 64 posts (got ${R.spacers.count})`)
+  ok(R.spacers.cellCount === 8 && R.spacers.perCell.length === 8, 'under 8 floor-resting cells')
+  ok(R.spacers.perCell.every((c) => c.count === 8), 'eight each — four edges, two per edge')
+  ok(R.spacers.heightsCm.length === 1, 'EXACTLY ONE distinct height, which is the whole check')
+  ok(R.spacers.heightsCm[0] === R.spacers.clearanceCm && R.spacers.clearanceCm === 15,
+    'and it is the 15cm clearance the lattice was translated by')
+  // The report's own box agrees with the posts under it.
+  ok(R.metrics.overall.min[1] === R.spacers.heightsCm[0],
+    'the measuring box sits on top of the posts, not somewhere else')
+
+  // The clearance moves both together.
+  const at5 = buildReportV4({ ...DEFAULT_CONFIG, placement: { ...DEFAULT_CONFIG.placement, groundClearanceCm: 5 } })
+  ok(at5.spacers.heightsCm[0] === 5 && at5.metrics.overall.min[1] === 5,
+    'at a 5cm clearance both read 5 — non-vacuous')
+  ok(at5.spacers.count === R.spacers.count, 'and the count is unchanged: it is a length, not a number of posts')
+
+  // The spacing rule is the connectors', in the report as in the solver.
+  const dense = buildReportV4({
+    ...DEFAULT_CONFIG,
+    connectors: { ...DEFAULT_CONFIG.connectors, spacingCm: 10 },
+  })
+  ok(dense.spacers.perEdge === 6 && dense.spacers.count === 8 * 4 * 6,
+    `a 10cm spacing puts 6 per edge and ${8 * 4 * 6} in total (got ${dense.spacers.perEdge}, ${dense.spacers.count})`)
+
+  // Grounding off: no posts, and the section says so rather than going missing.
+  const free = buildReportV4({
+    ...DEFAULT_CONFIG,
+    placement: { ...DEFAULT_CONFIG.placement, groundToFloor: false },
+  })
+  ok(free.spacers.grounded === false && free.spacers.count === 0, 'ungrounded, there are none')
+  ok(free.spacers.heightsCm.length === 0, 'and no heights to report')
+  ok(free.warnings.every((w) => w.code !== 'W_SPACER_MISMATCH'),
+    'which is not a mismatch — there is nothing to mismatch with')
 }
 
 console.log(`\ntest-v4-report: ${passed} checks passed, ${failed} failed`)

@@ -77,6 +77,8 @@ import {
   WALL_OFFSET_MAX,
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
+  GROUND_CLEARANCE_MIN,
+  GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
   CONNECTOR_SPACING_MIN,
@@ -105,6 +107,7 @@ import {
 } from '../core/v4/schema.js'
 import { solveLattice } from '../core/v4/lattice.js'
 import { solveConnectorsV4 } from '../core/v4/connectors.js'
+import { solveSpacers } from '../core/v4/spacers.js'
 import { buildReportV4 } from '../core/v4/report.js'
 import { deleteSlot, loadSlot, loadWorkingConfig, saveSlot, saveWorkingConfig } from '../persistence.js'
 
@@ -117,15 +120,20 @@ const derivedCache = new WeakMap()
  * Solve + report a config, memoized on the config OBJECT IDENTITY.
  *
  * @param {object} config a validated, normalized v4 config
- * @returns {{ chain: object, connectors: object, report: object }} reference-stable per config
+ * @returns {{ chain: object, connectors: object, spacers: object, report: object }}
+ *   reference-stable per config
  */
 export function getDerived(config) {
   let entry = derivedCache.get(config)
   if (!entry) {
     const chain = solveLattice(config)
     const connectors = solveConnectorsV4(config, chain)
-    const report = buildReportV4(config, chain, connectors)
-    entry = { chain, connectors, report }
+    // Chained for the same reason as the others: the report would otherwise
+    // re-solve the spacers internally, and the viewport needs the very same
+    // records the report counted.
+    const spacers = solveSpacers(config, chain)
+    const report = buildReportV4(config, chain, connectors, spacers)
+    entry = { chain, connectors, spacers, report }
     derivedCache.set(config, entry)
   }
   return entry
@@ -329,6 +337,12 @@ const useStoreV4 = create((set, get) => {
      * built around, so a view without them is a view of half the argument.
      */
     showConnectors: true,
+    /**
+     * Draw the ground spacers? Default ON, on the same reasoning as the
+     * connectors — they are structure, not annotation, and a view without them
+     * shows a network floating 15cm off the floor with nothing holding it there.
+     */
+    showSpacers: true,
     /** Colour mode for the 3D viewport: 'role' | 'fold' | 'flip' | 'flags'. */
     colorMode: 'role',
     /** Unit id under the pointer in the viewport or the units table, or null. */
@@ -410,6 +424,20 @@ const useStoreV4 = create((set, get) => {
     setGroundToFloor: (on) =>
       commit((draft) => {
         draft.placement.groundToFloor = on === undefined ? !draft.placement.groundToFloor : Boolean(on)
+      }),
+    /**
+     * How far off the floor the lowest material sits — and therefore how tall
+     * every ground spacer is (`core/v4/spacers.js`). Only bites when
+     * `groundToFloor` is on: with grounding off there is nothing anchoring the
+     * network to the floor for a clearance to be measured from.
+     */
+    setGroundClearance: (v) =>
+      commit((draft) => {
+        draft.placement.groundClearanceCm = clamp(
+          numOr(v, draft.placement.groundClearanceCm),
+          GROUND_CLEARANCE_MIN,
+          GROUND_CLEARANCE_MAX,
+        )
       }),
 
     // --- actions: connectors -------------------------------------------------
@@ -804,6 +832,7 @@ const useStoreV4 = create((set, get) => {
     toggleBounds: (on) => set((s) => ({ showBounds: on === undefined ? !s.showBounds : Boolean(on) })),
     toggleConnectors: (on) =>
       set((s) => ({ showConnectors: on === undefined ? !s.showConnectors : Boolean(on) })),
+    toggleSpacers: (on) => set((s) => ({ showSpacers: on === undefined ? !s.showSpacers : Boolean(on) })),
     setColorMode: (mode) => set({ colorMode: mode }),
     setHoveredUnit: (id) => set({ hoveredUnitId: id ?? null }),
     setSelectedUnit: (id) => set((s) => ({ selectedUnitId: s.selectedUnitId === id ? null : (id ?? null) })),

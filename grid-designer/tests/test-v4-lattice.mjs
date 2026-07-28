@@ -210,10 +210,21 @@ console.log('1. the cols:1 lattice IS the ribbon')
       `${id}: the box is square, so the spin cannot change it`)
   }
 
-  // The grounding shift is the ribbon's too.
-  const grounded = solveLattice({ lattice: { cols: 1, rows: 5 }, angleDeg: 30, gap: 2 })
+  // The grounding shift is the ribbon's too — at the clearance the ribbon had,
+  // which is 0. The shipped default is now 15 (V4_SPEC §9.12), so the comparison
+  // against the ribbon's hardcoded number has to ask for the ribbon's clearance.
+  const grounded = solveLattice({
+    lattice: { cols: 1, rows: 5 }, angleDeg: 30, gap: 2,
+    placement: { groundClearanceCm: 0 },
+  })
   near(grounded.lattice.shiftCm[1], T, 1e-9,
-    'grounded, the shift is one housing thickness — the ribbon\'s answer')
+    'grounded at clearance 0, the shift is one housing thickness — the ribbon\'s answer')
+  const lifted = solveLattice({
+    lattice: { cols: 1, rows: 5 }, angleDeg: 30, gap: 2,
+    placement: { groundClearanceCm: 15 },
+  })
+  near(lifted.lattice.shiftCm[1], T + 15, 1e-9,
+    'and the clearance adds to it exactly, which is all it does')
   near(grounded.bounds.size[1], 35.13527618, 1e-8, 'and the ribbon stands 35.135cm tall')
   near(grounded.bounds.size[2], 523.300910129, 1e-8, 'and runs 523.3cm from the window')
 }
@@ -766,7 +777,10 @@ console.log('10. the offsets measure material, not indices')
     for (const k of [0, 12.5, 200]) {
       const C = solveLattice({
         lattice: { cols: 3, rows: 5 },
-        placement: { wallOffsetCm: k, windowOffsetCm: k, wallAnchor, groundToFloor: true },
+        placement: {
+          wallOffsetCm: k, windowOffsetCm: k, wallAnchor,
+          groundToFloor: true, groundClearanceCm: 0,
+        },
       })
       const pres = C.panels.filter((p) => p.present)
       const minX = Math.min(...pres.flatMap((p) => p.corners.map((c) => c[0])))
@@ -802,6 +816,40 @@ console.log('10. the offsets measure material, not indices')
     if (on.panels[k].position[2] !== off.panels[k].position[2]) bad++
   }
   ok(bad === 0, 'grounding moves nothing but y')
+
+  // --- the ground clearance (V4_SPEC §9.12) --------------------------------
+  // `groundToFloor` puts the lowest material at `groundClearanceCm`, not at 0.
+  // Exact, because the spacers under it are cut to that number — a network
+  // sitting 14.97cm up is a network whose posts do not fit. Checked over the
+  // angle and gap sweep because the identity of the lowest panel changes with
+  // both, and checked at 0 as well so the assertion cannot pass against a
+  // constant.
+  for (const angleDeg of [0, 30, 60, 75]) {
+    for (const gap of [0.4, 2, 8]) {
+      for (const clearance of [0, 15, 50]) {
+        const C = solveLattice({
+          lattice: { cols: 3, rows: 5 }, angleDeg, gap,
+          placement: { groundToFloor: true, groundClearanceCm: clearance },
+        })
+        const y = Math.min(...C.panels.filter((p) => p.present).flatMap((p) => p.corners.map((c) => c[1])))
+        near(y, clearance, 1e-9,
+          `θ=${angleDeg}° gap=${gap} clearance=${clearance}: the lowest material sits exactly there`)
+      }
+    }
+  }
+  // And it is a pure translation: same box, moved.
+  const at0 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundClearanceCm: 0 } })
+  const at15 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundClearanceCm: 15 } })
+  near(at15.bounds.size[1], at0.bounds.size[1], 1e-9, 'the clearance does not change the height of the box')
+  near(at15.bounds.min[1] - at0.bounds.min[1], 15, 1e-9, 'it moves its floor by exactly the clearance')
+  near(at15.lattice.shiftCm[1] - at0.lattice.shiftCm[1], 15, 1e-9, 'and shows up wholly in shiftCm')
+  // With grounding OFF the clearance is inert — there is nothing to measure it
+  // from, and pretending otherwise would float the design on a switch that says
+  // it is off.
+  const offA = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, groundClearanceCm: 0 } })
+  const offB = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, groundClearanceCm: 50 } })
+  ok(JSON.stringify(offA.panels) === JSON.stringify(offB.panels),
+    'ungrounded, the clearance changes nothing at all')
 }
 
 // -----------------------------------------------------------------------------

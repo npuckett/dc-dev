@@ -122,6 +122,7 @@
  *   pattern.phase            0 .. 1     (integer)
  *   placement.wallOffsetCm   0 .. 200   cm
  *   placement.windowOffsetCm 0 .. 200   cm
+ *   placement.groundClearanceCm 0 .. 50 cm
  *   connectors.lengthCm      4 .. 30    cm
  *   connectors.spacingCm     10 .. 200  cm
  *   connectors.minPerJoint   1 .. 6     (integer)
@@ -206,6 +207,20 @@ export const WALL_OFFSET_MIN = 0
 export const WALL_OFFSET_MAX = 200
 export const WINDOW_OFFSET_MIN = 0
 export const WINDOW_OFFSET_MAX = 200
+
+/**
+ * How far off the floor the network's lowest material sits when `groundToFloor`
+ * is on — and therefore how tall the ground spacers are (`spacers.js`).
+ *
+ * 0 is kept in the band on purpose: it is the old behaviour, it is the
+ * non-vacuous other end of every test the clearance has, and "put it straight on
+ * the floor" is a real thing to ask for rather than a degenerate case. The
+ * ceiling is where a post under a flat cell stops being a spacer and becomes a
+ * leg — at 50cm the cell is at table height and the load path is a different
+ * design problem, which this model does not address.
+ */
+export const GROUND_CLEARANCE_MIN = 0
+export const GROUND_CLEARANCE_MAX = 50
 
 // -----------------------------------------------------------------------------
 // Connector ranges — carried over from v3 unchanged, and deliberately so: the
@@ -320,10 +335,16 @@ export const DEFAULT_GAP = 2.0
  *  `envelope`, which reports the headroom rather than asserting it here. */
 export const DEFAULT_ANGLE_DEG = 30
 export const DEFAULT_PATTERN = { kind: 'trapezoid', phase: 0 }
+/**
+ * `groundClearanceCm` defaults to 15, not 0: the brief is that everything laying
+ * flat on the ground stands off it by 15cm, so 15 is the design and 0 is the
+ * special case. It is the only default this package moves.
+ */
 export const DEFAULT_PLACEMENT = {
   wallOffsetCm: 0,
   windowOffsetCm: 0,
   groundToFloor: true,
+  groundClearanceCm: 15,
   wallAnchor: 'free',
 }
 export const DEFAULT_CONNECTORS = {
@@ -424,6 +445,7 @@ function withDefaults(raw) {
       wallOffsetCm: pick(placementSrc, 'wallOffsetCm', DEFAULT_PLACEMENT.wallOffsetCm),
       windowOffsetCm: pick(placementSrc, 'windowOffsetCm', DEFAULT_PLACEMENT.windowOffsetCm),
       groundToFloor: pick(placementSrc, 'groundToFloor', DEFAULT_PLACEMENT.groundToFloor),
+      groundClearanceCm: pick(placementSrc, 'groundClearanceCm', DEFAULT_PLACEMENT.groundClearanceCm),
       wallAnchor: pick(placementSrc, 'wallAnchor', DEFAULT_PLACEMENT.wallAnchor),
     },
     // Passed through RAW, even if the tables are not arrays — same "fill missing
@@ -587,6 +609,11 @@ export function normalizeConfig(raw) {
         WINDOW_OFFSET_MAX,
       ),
       groundToFloor: Boolean(cfg.placement.groundToFloor),
+      groundClearanceCm: clamp(
+        numberOr(cfg.placement.groundClearanceCm, DEFAULT_PLACEMENT.groundClearanceCm),
+        GROUND_CLEARANCE_MIN,
+        GROUND_CLEARANCE_MAX,
+      ),
       wallAnchor: oneOf(WALL_ANCHORS, cfg.placement.wallAnchor, DEFAULT_PLACEMENT.wallAnchor),
     },
     overrides: {
@@ -718,6 +745,9 @@ export function validateConfig(config) {
     'nearest material to the wall plane x = 0, cm')
   checkRange('placement.windowOffsetCm', cfg.placement.windowOffsetCm, WINDOW_OFFSET_MIN, WINDOW_OFFSET_MAX,
     'nearest material to the window line z = 0, cm')
+  checkRange('placement.groundClearanceCm', cfg.placement.groundClearanceCm,
+    GROUND_CLEARANCE_MIN, GROUND_CLEARANCE_MAX,
+    'how far the lowest material stands off the floor, and how tall the ground spacers are, cm')
 
   // --- enums ----------------------------------------------------------------
   const checkEnum = (path, v, list, label) => {

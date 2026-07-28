@@ -39,6 +39,7 @@ export default function MetricsPanel() {
   const setHoveredUnit = useStoreV4((s) => s.setHoveredUnit)
   const { report } = getDerived(config)
   const { overall, columns, rows, panels, counts, material, lattice } = report.metrics
+  const spacers = report.spacers
   const [w, h, d] = overall.size
 
   return (
@@ -93,6 +94,17 @@ export default function MetricsPanel() {
           <div className="report-metric">
             <span className="report-metric-label">joints</span>
             <span className="report-metric-value">{counts.joints}</span>
+          </div>
+          {/* The posts under the cells that rest on the floor. Counted here
+              rather than in the report panel because it is a quantity of parts,
+              which is what this table is — and a count that goes to zero is how
+              you notice grounding is off. */}
+          <div className="report-metric" data-testid="metrics-spacers">
+            <span className="report-metric-label">spacers</span>
+            <span className="report-metric-value">
+              {spacers.count}
+              {spacers.count > 0 ? ` @ ${n1(spacers.clearanceCm)}cm` : ''}
+            </span>
           </div>
           <div className="report-metric">
             <span className="report-metric-label">cell pitch</span>

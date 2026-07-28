@@ -25,10 +25,12 @@ import {
   GROUP_FRAME,
   GROUP_CONNECTORS,
   GROUP_SUPPLIES,
+  GROUP_SPACERS,
   DIFFUSER_PREFIX,
 } from '../src/v4/objExport.js'
 import { solveLattice } from '../src/core/v4/lattice.js'
 import { solveConnectorsV4 } from '../src/core/v4/connectors.js'
+import { solveSpacers } from '../src/core/v4/spacers.js'
 import { normalizeConfig, DEFAULT_CONFIG } from '../src/core/v4/schema.js'
 import { buildPanelGeometry, buildPowerSupplyGeometry } from '../src/geometry/panelGeometry.js'
 
@@ -49,7 +51,7 @@ console.log('=== test-v4-obj ===')
 // -----------------------------------------------------------------------------
 // 1. THE OBJECT LIST
 // -----------------------------------------------------------------------------
-console.log('1. one object per diffuser, plus exactly three merged groups')
+console.log('1. one object per diffuser, plus exactly four merged groups')
 {
   const { cfg, chain, connectors } = solve()
   const present = chain.panels.filter((p) => p.present)
@@ -58,8 +60,8 @@ console.log('1. one object per diffuser, plus exactly three merged groups')
   const diffusers = names.filter((n) => n.startsWith(`${DIFFUSER_PREFIX}_`))
   ok(diffusers.length === present.length,
     `one diffuser object per present panel (${diffusers.length} vs ${present.length})`)
-  ok(names.length === present.length + 3, 'and exactly three more objects than that')
-  for (const g of [GROUP_FRAME, GROUP_CONNECTORS, GROUP_SUPPLIES]) {
+  ok(names.length === present.length + 4, 'and exactly four more objects than that')
+  for (const g of [GROUP_FRAME, GROUP_CONNECTORS, GROUP_SPACERS, GROUP_SUPPLIES]) {
     ok(names.filter((n) => n === g).length === 1, `exactly one "${g}" object`)
   }
   ok(new Set(names).size === names.length, 'every object name is unique')
@@ -81,6 +83,46 @@ console.log('1. one object per diffuser, plus exactly three merged groups')
   const grown = solve({ lattice: { cols: 4, rows: 5, panelType: '2x2' } })
   ok(objObjectNames(grown.cfg, grown.chain, grown.connectors).length > names.length,
     'a bigger network exports more objects')
+
+  // The spacer group is CONDITIONAL, like the supplies: grounding off means
+  // there are no posts, and an empty `o spacers` block is a trap in an importer.
+  const ungrounded = solve({
+    placement: { wallOffsetCm: 0, windowOffsetCm: 0, groundToFloor: false, groundClearanceCm: 15, wallAnchor: 'free' },
+  })
+  const un = objObjectNames(ungrounded.cfg, ungrounded.chain, ungrounded.connectors)
+  ok(!un.includes(GROUP_SPACERS), 'with grounding off there is no spacers object at all')
+  ok(un.includes(GROUP_FRAME) && un.length === names.length - 1,
+    'and nothing else about the export changed')
+}
+
+// -----------------------------------------------------------------------------
+// 1b. THE SPACERS GROUP CARRIES THE SOLVER'S POSTS
+//
+// One box per spacer, merged, standing on the floor — checked against
+// solveSpacers rather than against a triangle count, because the thing that can
+// go wrong here is exporting the boxes in the WRONG PLACE, which a count cannot
+// see.
+// -----------------------------------------------------------------------------
+console.log('1b. the spacers group is the solver\'s posts, in world space')
+{
+  const { cfg, chain, connectors } = solve()
+  const S = solveSpacers(cfg, chain)
+  const group = buildSceneGroup(cfg, chain, connectors, S)
+  const posts = group.children.find((c) => c.name === GROUP_SPACERS)
+
+  ok(S.spacers.length === 64, `the default design has 64 posts (got ${S.spacers.length})`)
+  // A box is 12 triangles, and the merge is lossless.
+  ok(tris(posts) === S.spacers.length * 12,
+    `the merged group is 12 triangles per post (${tris(posts)} vs ${S.spacers.length * 12})`)
+
+  posts.geometry.computeBoundingBox()
+  const bb = posts.geometry.boundingBox
+  near(bb.min.y, 0, 1e-6, 'the posts stand on the floor')
+  near(bb.max.y, S.clearanceCm, 1e-6, 'and reach exactly the clearance')
+  // Their plan extent is inside the network's, since every post is under a panel.
+  const xs = chain.panels.filter((p) => p.present).flatMap((p) => p.corners.map((c) => c[0]))
+  ok(bb.min.x >= Math.min(...xs) - 1e-6 && bb.max.x <= Math.max(...xs) + 1e-6,
+    'and every one of them is under material rather than hanging outside it')
 }
 
 // -----------------------------------------------------------------------------

@@ -1013,6 +1013,7 @@ geometry, the wrong shape for lighting a scene. `src/v4/objExport.js` emits inst
 | `diffuser_NNN_<id>` | **one per panel**, so each lit face can take its own brightness |
 | `frame` | every panel's housing, merged |
 | `connectors` | every printed part, both pieces, merged |
+| `spacers` | every ground spacer post, merged (added in §9.12) |
 | `power_supplies` | every driver box, merged |
 
 The diffuser/frame cut costs nothing to maintain because it was already drawn: `panelGeometry.js`
@@ -1031,7 +1032,68 @@ Two things worth keeping:
 `src/utils/exporters.js` is untouched — it is shared with the retired v3 UI and its suite pins its
 output, so this is a parallel builder rather than a flag on that one.
 
-### 9.11 Open
+### 9.12 The clearance and the spacer are two different things, and keeping them apart is what makes either checkable
+
+The brief was one sentence — *everything laying flat on the ground needs a 15cm spacer or gap,
+matching the pattern of the other connectors* — and it named two things that wanted building in two
+places.
+
+**The gap is grounding.** `placement.groundClearanceCm` (default 15, range 0..50) moves what
+`groundToFloor` aims at: the network's lowest material lands at the clearance instead of at 0. It is
+a rigid translation of the whole network, like the wall and window offsets. The tempting alternative
+— lift the cells that rest on the floor, leave the rest — is wrong for a reason that has nothing to
+do with taste: the network is one rigid assembly and every joint between a lifted cell and an
+unlifted ramp would have to open by 15cm. There is no per-cell version of this.
+
+**The spacer is a part**, in a new `src/core/v4/spacers.js`, and it is the thing that holds the gap
+open. 64 posts on the shipped default.
+
+#### The measurement is the whole design of the module
+
+`spacers.js` could have written `heightCm: config.placement.groundClearanceCm` and been correct on
+every design. It measures the underside instead, and the report cross-checks the two:
+
+- `lattice.js` **applies** the clearance as a translation;
+- `spacers.js` **measures** the underside it landed at;
+- `report.spacers.heightsCm` is the set of distinct results, and there should be exactly one.
+
+A module that asserts its own inputs cannot detect its own bug — the same rule `connectors.js`
+follows when it measures a span it knows is `gap`, and the reason the suite's central claim is worth
+anything. `W_SPACER_MISMATCH` is what fires when they disagree, and it is non-vacuous: a design with
+no ground cells present has its lowest flat cells one level up, something else (a ramp toe) is the
+lowest material, and the posts under those cells are genuinely the wrong length.
+
+#### "Matching the pattern of the other connectors" is a reused rule, not a look
+
+The stations come from `stationCount` in `core/v3/connectors.js` — the same function, the same
+`config.connectors.spacingCm` / `minPerJoint`, and the same `(m + 0.5)/n` symmetric spacing
+`solveConnectorsV4` uses — applied to each of the cell's four edges. A joint's rim and a cell's edge
+are both 60cm, so if the rule is really shared the two counts have to track each other exactly, and
+`tests/test-v4-spacers.mjs` §6 sweeps the spacing knob and asserts they do. A hardcoded four per
+cell would have looked identical on the default design and drifted apart the first time the knob
+moved; that check is the difference between a shared rule and a coincidence.
+
+#### Only the lowest cells, and it is measured rather than looked up
+
+A high cell is held up by the four ramps that reach it — that is what the checkerboard is for — so
+propping one would be a redundant load path and a 66cm leg standing in the room. The qualifying set
+is found by measuring each present cell's underside and keeping those within 1e-6 of the lowest,
+not by testing `level === 0`. They agree on every design this model can build. The measurement is
+what keeps meaning the right thing if a third level ever arrives.
+
+#### Smaller decisions worth the record
+
+- **The post is set in by half its section**, so its outer face is flush with the rim. Centred on
+  the rim line, half of it would hang outside the panel.
+- **Its section is `PANEL_PROFILE.overallThickness`**, derived rather than picked — as wide as the
+  housing it stands under (HANDOFF §2.19 on constants with no provenance).
+- **Grounding off means no spacers at all**, not zero-height ones. A post from the floor to a cell
+  that is under the floor is an artefact of asking a question that does not apply.
+- **What the post is made of and how it fixes to the panel is not modelled.** The rim is 1.2cm of
+  outer wall where the foot lands and does not reach full thickness until `bodyInset` inboard, so
+  the load path there is a real question. Same contract as the wall anchor: do not invent a bracket.
+
+### 9.13 Open
 
 1. **The corner section test** (§9.5) — the one real gap.
 2. **The front bar's concave section** (§8.4) — still the open hardware question, and the network
@@ -1039,4 +1101,6 @@ output, so this is a parallel builder rather than a flag on that one.
    network's joints are concave at any θ.
 3. **What the wall anchor fixes to.** The geometry says where the toe lands; the attachment is not
    modelled.
-4. Flippable ramps (§9.4); per-cell angle; plateaus of same-level flats; plates.
+4. **Whether the spacer's foot can bear on the rim** (§9.12) — the geometry places it; nothing
+   says the section is strong enough there.
+5. Flippable ramps (§9.4); per-cell angle; plateaus of same-level flats; plates.

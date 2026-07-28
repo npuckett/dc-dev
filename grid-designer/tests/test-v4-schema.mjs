@@ -47,6 +47,8 @@ import {
   EDGE_AXES,
   GAP_MAX,
   GAP_MIN,
+  GROUND_CLEARANCE_MAX,
+  GROUND_CLEARANCE_MIN,
   LATTICE_COLS_MAX,
   LATTICE_COLS_MIN,
   LATTICE_ROWS_MAX,
@@ -197,7 +199,8 @@ console.log('4. normalizeConfig fills and clamps')
     gap: 1e6,
     angleDeg: -20,
     pattern: { kind: 'zigzag', phase: 17 },
-    placement: { wallOffsetCm: -5, windowOffsetCm: 1e9, groundToFloor: 'yes', wallAnchor: 'welded' },
+    placement: { wallOffsetCm: -5, windowOffsetCm: 1e9, groundToFloor: 'yes', groundClearanceCm: 1e6,
+      wallAnchor: 'welded' },
     connectors: { lengthCm: 0, spacingCm: 1e4, minPerJoint: 99, binSpanCm: 0, binAngleDeg: 1e3,
       powerEdge: 'sideways', supplyMode: 'melt' },
   })
@@ -211,6 +214,7 @@ console.log('4. normalizeConfig fills and clamps')
   ok(wild.placement.wallOffsetCm === WALL_OFFSET_MIN, 'wallOffsetCm clamps')
   ok(wild.placement.windowOffsetCm === WINDOW_OFFSET_MAX, 'windowOffsetCm clamps')
   ok(wild.placement.groundToFloor === true, 'groundToFloor coerces to a boolean')
+  ok(wild.placement.groundClearanceCm === GROUND_CLEARANCE_MAX, 'groundClearanceCm clamps')
   ok(wild.placement.wallAnchor === 'free', 'an unknown wallAnchor falls back')
   ok(wild.connectors.lengthCm === CONNECTOR_LENGTH_MIN, 'connectors.lengthCm clamps')
   ok(wild.connectors.spacingCm === CONNECTOR_SPACING_MAX, 'connectors.spacingCm clamps')
@@ -318,6 +322,7 @@ console.log('6. every ranged knob is range-checked')
     ['pattern.phase', PHASE_MIN, PHASE_MAX, 1],
     ['placement.wallOffsetCm', WALL_OFFSET_MIN, WALL_OFFSET_MAX, 1],
     ['placement.windowOffsetCm', WINDOW_OFFSET_MIN, WINDOW_OFFSET_MAX, 1],
+    ['placement.groundClearanceCm', GROUND_CLEARANCE_MIN, GROUND_CLEARANCE_MAX, 1],
     ['connectors.lengthCm', CONNECTOR_LENGTH_MIN, CONNECTOR_LENGTH_MAX, 0.5],
     ['connectors.spacingCm', CONNECTOR_SPACING_MIN, CONNECTOR_SPACING_MAX, 1],
     ['connectors.minPerJoint', CONNECTOR_MIN_PER_JOINT_MIN, CONNECTOR_MIN_PER_JOINT_MAX, 1],

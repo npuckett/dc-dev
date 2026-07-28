@@ -58,6 +58,8 @@ import {
   WALL_OFFSET_MAX,
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
+  GROUND_CLEARANCE_MIN,
+  GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
   CONNECTOR_SPACING_MIN,
@@ -77,9 +79,9 @@ const cm1 = fixed(1)
 const num2 = fixed(2)
 const int0 = (v) => String(Math.round(v))
 
-function SliderRow({ testId, label, value, min, max, step, onChange, format }) {
+function SliderRow({ testId, label, value, min, max, step, onChange, format, disabled = false }) {
   return (
-    <div className="slider-row">
+    <div className={`slider-row${disabled ? ' slider-row-disabled' : ''}`}>
       <span className="slider-label">{label}</span>
       <input
         type="range"
@@ -87,6 +89,7 @@ function SliderRow({ testId, label, value, min, max, step, onChange, format }) {
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         data-testid={testId}
         onChange={(e) => onChange(Number(e.target.value))}
       />
@@ -116,6 +119,7 @@ export default function StripPanel() {
   const setWallOffset = useStoreV4((s) => s.setWallOffset)
   const setWindowOffset = useStoreV4((s) => s.setWindowOffset)
   const setGroundToFloor = useStoreV4((s) => s.setGroundToFloor)
+  const setGroundClearance = useStoreV4((s) => s.setGroundClearance)
   const setConnectorKnob = useStoreV4((s) => s.setConnectorKnob)
   const undo = useStoreV4((s) => s.undo)
   const redo = useStoreV4((s) => s.redo)
@@ -125,6 +129,7 @@ export default function StripPanel() {
 
   const { lattice, gap, angleDeg, pattern, placement, connectors } = config
   const { chain, report } = getDerived(config)
+  const spacers = report.spacers
   const { envelope } = report
   const counts = report.metrics.counts
 
@@ -417,10 +422,29 @@ export default function StripPanel() {
           />
           <span className="slider-label">sit on the floor</span>
         </label>
+        <SliderRow
+          testId="strip-ground-clearance"
+          label="ground clearance"
+          value={placement.groundClearanceCm}
+          min={GROUND_CLEARANCE_MIN}
+          max={GROUND_CLEARANCE_MAX}
+          step={0.5}
+          disabled={!placement.groundToFloor}
+          onChange={(v) => setGroundClearance(v)}
+          format={(v) => `${cm1(v)}cm`}
+        />
         <p className="form-annotation">
-          on, the lowest point of any present panel is dropped to y = 0 — a property of the whole
-          strip, so removing whichever unit was lowest legitimately moves everything. Off, unit 1's
-          reference plane sits at y = 0 and panels may go below the floor, which the report flags.
+          on, the lowest point of any present panel is dropped to the <b>ground clearance</b> — a
+          property of the whole network, so removing whichever panel was lowest legitimately moves
+          everything. Off, cell (0,0)'s reference plane sits at y = 0, panels may go below the floor
+          (which the report flags), and no spacers are solved.
+          {spacers.grounded && spacers.count > 0 && (
+            <>
+              {' '}The gap is held open by <b>{spacers.count} spacers</b> under{' '}
+              {spacers.cellCount} floor-resting cell{spacers.cellCount === 1 ? '' : 's'} —{' '}
+              {spacers.perEdge} per edge, placed by the same spacing rule as the connectors.
+            </>
+          )}
         </p>
       </div>
 
