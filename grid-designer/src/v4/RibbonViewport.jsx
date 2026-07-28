@@ -494,6 +494,73 @@ function Wall() {
   )
 }
 
+// -----------------------------------------------------------------------------
+// THE ORIGIN — drawn, so the convention can be checked rather than trusted
+// -----------------------------------------------------------------------------
+/**
+ * 0,0,0 is the room corner where the WALL FACE meets the WINDOW LINE at FLOOR
+ * level: x = 0 is the wall's room-side face (its 8.9cm builds up to −x), y = 0
+ * is the floor, z = 0 is the window/shore.
+ *
+ * This is drawn rather than documented because every dimension the user
+ * measures on site is quoted from it, and a convention that is only written
+ * down is one that gets silently disagreed with. Conventional CAD axis colours
+ * (X red, Y green, Z blue) rather than the viewport palette — this is the one
+ * place where matching what every other 3D tool does beats matching the rest of
+ * this scene.
+ */
+const AXIS_LEN_CM = 120
+const AXIS_COLORS = { x: '#ff5b5b', y: '#5bd96b', z: '#5b9dff' }
+
+function Axis({ dir, color, label }) {
+  const end = dir.map((v) => v * AXIS_LEN_CM)
+  const mid = dir.map((v) => (v * AXIS_LEN_CM) / 2)
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, ...end], 3))
+    return g
+  }, [end[0], end[1], end[2]])
+  // The cone points along +Y in its own frame, so it is rotated onto `dir`.
+  const quat = useMemo(() => {
+    const q = new THREE.Quaternion()
+    q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...dir))
+    return q
+  }, [dir[0], dir[1], dir[2]])
+  return (
+    <group>
+      <line geometry={geo}>
+        <lineBasicMaterial color={color} toneMapped={false} />
+      </line>
+      <mesh position={end} quaternion={quat}>
+        <coneGeometry args={[4, 12, 12]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <Html position={[mid[0] + 8, mid[1] + 8, mid[2] + 8]} center distanceFactor={520} zIndexRange={[10, 0]}>
+        <div className="axis-label" style={{ color }}>{label}</div>
+      </Html>
+    </group>
+  )
+}
+
+function OriginMarker() {
+  const showOrigin = useStoreV4((s) => s.showOrigin)
+  if (!showOrigin) return null
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[5, 20, 20]} />
+        <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </mesh>
+      <Axis dir={[1, 0, 0]} color={AXIS_COLORS.x} label="+X away from wall" />
+      <Axis dir={[0, 1, 0]} color={AXIS_COLORS.y} label="+Y up" />
+      <Axis dir={[0, 0, 1]} color={AXIS_COLORS.z} label="+Z away from window" />
+      <Html position={[-16, -18, -16]} center distanceFactor={520} zIndexRange={[10, 0]}>
+        <div className="origin-label">0, 0, 0</div>
+      </Html>
+    </group>
+  )
+}
+
 function ShoreLine() {
   return (
     <group>
@@ -637,6 +704,7 @@ function Scene() {
       <directionalLight position={[-200, 240, 500]} intensity={0.35} />
 
       <Obstacles />
+      <OriginMarker />
 
       <Grid
         position={[GRID_CENTER[0], 0, GRID_CENTER[2]]}
@@ -684,6 +752,8 @@ function ViewportToolbar() {
   const showConnectors = useStoreV4((s) => s.showConnectors)
   const toggleConnectors = useStoreV4((s) => s.toggleConnectors)
   const showSpacers = useStoreV4((s) => s.showSpacers)
+  const showOrigin = useStoreV4((s) => s.showOrigin)
+  const toggleOrigin = useStoreV4((s) => s.toggleOrigin)
   const toggleSpacers = useStoreV4((s) => s.toggleSpacers)
 
   return (
@@ -720,6 +790,15 @@ function ViewportToolbar() {
         onClick={() => toggleSpacers()}
       >
         spacers
+      </button>
+      <button
+        type="button"
+        className={`tool-btn${showOrigin ? ' tool-btn-on' : ''}`}
+        data-testid="toggle-origin"
+        title="the world origin — 0,0,0 is the wall face × window line × floor. X red, Y green, Z blue"
+        onClick={() => toggleOrigin()}
+      >
+        origin
       </button>
       <button
         type="button"

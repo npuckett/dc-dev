@@ -351,6 +351,9 @@ const useStoreV4 = create((set, get) => {
      * shows a network floating 15cm off the floor with nothing holding it there.
      */
     showSpacers: true,
+    /** The world origin triad. On by default: the convention it draws is the one
+     *  every on-site dimension is quoted from. */
+    showOrigin: true,
     /** Colour mode for the 3D viewport: 'role' | 'fold' | 'flip' | 'flags'. */
     colorMode: 'role',
     /** Unit id under the pointer in the viewport or the units table, or null. */
@@ -906,6 +909,8 @@ const useStoreV4 = create((set, get) => {
     toggleBounds: (on) => set((s) => ({ showBounds: on === undefined ? !s.showBounds : Boolean(on) })),
     toggleConnectors: (on) =>
       set((s) => ({ showConnectors: on === undefined ? !s.showConnectors : Boolean(on) })),
+    toggleOrigin: (on) => set((s) => ({ showOrigin: on === undefined ? !s.showOrigin : Boolean(on) })),
+
     toggleSpacers: (on) => set((s) => ({ showSpacers: on === undefined ? !s.showSpacers : Boolean(on) })),
     setColorMode: (mode) => set({ colorMode: mode }),
     setHoveredUnit: (id) => set({ hoveredUnitId: id ?? null }),
