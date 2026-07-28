@@ -592,7 +592,11 @@ export default function StripPanel() {
         </label>
         <SliderRow
           testId="strip-ground-clearance"
-          label="ground clearance"
+          // Named for the PART, not the measurement. It was "ground clearance",
+          // which is what the number is, and the control became unfindable —
+          // the thing you go looking for is the spacer you can see holding the
+          // network up, so it is named after that.
+          label="spacer height"
           value={placement.groundClearanceCm}
           min={GROUND_CLEARANCE_MIN}
           max={GROUND_CLEARANCE_MAX}
