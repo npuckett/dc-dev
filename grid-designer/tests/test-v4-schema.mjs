@@ -47,8 +47,9 @@ import {
   EDGE_AXES,
   GAP_MAX,
   GAP_MIN,
-  GROUND_CLEARANCE_MAX,
-  GROUND_CLEARANCE_MIN,
+  Y_OFFSET_MAX,
+  Y_OFFSET_MIN,
+  DEFAULT_PLACEMENT,
   LATTICE_COLS_MAX,
   LATTICE_COLS_MIN,
   LATTICE_ROWS_MAX,
@@ -199,7 +200,7 @@ console.log('4. normalizeConfig fills and clamps')
     gap: 1e6,
     angleDeg: -20,
     pattern: { kind: 'zigzag', phase: 17 },
-    placement: { wallOffsetCm: -5, windowOffsetCm: 1e9, groundToFloor: 'yes', groundClearanceCm: 1e6,
+    placement: { wallOffsetCm: -5, windowOffsetCm: 1e9, groundToFloor: 'yes', yOffsetCm: 1e6,
       wallAnchor: 'welded' },
     connectors: { lengthCm: 0, spacingCm: 1e4, minPerJoint: 99, binSpanCm: 0, binAngleDeg: 1e3,
       powerEdge: 'sideways', supplyMode: 'melt' },
@@ -214,7 +215,9 @@ console.log('4. normalizeConfig fills and clamps')
   ok(wild.placement.wallOffsetCm === WALL_OFFSET_MIN, 'wallOffsetCm clamps')
   ok(wild.placement.windowOffsetCm === WINDOW_OFFSET_MAX, 'windowOffsetCm clamps')
   ok(wild.placement.groundToFloor === true, 'groundToFloor coerces to a boolean')
-  ok(wild.placement.groundClearanceCm === GROUND_CLEARANCE_MAX, 'groundClearanceCm clamps')
+  ok(wild.placement.yOffsetCm === Y_OFFSET_MAX, 'yOffsetCm clamps up')
+  ok(normalizeConfig({ placement: { yOffsetCm: -1e6 } }).placement.yOffsetCm === Y_OFFSET_MIN,
+    'and down — the band is negative at one end, so both ends are checked')
   ok(wild.placement.wallAnchor === 'free', 'an unknown wallAnchor falls back')
   ok(wild.connectors.lengthCm === CONNECTOR_LENGTH_MIN, 'connectors.lengthCm clamps')
   ok(wild.connectors.spacingCm === CONNECTOR_SPACING_MAX, 'connectors.spacingCm clamps')
@@ -322,7 +325,7 @@ console.log('6. every ranged knob is range-checked')
     ['pattern.phase', PHASE_MIN, PHASE_MAX, 1],
     ['placement.wallOffsetCm', WALL_OFFSET_MIN, WALL_OFFSET_MAX, 1],
     ['placement.windowOffsetCm', WINDOW_OFFSET_MIN, WINDOW_OFFSET_MAX, 1],
-    ['placement.groundClearanceCm', GROUND_CLEARANCE_MIN, GROUND_CLEARANCE_MAX, 1],
+    ['placement.yOffsetCm', Y_OFFSET_MIN, Y_OFFSET_MAX, 1],
     ['connectors.lengthCm', CONNECTOR_LENGTH_MIN, CONNECTOR_LENGTH_MAX, 0.5],
     ['connectors.spacingCm', CONNECTOR_SPACING_MIN, CONNECTOR_SPACING_MAX, 1],
     ['connectors.minPerJoint', CONNECTOR_MIN_PER_JOINT_MIN, CONNECTOR_MIN_PER_JOINT_MAX, 1],
@@ -591,6 +594,37 @@ console.log('9. overrides')
   const withRole = normalizeConfig(withCells([{ i: 0, j: 0, present: false, role: 'high' }]))
   deepEq(withRole.overrides.cells, [{ i: 0, j: 0, present: false, flipped: false }],
     'a stray `role` on a cell override is dropped rather than honoured')
+}
+
+// -----------------------------------------------------------------------------
+// L. THE LEGACY PLACEMENT KEY
+//
+// `placement.groundClearanceCm` was renamed to `yOffsetCm` when the ground
+// spacers were dropped (V4_SPEC §9.12), and `version` was deliberately NOT
+// bumped — the shape did not change, only a name and a band. That makes
+// normalizeConfig the only thing standing between the user's saved slots and a
+// silent reset to the default, so the read is asserted rather than assumed.
+// -----------------------------------------------------------------------------
+console.log('L. the legacy groundClearanceCm key')
+{
+  const old = normalizeConfig({ placement: { groundClearanceCm: 22 } })
+  ok(old.placement.yOffsetCm === 22, `a config carrying only groundClearanceCm: 22 normalizes to yOffsetCm 22 (got ${old.placement.yOffsetCm})`)
+  ok(!('groundClearanceCm' in old.placement), 'and the old key does not survive into the output')
+  ok(DEFAULT_PLACEMENT.yOffsetCm !== 22, 'which is not the default, so the check is not vacuous')
+
+  // Both present: the NEW key wins, so a config written by this version means
+  // what it says rather than being overruled by a stale sibling.
+  const both = normalizeConfig({ placement: { groundClearanceCm: 22, yOffsetCm: 7 } })
+  ok(both.placement.yOffsetCm === 7, `both keys present prefers the new one (got ${both.placement.yOffsetCm})`)
+
+  // Neither: the default, not a hole.
+  ok(normalizeConfig({}).placement.yOffsetCm === DEFAULT_PLACEMENT.yOffsetCm,
+    'neither key present falls back to the default')
+
+  // The legacy value is still CLAMPED — it arrives from a file, so it is not
+  // trusted any more than a fresh one.
+  ok(normalizeConfig({ placement: { groundClearanceCm: 1e9 } }).placement.yOffsetCm === Y_OFFSET_MAX,
+    'and a wild legacy value clamps like any other')
 }
 
 console.log(`\ntest-v4-schema: ${passed} checks passed, ${failed} failed`)

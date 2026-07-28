@@ -124,7 +124,7 @@
  *   pattern.wave.attractorX/Z 0 .. 1    (ditto)
  *   placement.wallOffsetCm   0 .. 200   cm
  *   placement.windowOffsetCm 0 .. 200   cm
- *   placement.groundClearanceCm 0 .. 50 cm
+ *   placement.yOffsetCm      -100 .. 400  cm
  *   connectors.lengthCm      4 .. 30    cm
  *   connectors.spacingCm     10 .. 200  cm
  *   connectors.minPerJoint   1 .. 6     (integer)
@@ -227,18 +227,21 @@ export const WINDOW_OFFSET_MIN = 0
 export const WINDOW_OFFSET_MAX = 200
 
 /**
- * How far off the floor the network's lowest material sits when `groundToFloor`
- * is on — and therefore how tall the ground spacers are (`spacers.js`).
+ * Where the whole network sits in y. With `groundToFloor` on it is measured from
+ * the network's own lowest present material, which lands at this height; with
+ * grounding off it is inert, because there is nothing anchoring the design in y
+ * for an offset to be measured from.
  *
- * 0 is kept in the band on purpose: it is the old behaviour, it is the
- * non-vacuous other end of every test the clearance has, and "put it straight on
- * the floor" is a real thing to ask for rather than a degenerate case. The
- * ceiling is where a post under a flat cell stops being a spacer and becomes a
- * leg — at 50cm the cell is at table height and the load path is a different
- * design problem, which this model does not address.
+ * The band is the ROOM, not a part. It was 0..50 when this number was the height
+ * of a spacer standing under a flat cell, and that part is gone (§9.12). What
+ * bounds it now is the wall the design is hung against: the mullions run to
+ * 375cm, so a design has to be placeable anywhere on them, and 400 clears the top
+ * of the tallest one with the deepest network still under it. The floor is
+ * negative on purpose — a design can be sunk below y = 0 to sit in a well or to
+ * be read from underneath, and −100 is about as far as that stays a building.
  */
-export const GROUND_CLEARANCE_MIN = 0
-export const GROUND_CLEARANCE_MAX = 50
+export const Y_OFFSET_MIN = -100
+export const Y_OFFSET_MAX = 400
 
 // -----------------------------------------------------------------------------
 // Connector ranges — carried over from v3 unchanged, and deliberately so: the
@@ -492,8 +495,12 @@ export const DEFAULT_OBSTACLES = [
     zCm: -59.7,
     widthCm: 594,
     depthCm: 59.7,
-    heightCm: 20,
-    baseYCm: 0,
+    // Its BOTTOM aligns with the mullions' bottom at y = −25 (measured). The
+    // TOP is still not measured — 20 was a placeholder and is left where it
+    // was rather than quietly re-invented, so the height is what the two ends
+    // imply: 45. Flagged, not presented as a dimension.
+    heightCm: 45,
+    baseYCm: -25,
     anchor: 'corner',
   },
   ...mullions(),
@@ -530,15 +537,17 @@ export const DEFAULT_PATTERN = { kind: 'trapezoid', phase: 0 }
  */
 export const DEFAULT_WAVE = { scrunchX: 0, scrunchZ: 0, attractorX: 1, attractorZ: 1 }
 /**
- * `groundClearanceCm` defaults to 15, not 0: the brief is that everything laying
- * flat on the ground stands off it by 15cm, so 15 is the design and 0 is the
- * special case. It is the only default this package moves.
+ * `yOffsetCm` defaults to 15, not 0. The number came in as a ground clearance —
+ * everything laying flat on the ground stood off it by 15cm — and the part that
+ * held that gap open has since been dropped (§9.12), but the default is left
+ * where it is: it is the height the existing designs were drawn at, and moving
+ * it would silently redraw every one of them.
  */
 export const DEFAULT_PLACEMENT = {
   wallOffsetCm: 0,
   windowOffsetCm: 0,
   groundToFloor: true,
-  groundClearanceCm: 15,
+  yOffsetCm: 15,
   wallAnchor: 'free',
 }
 export const DEFAULT_CONNECTORS = {
@@ -651,7 +660,19 @@ function withDefaults(raw) {
       wallOffsetCm: pick(placementSrc, 'wallOffsetCm', DEFAULT_PLACEMENT.wallOffsetCm),
       windowOffsetCm: pick(placementSrc, 'windowOffsetCm', DEFAULT_PLACEMENT.windowOffsetCm),
       groundToFloor: pick(placementSrc, 'groundToFloor', DEFAULT_PLACEMENT.groundToFloor),
-      groundClearanceCm: pick(placementSrc, 'groundClearanceCm', DEFAULT_PLACEMENT.groundClearanceCm),
+      // `groundClearanceCm` is the LEGACY name of this key, read here and folded
+      // into the new one. It is not a compatibility shim in the abstract: every
+      // design the user has saved to disk, and the working config in their
+      // localStorage, carries the old key, and `version` is still 4 — the shape
+      // did not change, only the name and the band — so nothing else would
+      // migrate them. Dropping the read would silently reset all of that work to
+      // the default. The NEW key wins when both are present, so a config written
+      // by this version means what it says.
+      yOffsetCm: pick(
+        placementSrc,
+        'yOffsetCm',
+        pick(placementSrc, 'groundClearanceCm', DEFAULT_PLACEMENT.yOffsetCm),
+      ),
       wallAnchor: pick(placementSrc, 'wallAnchor', DEFAULT_PLACEMENT.wallAnchor),
     },
     // Passed through RAW, even if the tables are not arrays — same "fill missing
@@ -849,10 +870,10 @@ export function normalizeConfig(raw) {
         WINDOW_OFFSET_MAX,
       ),
       groundToFloor: Boolean(cfg.placement.groundToFloor),
-      groundClearanceCm: clamp(
-        numberOr(cfg.placement.groundClearanceCm, DEFAULT_PLACEMENT.groundClearanceCm),
-        GROUND_CLEARANCE_MIN,
-        GROUND_CLEARANCE_MAX,
+      yOffsetCm: clamp(
+        numberOr(cfg.placement.yOffsetCm, DEFAULT_PLACEMENT.yOffsetCm),
+        Y_OFFSET_MIN,
+        Y_OFFSET_MAX,
       ),
       wallAnchor: oneOf(WALL_ANCHORS, cfg.placement.wallAnchor, DEFAULT_PLACEMENT.wallAnchor),
     },
@@ -992,9 +1013,9 @@ export function validateConfig(config) {
     'nearest material to the wall plane x = 0, cm')
   checkRange('placement.windowOffsetCm', cfg.placement.windowOffsetCm, WINDOW_OFFSET_MIN, WINDOW_OFFSET_MAX,
     'nearest material to the window line z = 0, cm')
-  checkRange('placement.groundClearanceCm', cfg.placement.groundClearanceCm,
-    GROUND_CLEARANCE_MIN, GROUND_CLEARANCE_MAX,
-    'how far the lowest material stands off the floor, and how tall the ground spacers are, cm')
+  checkRange('placement.yOffsetCm', cfg.placement.yOffsetCm,
+    Y_OFFSET_MIN, Y_OFFSET_MAX,
+    'where the whole network sits in y — from its own lowest material when grounded, cm')
   // The room, not the design: the wall builds up AWAY from the installation, so
   // this never moves a panel. See DEFAULT_ROOM.
   checkRange('room.wallThicknessCm', cfg.room.wallThicknessCm, WALL_THICKNESS_MIN, WALL_THICKNESS_MAX,

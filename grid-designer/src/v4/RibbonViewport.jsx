@@ -47,10 +47,6 @@
  *     front bar, toggleable. A joint whose panels face opposite ways carries no
  *     station, so the gap is visibly EMPTY — which is the honest render of "no
  *     part of this family can span this".
- *   - the GROUND SPACERS from `solveSpacers`, toggleable: plain posts standing
- *     on the floor under the flat cells that rest on it. They are what holds the
- *     network at its ground clearance, so a view without them shows an assembly
- *     floating with nothing under it.
  *   - COLLISION highlighting: a saturated red look plus the exact OBB
  *     `collide.js` tested, because a collision is a hard buildability failure.
  *   - hover / selection outlines driven by the store, so the units table and the
@@ -407,55 +403,6 @@ function ConnectorParts() {
 }
 
 // -----------------------------------------------------------------------------
-// The ground spacers, toggleable
-//
-// Simple posts standing on the floor under the flat cells that rest on it
-// (core/v4/spacers.js). Drawn from the SOLVER's records — position, height and
-// section — rather than reconstructed here, so the thing on screen is the thing
-// the report counted and the OBJ exports.
-//
-// Deliberately a plain box and a neutral colour: a spacer is not a part type,
-// there is only ever one of it, and the kit colouring the connectors get would
-// be inventing a distinction that does not exist.
-// -----------------------------------------------------------------------------
-const SPACER_COLOR = '#9aa6bb'
-
-function SpacerPosts() {
-  const config = useStoreV4((s) => s.config)
-  const showSpacers = useStoreV4((s) => s.showSpacers)
-  const { spacers } = getDerived(config)
-
-  // One BoxGeometry for all of them, scaled per post: every spacer on a design
-  // is the same size, and a geometry per post would be hundreds of GPU buffers
-  // to say one thing.
-  const unitBox = useMemo(() => new THREE.BoxGeometry(1, 1, 1), [])
-  useEffect(() => () => unitBox.dispose(), [unitBox])
-
-  if (!showSpacers || spacers.spacers.length === 0) return null
-
-  return (
-    <group>
-      {spacers.spacers.map((sp) => (
-        <mesh
-          key={sp.id}
-          geometry={unitBox}
-          position={sp.obb.center}
-          scale={[sp.obb.halfExtents[0] * 2, sp.obb.halfExtents[1] * 2, sp.obb.halfExtents[2] * 2]}
-        >
-          <meshStandardMaterial
-            color={SPACER_COLOR}
-            emissive={SPACER_COLOR}
-            emissiveIntensity={0.18}
-            roughness={0.6}
-            metalness={0.15}
-          />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
-// -----------------------------------------------------------------------------
 // Wall (x = 0) / Window-Shore (z = 0) — the world conventions, unchanged
 // -----------------------------------------------------------------------------
 const WALL_HEIGHT_CM = 250
@@ -745,7 +692,6 @@ function Scene() {
       <Wall />
       <Ribbon />
       <ConnectorParts />
-      <SpacerPosts />
       <MeasuringBox />
 
       <OrbitControls
@@ -771,10 +717,8 @@ function ViewportToolbar() {
   const toggleBounds = useStoreV4((s) => s.toggleBounds)
   const showConnectors = useStoreV4((s) => s.showConnectors)
   const toggleConnectors = useStoreV4((s) => s.toggleConnectors)
-  const showSpacers = useStoreV4((s) => s.showSpacers)
   const showOrigin = useStoreV4((s) => s.showOrigin)
   const toggleOrigin = useStoreV4((s) => s.toggleOrigin)
-  const toggleSpacers = useStoreV4((s) => s.toggleSpacers)
 
   return (
     <div className="viewport-toolbar" data-testid="viewport-toolbar">
@@ -801,15 +745,6 @@ function ViewportToolbar() {
         onClick={() => toggleConnectors()}
       >
         connectors
-      </button>
-      <button
-        type="button"
-        className={`tool-btn${showSpacers ? ' tool-btn-on' : ''}`}
-        data-testid="toggle-spacers"
-        title="the ground spacers — posts standing under the flat cells that rest on the floor, holding them at the ground clearance"
-        onClick={() => toggleSpacers()}
-      >
-        spacers
       </button>
       <button
         type="button"

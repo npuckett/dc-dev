@@ -344,7 +344,7 @@ console.log('8. every trapezoid solve is byte-identical to 71f8b15')
     ['flat', 2459399168, 13457,
       { lattice: { cols: 2, rows: 3, panelType: '2x2' }, angleDeg: 0, gap: 0.4 }],
     ['braced-62.5-8', 2080408362, 60248,
-      { lattice: { cols: 3, rows: 5, panelType: '2x2' }, angleDeg: 62.5, gap: 8, placement: { wallAnchor: 'braced', groundToFloor: true, groundClearanceCm: 15, wallOffsetCm: 12, windowOffsetCm: 7 } }],
+      { lattice: { cols: 3, rows: 5, panelType: '2x2' }, angleDeg: 62.5, gap: 8, placement: { wallAnchor: 'braced', groundToFloor: true, yOffsetCm: 15, wallOffsetCm: 12, windowOffsetCm: 7 } }],
     ['overrides', 2362091016, 30377,
       { lattice: { cols: 5, rows: 2, panelType: '2x2' }, angleDeg: 20, gap: 1.25, overrides: { cells: [{ i: 1, j: 0, present: false }, { i: 3, j: 1, flipped: true }], edges: [{ i: 2, j: 1, axis: 'x', present: false }] } }],
     ['6x6-braced', 3464671071, 156438,
@@ -468,7 +468,7 @@ console.log('11. schema')
 // -----------------------------------------------------------------------------
 console.log('12. the wall anchor, and the floor')
 {
-  const R = buildReportV4(wave({ placement: { wallAnchor: 'braced', groundToFloor: true, groundClearanceCm: 15, wallOffsetCm: 0, windowOffsetCm: 0 } },
+  const R = buildReportV4(wave({ placement: { wallAnchor: 'braced', groundToFloor: true, yOffsetCm: 15, wallOffsetCm: 0, windowOffsetCm: 0 } },
     { scrunchX: 0.2, scrunchZ: 0.2 }))
   ok(R.metrics.counts.anchorRamps === 0, 'no anchor ramps are built on a wave')
   ok(R.warnings.some((w) => w.code === 'W_WAVE_NO_ANCHOR'), 'and the request is reported as declined')
@@ -477,19 +477,12 @@ console.log('12. the wall anchor, and the floor')
   ok(buildReportV4({ placement: { wallAnchor: 'braced' } }).metrics.counts.anchorRamps > 0,
     'while the checkerboard still builds its own')
 
-  // spacers.js measures undersides rather than testing `level === 0`, so on an
-  // uneven floor it props exactly the cells that are ON the floor — which, once
-  // the angles differ, is usually ONE cell. That is the right answer and a
-  // surprising one, so it is asserted rather than left to be discovered.
-  ok(R.spacers.cellCount === 1,
-    `exactly one cell rests on the floor of a scrunched wave (got ${R.spacers.cellCount})`)
-  ok(R.spacers.heightsCm.length === 1 && R.spacers.heightsCm[0] === 15,
-    'its posts are the clearance tall, so the grounding cross-check still agrees')
-  ok(!R.warnings.some((w) => w.code === 'W_SPACER_MISMATCH'), 'and nothing mismatches')
-  // ...and the flat wave, whose floor IS even, props the whole bottom storey.
-  const even = buildReportV4(wave({ placement: { wallAnchor: 'free', groundToFloor: true, groundClearanceCm: 15, wallOffsetCm: 0, windowOffsetCm: 0 } }))
-  ok(even.spacers.cellCount > 1,
-    `while an unscrunched wave has a level floor and props ${even.spacers.cellCount} cells`)
+  // The y offset lands the wave's lowest material exactly on the number, the
+  // same as it does a checkerboard — a scrunched wave has an UNEVEN floor, so
+  // this is where a per-cell lift masquerading as a translation would show.
+  ok(R.metrics.overall.min[1] === 15, 'the scrunched wave is grounded at exactly the 15cm offset')
+  const even = buildReportV4(wave({ placement: { wallAnchor: 'free', groundToFloor: true, yOffsetCm: 15, wallOffsetCm: 0, windowOffsetCm: 0 } }))
+  ok(even.metrics.overall.min[1] === 15, 'and so is the unscrunched one, whose floor is level')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

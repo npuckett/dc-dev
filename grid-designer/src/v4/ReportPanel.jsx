@@ -72,7 +72,7 @@ const FLAG_TEXT = {
     'one panel is flipped and one is not, so their back flanges are on opposite sides — no connector of this family can grip both',
   W_JOINT_BLOCKED_BY_POWER_SUPPLY: 'a power supply leaves too little usable rim — this joint carries NO connector',
   W_JOINT_REDUCED_BY_POWER_SUPPLY: 'a power supply costs this joint some of the parts it asked for',
-  W_BELOW_FLOOR: 'a panel reaches below y = 0 — only possible with grounding off',
+  W_BELOW_FLOOR: 'a panel reaches below y = 0 — grounding is off, or the y offset is negative',
   W_THROUGH_WALL: 'a panel reaches through the wall plane at x = 0',
   W_OUTSIDE_ENVELOPE: 'this design is outside the connector envelope as drawn',
 }

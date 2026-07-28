@@ -47,8 +47,8 @@ import { buildSceneGroup } from './objExport.js'
  *
  * @returns {Promise<ArrayBuffer>} a complete .glb
  */
-export async function glbPayloadV4(config, chain, connectors, spacers = null) {
-  const group = buildSceneGroup(config, chain, connectors, spacers)
+export async function glbPayloadV4(config, chain, connectors) {
+  const group = buildSceneGroup(config, chain, connectors)
   const out = await new GLTFExporter().parseAsync(group, {
     binary: true,
     onlyVisible: false,

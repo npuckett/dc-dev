@@ -58,10 +58,10 @@ import {
   WALL_OFFSET_MAX,
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
-  GROUND_CLEARANCE_MIN,
+  Y_OFFSET_MIN,
+  Y_OFFSET_MAX,
   WALL_THICKNESS_MIN,
   WALL_THICKNESS_MAX,
-  GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
   CONNECTOR_SPACING_MIN,
@@ -128,7 +128,7 @@ export default function StripPanel() {
   const setWallOffset = useStoreV4((s) => s.setWallOffset)
   const setWindowOffset = useStoreV4((s) => s.setWindowOffset)
   const setGroundToFloor = useStoreV4((s) => s.setGroundToFloor)
-  const setGroundClearance = useStoreV4((s) => s.setGroundClearance)
+  const setYOffset = useStoreV4((s) => s.setYOffset)
   const setWallThickness = useStoreV4((s) => s.setWallThickness)
   const room = useStoreV4((s) => s.config.room)
   const setConnectorKnob = useStoreV4((s) => s.setConnectorKnob)
@@ -140,7 +140,6 @@ export default function StripPanel() {
 
   const { lattice, gap, angleDeg, pattern, placement, connectors } = config
   const { chain, report } = getDerived(config)
-  const spacers = report.spacers
   const { envelope } = report
   const counts = report.metrics.counts
   const isWave = pattern.kind === 'wave'
@@ -605,32 +604,26 @@ export default function StripPanel() {
           format={(v) => `${cm1(v)}cm`}
         />
         <SliderRow
-          testId="strip-ground-clearance"
-          // Named for the PART, not the measurement. It was "ground clearance",
-          // which is what the number is, and the control became unfindable —
-          // the thing you go looking for is the spacer you can see holding the
-          // network up, so it is named after that.
-          label="spacer height"
-          value={placement.groundClearanceCm}
-          min={GROUND_CLEARANCE_MIN}
-          max={GROUND_CLEARANCE_MAX}
+          testId="strip-y-offset"
+          // Named for what it DOES, not for what it is measured from. It was
+          // "spacer height", named after a part that no longer exists (§9.12);
+          // what the control actually does is move the whole design up and down,
+          // so it says that.
+          label="height (y)"
+          value={placement.yOffsetCm}
+          min={Y_OFFSET_MIN}
+          max={Y_OFFSET_MAX}
           step={0.5}
           disabled={!placement.groundToFloor}
-          onChange={(v) => setGroundClearance(v)}
+          onChange={(v) => setYOffset(v)}
           format={(v) => `${cm1(v)}cm`}
         />
         <p className="form-annotation">
-          on, the lowest point of any present panel is dropped to the <b>ground clearance</b> — a
-          property of the whole network, so removing whichever panel was lowest legitimately moves
-          everything. Off, cell (0,0)'s reference plane sits at y = 0, panels may go below the floor
-          (which the report flags), and no spacers are solved.
-          {spacers.grounded && spacers.count > 0 && (
-            <>
-              {' '}The gap is held open by <b>{spacers.count} spacers</b> under{' '}
-              {spacers.cellCount} floor-resting cell{spacers.cellCount === 1 ? '' : 's'} —{' '}
-              {spacers.perEdge} per edge, placed by the same spacing rule as the connectors.
-            </>
-          )}
+          on, the whole network is lifted or lowered to put its <b>own lowest present panel</b> at
+          the height — a rigid translation, so nothing inside the design changes shape, but removing
+          whichever panel was lowest legitimately moves everything else. Off, cell (0,0)'s reference
+          plane sits at y = 0, the height does nothing, and panels may go below the floor (which the
+          report flags).
         </p>
       </div>
 

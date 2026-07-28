@@ -37,7 +37,7 @@ import { glbPayloadV4 } from './glbExport.js'
 
 export default function ExportButtons() {
   const config = useStoreV4((s) => s.config)
-  const { chain, connectors, spacers } = getDerived(config)
+  const { chain, connectors } = getDerived(config)
   const kit = getConnectorKit(config, chain, connectors)
   const panelCount = chain.panels.filter((p) => p.present).length
   // The two connector exporters read `report.connectors.*`, so they are handed a
@@ -54,13 +54,13 @@ export default function ExportButtons() {
         data-testid="export-obj"
         title={
           `${panelCount} diffusers as individual objects, ready for per-panel brightness, plus ` +
-          `merged groups: frame, connectors (${summary.count} parts), spacers (${spacers.spacers.length} posts) ` +
+          `merged groups: frame, connectors (${summary.count} parts) ` +
           'and power supplies. Downloads TWO files — keep the .mtl beside the .obj or it imports as one surface'
         }
         onClick={() => {
           // One basename for both, so the OBJ's `mtllib` names a file that is
           // actually on disk next to it. Two downloads rather than a zip.
-          const pair = objMtlPairV4(config, chain, connectors, spacers, `drop-ceiling_${timestamp()}`)
+          const pair = objMtlPairV4(config, chain, connectors, `drop-ceiling_${timestamp()}`)
           downloadText(pair.mtl, pair.mtlName, 'model/mtl')
           downloadText(pair.obj, pair.objName, 'model/obj')
         }}
@@ -73,10 +73,10 @@ export default function ExportButtons() {
         data-testid="export-glb"
         title={
           `the same assembly as one self-contained .glb — ${panelCount} named diffuser objects, ` +
-          'each with its own emissive material, plus the merged frame, connector, spacer and supply groups'
+          'each with its own emissive material, plus the merged frame, connector and supply groups'
         }
         onClick={async () => {
-          const buffer = await glbPayloadV4(config, chain, connectors, spacers)
+          const buffer = await glbPayloadV4(config, chain, connectors)
           downloadBlob(new Blob([buffer], { type: 'model/gltf-binary' }), `drop-ceiling_${timestamp()}.glb`)
         }}
       >

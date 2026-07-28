@@ -35,13 +35,11 @@ import {
   DEFAULT_MTL_NAME,
   GROUP_FRAME,
   GROUP_CONNECTORS,
-  GROUP_SPACERS,
   GROUP_SUPPLIES,
   DIFFUSER_PREFIX,
 } from '../src/v4/objExport.js'
 import { solveLattice } from '../src/core/v4/lattice.js'
 import { solveConnectorsV4 } from '../src/core/v4/connectors.js'
-import { solveSpacers } from '../src/core/v4/spacers.js'
 import { normalizeConfig, DEFAULT_CONFIG } from '../src/core/v4/schema.js'
 
 // GLTFExporter packs its buffer through a FileReader, which node has no reason
@@ -65,7 +63,7 @@ const ok = (c, m) => { if (c) passed++; else { failed++; console.log(`  FAIL: ${
 const solve = (patch = {}) => {
   const cfg = normalizeConfig({ ...DEFAULT_CONFIG, ...patch })
   const chain = solveLattice(cfg)
-  return { cfg, chain, connectors: solveConnectorsV4(cfg, chain), spacers: null }
+  return { cfg, chain, connectors: solveConnectorsV4(cfg, chain) }
 }
 
 /** Decode a .glb the way a reader does: header, then the two chunks. */
@@ -92,10 +90,10 @@ function readGLB(buffer) {
 console.log('=== test-v4-export ===')
 
 const base = solve()
-const pair = objMtlPairV4(base.cfg, base.chain, base.connectors, base.spacers, 'drop-ceiling_TEST')
-const glb = await glbPayloadV4(base.cfg, base.chain, base.connectors, base.spacers)
+const pair = objMtlPairV4(base.cfg, base.chain, base.connectors, 'drop-ceiling_TEST')
+const glb = await glbPayloadV4(base.cfg, base.chain, base.connectors)
 const gltf = readGLB(glb).json
-const names = objObjectNames(base.cfg, base.chain, base.connectors, base.spacers)
+const names = objObjectNames(base.cfg, base.chain, base.connectors)
 
 // -----------------------------------------------------------------------------
 // 1. THE MATERIAL LIBRARY EXISTS AND RESOLVES — the bug
@@ -214,7 +212,7 @@ console.log('3. the GLB container decodes, and carries 41 materials rather than 
   ok(nodeNames.includes('drop_ceiling'), 'the root node is named')
   const missing = names.filter((n) => !nodeNames.includes(n))
   ok(missing.length === 0, `every expected node name is present (missing: ${missing.slice(0, 3).join(', ')})`)
-  for (const grp of [GROUP_FRAME, GROUP_CONNECTORS, GROUP_SPACERS, GROUP_SUPPLIES]) {
+  for (const grp of [GROUP_FRAME, GROUP_CONNECTORS, GROUP_SUPPLIES]) {
     ok(nodeNames.filter((n) => n === grp).length === 1, `exactly one "${grp}" node`)
   }
 
@@ -248,7 +246,7 @@ console.log('3. the GLB container decodes, and carries 41 materials rather than 
   ok(!(g.json.extensionsUsed ?? []).includes('KHR_materials_emissive_strength'),
     'at the default intensity of 1 the strength extension is correctly absent')
   {
-    const probe = buildSceneGroup(base.cfg, base.chain, base.connectors, base.spacers)
+    const probe = buildSceneGroup(base.cfg, base.chain, base.connectors)
     const lit = probe.children.find((c) => c.name.startsWith(`${DIFFUSER_PREFIX}_`))
     lit.material.emissiveIntensity = 4.25
     const drivenJson = readGLB(await new (await import('three/examples/jsm/exporters/GLTFExporter.js'))
@@ -304,15 +302,17 @@ console.log('4. the OBJ and the GLB describe the same scene')
   ok([...cutPair.mtl.matchAll(/^newmtl /gm)].length === names.length - 1,
     'the MTL follows too, so nothing dangles after an edit')
 
-  // A conditional group vanishing must vanish from both.
-  const un = solve({
-    placement: { wallOffsetCm: 0, windowOffsetCm: 0, groundToFloor: false, groundClearanceCm: 15, wallAnchor: 'free' },
-  })
-  const unPair = objMtlPairV4(un.cfg, un.chain, un.connectors, null, 'un')
+  // A conditional group vanishing must vanish from both. `power_supplies` is
+  // the one group that is still conditional: 'none' solves the connectors as
+  // though there is no driver, so exporting a box for one would contradict the
+  // rest of the model.
+  const un = solve({ connectors: { ...DEFAULT_CONFIG.connectors, powerEdge: 'none' } })
+  const unPair = objMtlPairV4(un.cfg, un.chain, un.connectors, 'un')
   const unGltf = readGLB(await glbPayloadV4(un.cfg, un.chain, un.connectors)).json
-  ok(!unPair.obj.includes(`\no ${GROUP_SPACERS}`), 'grounding off removes the spacers object from the OBJ')
-  ok(!unPair.mtl.includes(`newmtl ${GROUP_SPACERS}`), 'and its material from the MTL')
-  ok(!unGltf.nodes.some((n) => n.name === GROUP_SPACERS), 'and its node from the GLB')
+  ok(names.includes(GROUP_SUPPLIES), 'the default export HAS a supplies object — the check below is not vacuous')
+  ok(!unPair.obj.includes(`\no ${GROUP_SUPPLIES}`), "powerEdge 'none' removes the supplies object from the OBJ")
+  ok(!unPair.mtl.includes(`newmtl ${GROUP_SUPPLIES}`), 'and its material from the MTL')
+  ok(!unGltf.nodes.some((n) => n.name === GROUP_SUPPLIES), 'and its node from the GLB')
   ok(unGltf.materials.length === names.length - 1, 'and its material from the GLB')
 }
 
@@ -325,7 +325,7 @@ console.log('4. the OBJ and the GLB describe the same scene')
 // -----------------------------------------------------------------------------
 console.log('5. buildSceneGroup gives every mesh its own material instance')
 {
-  const group = buildSceneGroup(base.cfg, base.chain, base.connectors, solveSpacers(base.cfg, base.chain))
+  const group = buildSceneGroup(base.cfg, base.chain, base.connectors)
   const mats = group.children.map((m) => m.material)
   ok(new Set(mats).size === mats.length, `${new Set(mats).size} distinct material objects for ${mats.length} meshes`)
   ok(new Set(mats.map((m) => m.uuid)).size === mats.length, 'distinct uuids, which is what the exporters key on')

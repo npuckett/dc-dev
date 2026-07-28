@@ -613,14 +613,12 @@ export function solveLattice(config) {
   // All three are a rigid translation of the FINISHED network, taken over the
   // material of PRESENT panels only:
   //
-  //   y   `groundToFloor` puts the lowest solid point at `groundClearanceCm`
-  //       above the floor. The clearance is a rigid translation like the other
-  //       two and NOT a per-cell lift, because the network is one rigid
-  //       assembly: raising the cells that rest on the floor while leaving the
-  //       rest would tear every joint between them. What holds the gap open is
-  //       `spacers.js`, which measures this same underside rather than being
-  //       told the number — so the two can be checked against each other
-  //       (W_SPACER_MISMATCH) instead of agreeing by construction.
+  //   y   `groundToFloor` puts the lowest solid point at `yOffsetCm`. It is a
+  //       rigid translation like the other two and NOT a per-cell lift, because
+  //       the network is one rigid assembly: raising the cells that rest on the
+  //       floor while leaving the rest would tear every joint between them. That
+  //       is the whole meaning of the knob — it moves the DESIGN, and nothing
+  //       inside the design changes shape when it moves.
   //   x   `wallOffsetCm` is what a tape measure reads from the wall plane to the
   //       nearest material — INCLUDING an anchor ramp's toe, which is what makes
   //       the number mean the same thing braced and free (§9.5)
@@ -642,7 +640,7 @@ export function solveLattice(config) {
   const anyPresent = Number.isFinite(mins[0])
   const shift = new THREE.Vector3(
     anyPresent ? cfg.placement.wallOffsetCm - mins[0] : 0,
-    anyPresent && cfg.placement.groundToFloor ? cfg.placement.groundClearanceCm - mins[1] : 0,
+    anyPresent && cfg.placement.groundToFloor ? cfg.placement.yOffsetCm - mins[1] : 0,
     anyPresent ? cfg.placement.windowOffsetCm - mins[2] : 0,
   )
 

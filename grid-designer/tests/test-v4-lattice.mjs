@@ -43,6 +43,11 @@ let passed = 0
 let failed = 0
 const ok = (c, m) => { if (c) passed++; else { failed++; console.log(`  FAIL: ${m}`) } }
 const near = (a, b, tol, m) => ok(Math.abs(a - b) <= tol, `${m} (got ${a}, want ${b} ±${tol})`)
+// For comparing a de-offset coordinate across offsets. Subtracting 400 from a
+// number and subtracting −50 from it are different float operations, so the
+// results agree to within representation noise rather than bit for bit; 1e-6cm
+// is a hundredth of a micron and far below anything this model means.
+const r9 = (n) => Number(n.toFixed(6)) + 0
 const nearV = (a, b, tol, m) => {
   const d = Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]))
   ok(d <= tol, `${m} (got [${a}], want [${b}], worst ${d})`)
@@ -210,21 +215,21 @@ console.log('1. the cols:1 lattice IS the ribbon')
       `${id}: the box is square, so the spin cannot change it`)
   }
 
-  // The grounding shift is the ribbon's too — at the clearance the ribbon had,
-  // which is 0. The shipped default is now 15 (V4_SPEC §9.12), so the comparison
-  // against the ribbon's hardcoded number has to ask for the ribbon's clearance.
+  // The grounding shift is the ribbon's too — at the y offset the ribbon had,
+  // which is 0. The shipped default is 15 (V4_SPEC §9.12), so the comparison
+  // against the ribbon's hardcoded number has to ask for the ribbon's offset.
   const grounded = solveLattice({
     lattice: { cols: 1, rows: 5 }, angleDeg: 30, gap: 2,
-    placement: { groundClearanceCm: 0 },
+    placement: { yOffsetCm: 0 },
   })
   near(grounded.lattice.shiftCm[1], T, 1e-9,
     'grounded at clearance 0, the shift is one housing thickness — the ribbon\'s answer')
   const lifted = solveLattice({
     lattice: { cols: 1, rows: 5 }, angleDeg: 30, gap: 2,
-    placement: { groundClearanceCm: 15 },
+    placement: { yOffsetCm: 15 },
   })
   near(lifted.lattice.shiftCm[1], T + 15, 1e-9,
-    'and the clearance adds to it exactly, which is all it does')
+    'and the offset adds to it exactly, which is all it does')
   near(grounded.bounds.size[1], 35.13527618, 1e-8, 'and the ribbon stands 35.135cm tall')
   near(grounded.bounds.size[2], 523.300910129, 1e-8, 'and runs 523.3cm from the window')
 }
@@ -779,7 +784,7 @@ console.log('10. the offsets measure material, not indices')
         lattice: { cols: 3, rows: 5 },
         placement: {
           wallOffsetCm: k, windowOffsetCm: k, wallAnchor,
-          groundToFloor: true, groundClearanceCm: 0,
+          groundToFloor: true, yOffsetCm: 0,
         },
       })
       const pres = C.panels.filter((p) => p.present)
@@ -817,39 +822,69 @@ console.log('10. the offsets measure material, not indices')
   }
   ok(bad === 0, 'grounding moves nothing but y')
 
-  // --- the ground clearance (V4_SPEC §9.12) --------------------------------
-  // `groundToFloor` puts the lowest material at `groundClearanceCm`, not at 0.
-  // Exact, because the spacers under it are cut to that number — a network
-  // sitting 14.97cm up is a network whose posts do not fit. Checked over the
-  // angle and gap sweep because the identity of the lowest panel changes with
-  // both, and checked at 0 as well so the assertion cannot pass against a
+  // --- the y offset (V4_SPEC §9.12) ----------------------------------------
+  // `groundToFloor` puts the lowest material at `yOffsetCm`, not at 0. Exact,
+  // because the offset is what a tape measure off the floor is meant to read.
+  // Checked over the angle and gap sweep because the identity of the lowest
+  // panel changes with both, and over the full band — including NEGATIVE, which
+  // sinks the design below the floor — so the assertion cannot pass against a
   // constant.
   for (const angleDeg of [0, 30, 60, 75]) {
     for (const gap of [0.4, 2, 8]) {
-      for (const clearance of [0, 15, 50]) {
+      for (const yOffsetCm of [-100, -50, 0, 15, 200, 400]) {
         const C = solveLattice({
           lattice: { cols: 3, rows: 5 }, angleDeg, gap,
-          placement: { groundToFloor: true, groundClearanceCm: clearance },
+          placement: { groundToFloor: true, yOffsetCm },
         })
         const y = Math.min(...C.panels.filter((p) => p.present).flatMap((p) => p.corners.map((c) => c[1])))
-        near(y, clearance, 1e-9,
-          `θ=${angleDeg}° gap=${gap} clearance=${clearance}: the lowest material sits exactly there`)
+        near(y, yOffsetCm, 1e-9,
+          `θ=${angleDeg}° gap=${gap} offset=${yOffsetCm}: the lowest material sits exactly there`)
       }
     }
   }
-  // And it is a pure translation: same box, moved.
-  const at0 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundClearanceCm: 0 } })
-  const at15 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundClearanceCm: 15 } })
-  near(at15.bounds.size[1], at0.bounds.size[1], 1e-9, 'the clearance does not change the height of the box')
-  near(at15.bounds.min[1] - at0.bounds.min[1], 15, 1e-9, 'it moves its floor by exactly the clearance')
+
+  // THE SHAPE IS INVARIANT. Not just the bounding box — every panel corner,
+  // minus the offset, has to land on the same number at every offset. This is
+  // the assertion that a per-cell lift, or an offset that leaked into the angle
+  // solve, would fail; the box check alone would not catch either.
+  const OFFSETS = [-50, 0, 15, 200]
+  const shapeOf = (yOffsetCm) => {
+    const C = solveLattice({ lattice: { cols: 3, rows: 5 }, angleDeg: 34, gap: 2,
+      placement: { groundToFloor: true, yOffsetCm, wallOffsetCm: 12, windowOffsetCm: 7, wallAnchor: 'braced' } })
+    const pres = C.panels.filter((p) => p.present)
+    return {
+      minY: Math.min(...pres.flatMap((p) => p.corners.map((c) => c[1]))),
+      // every corner of every panel, de-offset — the whole design, not a summary
+      shape: JSON.stringify(pres.map((p) => [p.id, p.corners.map(([x, y, z]) => [x, r9(y - yOffsetCm), z])])),
+    }
+  }
+  const shapes = OFFSETS.map(shapeOf)
+  for (let k = 0; k < OFFSETS.length; k++) {
+    near(shapes[k].minY, OFFSETS[k], 1e-9, `at offset ${OFFSETS[k]} the minimum panel y IS ${OFFSETS[k]}`)
+    ok(shapes[k].shape === shapes[0].shape,
+      `and the de-offset design at ${OFFSETS[k]} is identical to the one at ${OFFSETS[0]}`)
+  }
+  // Non-vacuous the other way: WITHOUT de-offsetting, the four differ.
+  const raw = OFFSETS.map((yOffsetCm) => JSON.stringify(
+    solveLattice({ lattice: { cols: 3, rows: 5 }, angleDeg: 34, gap: 2,
+      placement: { groundToFloor: true, yOffsetCm, wallOffsetCm: 12, windowOffsetCm: 7, wallAnchor: 'braced' } })
+      .panels.filter((p) => p.present).map((p) => p.corners)))
+  ok(new Set(raw).size === OFFSETS.length,
+    'and the four solves really are four different designs before the offset is taken back out')
+
+  // And it is a pure translation of the box: same size, moved floor.
+  const at0 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { yOffsetCm: 0 } })
+  const at15 = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { yOffsetCm: 15 } })
+  near(at15.bounds.size[1], at0.bounds.size[1], 1e-9, 'the offset does not change the height of the box')
+  near(at15.bounds.min[1] - at0.bounds.min[1], 15, 1e-9, 'it moves its floor by exactly the offset')
   near(at15.lattice.shiftCm[1] - at0.lattice.shiftCm[1], 15, 1e-9, 'and shows up wholly in shiftCm')
-  // With grounding OFF the clearance is inert — there is nothing to measure it
+  // With grounding OFF the offset is inert — there is nothing to measure it
   // from, and pretending otherwise would float the design on a switch that says
   // it is off.
-  const offA = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, groundClearanceCm: 0 } })
-  const offB = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, groundClearanceCm: 50 } })
+  const offA = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, yOffsetCm: -100 } })
+  const offB = solveLattice({ lattice: { cols: 3, rows: 5 }, placement: { groundToFloor: false, yOffsetCm: 400 } })
   ok(JSON.stringify(offA.panels) === JSON.stringify(offB.panels),
-    'ungrounded, the clearance changes nothing at all')
+    'ungrounded, the offset changes nothing at all')
 }
 
 // -----------------------------------------------------------------------------

@@ -13,7 +13,6 @@
  *                      own brightness — that is the whole reason for the split.
  *   frame              every panel's housing, merged into one object
  *   connectors         every printed part, back halves and front bars, merged
- *   spacers            every ground spacer post, merged
  *   power_supplies     every driver box, merged
  *
  * The merged groups are things that take ONE material each, so keeping
@@ -76,17 +75,11 @@ import {
 } from '../geometry/panelGeometry.js'
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
-import { solveSpacers } from '../core/v4/spacers.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
 export const GROUP_FRAME = 'frame'
 export const GROUP_CONNECTORS = 'connectors'
-/** The posts under the floor-resting flat cells (core/v4/spacers.js). Their own
- *  group rather than part of `connectors`: they are a different part, in a
- *  different material, and merging them would make the connector object mean
- *  "printed parts and also some legs". */
-export const GROUP_SPACERS = 'spacers'
 export const GROUP_SUPPLIES = 'power_supplies'
 export const DIFFUSER_PREFIX = 'diffuser'
 
@@ -119,7 +112,6 @@ const DIFFUSER_LOOK = {
 const GROUP_LOOKS = {
   [GROUP_FRAME]: { color: 0x2e3033, roughness: 0.55, metalness: 0.4 },
   [GROUP_CONNECTORS]: { color: 0xd06a2c, roughness: 0.8, metalness: 0 },
-  [GROUP_SPACERS]: { color: 0x2f6f9f, roughness: 0.8, metalness: 0 },
   [GROUP_SUPPLIES]: { color: 0x3f8f5a, roughness: 0.6, metalness: 0.2 },
 }
 
@@ -262,17 +254,15 @@ function meshOf(geometry, name) {
  * @param {object} config normalized v4 config
  * @param {object} chain `solveLattice` output
  * @param {object} connectors `solveConnectorsV4` output
- * @param {object} [spacers] `solveSpacers` output; solved here if omitted
  * @returns {THREE.Group}
  */
-export function buildSceneGroup(config, chain, connectors, spacers = null) {
+export function buildSceneGroup(config, chain, connectors) {
   const group = new THREE.Group()
   group.name = 'drop_ceiling'
 
   const frame = Merger()
   const supplies = Merger()
   const parts = Merger()
-  const posts = Merger()
   const supplyEdge = supplyEdgeFor(config.connectors?.powerEdge)
 
   const present = chain.panels.filter((p) => p.present)
@@ -325,25 +315,10 @@ export function buildSceneGroup(config, chain, connectors, spacers = null) {
     }
   }
 
-  // The ground spacers, merged. Built from the solver's OBB rather than from a
-  // separate geometry module because a post IS its box — there is no profile to
-  // loft — so a `buildSpacerGeometry` would be a second place to state the same
-  // three numbers and a second place for them to drift.
-  const S = spacers ?? solveSpacers(config, chain)
-  for (const sp of S.spacers) {
-    const [hx, hy, hz] = sp.obb.halfExtents
-    const box = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2)
-    box.applyMatrix4(new THREE.Matrix4().makeTranslation(...sp.obb.center))
-    posts.add(box)
-    box.dispose()
-  }
-
   // Emitted only when non-empty: an empty `o frame` block is a trap in an
-  // importer, 'none' supply mode should leave no supply object at all, and a
-  // design with grounding off has no spacers to export.
+  // importer, and 'none' supply mode should leave no supply object at all.
   if (!frame.isEmpty()) group.add(meshOf(frame.build(), GROUP_FRAME))
   if (!parts.isEmpty()) group.add(meshOf(parts.build(), GROUP_CONNECTORS))
-  if (!posts.isEmpty()) group.add(meshOf(posts.build(), GROUP_SPACERS))
   if (!supplies.isEmpty()) group.add(meshOf(supplies.build(), GROUP_SUPPLIES))
 
   group.updateMatrixWorld(true)
@@ -369,8 +344,8 @@ function mtlRGB(color) {
  *
  * @returns {string} MTL text, one `newmtl` block per exported object
  */
-export function mtlPayloadV4(config, chain, connectors, spacers = null) {
-  return mtlFromGroup(buildSceneGroup(config, chain, connectors, spacers))
+export function mtlPayloadV4(config, chain, connectors) {
+  return mtlFromGroup(buildSceneGroup(config, chain, connectors))
 }
 
 /** The library for an already-built group, so the pair builder can walk the
@@ -418,8 +393,8 @@ function mtlFromGroup(group) {
  * @returns {string} OBJ text: a `mtllib`, then one `o` block per diffuser, then
  *   the merged groups
  */
-export function objPayloadV4(config, chain, connectors, spacers = null, mtlName = DEFAULT_MTL_NAME) {
-  const body = new OBJExporter().parse(buildSceneGroup(config, chain, connectors, spacers))
+export function objPayloadV4(config, chain, connectors, mtlName = DEFAULT_MTL_NAME) {
+  const body = new OBJExporter().parse(buildSceneGroup(config, chain, connectors))
   return `mtllib ${mtlName}\n${body}`
 }
 
@@ -434,8 +409,8 @@ export function objPayloadV4(config, chain, connectors, spacers = null, mtlName 
  * @param {string} basename filename stem, no extension
  * @returns {{objName: string, mtlName: string, obj: string, mtl: string}}
  */
-export function objMtlPairV4(config, chain, connectors, spacers = null, basename = 'drop-ceiling') {
-  const group = buildSceneGroup(config, chain, connectors, spacers)
+export function objMtlPairV4(config, chain, connectors, basename = 'drop-ceiling') {
+  const group = buildSceneGroup(config, chain, connectors)
   const mtlName = `${basename}.mtl`
   return {
     objName: `${basename}.obj`,
@@ -449,6 +424,6 @@ export function objMtlPairV4(config, chain, connectors, spacers = null, basename
  * The object names this export will produce, in order. Cheap enough to call for
  * a UI hint, and it is what the export tests assert against.
  */
-export function objObjectNames(config, chain, connectors, spacers = null) {
-  return buildSceneGroup(config, chain, connectors, spacers).children.map((m) => m.name)
+export function objObjectNames(config, chain, connectors) {
+  return buildSceneGroup(config, chain, connectors).children.map((m) => m.name)
 }

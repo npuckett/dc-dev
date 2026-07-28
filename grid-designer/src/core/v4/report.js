@@ -166,18 +166,6 @@
  * pair that shares no joint — and there is no such function in `core/v3/`. Until
  * there is, a positive clearance is a GUARANTEE and a negative one is a QUESTION,
  * and `W_CORNER_RAMPS_MEET` says so in as many words.
- *
- * =============================================================================
- * THE SPACERS — a cross-check, not a restatement
- * =============================================================================
- * `report.spacers` carries the count, the count per cell, the clearance asked
- * for, and the DISTINCT HEIGHTS the posts came out at. That last field is the
- * whole point of the section: the clearance is applied by `lattice.js` as a
- * translation of the network and the heights are measured by `spacers.js` off
- * the resulting undersides, so the two are independent and their agreement is
- * evidence rather than tautology. One distinct height, equal to the clearance,
- * is what a correct grounded design looks like; anything else raises
- * `W_SPACER_MISMATCH` and names the worst post.
  */
 
 import { normalizeConfig, ANGLE_MIN, ANGLE_MAX, GAP_MIN, GAP_MAX } from './schema.js'
@@ -192,7 +180,6 @@ import {
 } from '../v3/connectors.js'
 import { findCollisions } from '../v3/collide.js'
 import { solveObstacles, OBSTACLE_HIT_CODE } from './obstacles.js'
-import { solveSpacers, SPACER_MISMATCH_CODE } from './spacers.js'
 
 /** Ignore contact shallower than this when calling something a collision. The
  *  panels are MEANT to nearly touch across the joint, so a zero-tolerance test
@@ -624,13 +611,11 @@ export function solveCornerClearance(C) {
  * @param {object} config raw or normalized v4 config
  * @param {object} [lattice] a network from solveLattice; solved here if omitted
  * @param {object} [connectors] stations from solveConnectorsV4; solved if omitted
- * @param {object} [spacers] posts from solveSpacers; solved if omitted
  */
-export function buildReportV4(config, lattice = null, connectors = null, spacers = null) {
+export function buildReportV4(config, lattice = null, connectors = null) {
   const cfg = normalizeConfig(config)
   const C = lattice ?? solveLattice(cfg)
   const K = connectors ?? solveConnectorsV4(cfg, C)
-  const S = spacers ?? solveSpacers(cfg, C)
 
   const warnings = [...K.warnings]
 
@@ -762,7 +747,13 @@ export function buildReportV4(config, lattice = null, connectors = null, spacers
         code: 'W_BELOW_FLOOR',
         panel: p.id,
         yMinCm: r(yMin),
-        message: `${p.id} reaches ${r(-yMin)}cm below the floor — only reachable with grounding off`,
+        // Two ways to get here now, and the message names both rather than the
+        // one it used to be: grounding off leaves the housings hanging, and a
+        // NEGATIVE y offset sinks a grounded design on purpose (§9.12). The
+        // second is a request, not a mistake, so this stays a warning.
+        message:
+          `${p.id} reaches ${r(-yMin)}cm below the floor — either grounding is off, or the ` +
+          'y offset is negative and the whole design has been sunk deliberately',
       })
     }
     if (xMin < -PLANE_EPSILON) {
@@ -859,46 +850,7 @@ export function buildReportV4(config, lattice = null, connectors = null, spacers
     })
   }
 
-  // --- the ground spacers ---------------------------------------------------
-  // The posts that hold the flat cells off the floor (spacers.js). Two numbers
-  // that are worth stating separately: the CLEARANCE asked for, and the heights
-  // the posts actually came out. They are computed in different modules from
-  // different quantities — `lattice.js` translates the network, `spacers.js`
-  // measures the underside it landed at — so a disagreement between them is a
-  // real bug in one of the two and not a rounding question. There should be
-  // exactly ONE distinct height on any grounded design.
-  const spacerReport = {
-    grounded: S.grounded,
-    clearanceCm: S.clearanceCm,
-    sectionCm: S.sectionCm,
-    perEdge: S.perEdge,
-    count: S.spacers.length,
-    cellCount: S.perCell.length,
-    perCell: S.perCell,
-    heightsCm: S.heightsCm,
-  }
-  const offBy = S.spacers.filter((sp) => Math.abs(sp.heightCm - S.clearanceCm) > 1e-6)
-  if (offBy.length > 0) {
-    const worst = offBy.reduce(
-      (a, b) => (Math.abs(b.heightCm - S.clearanceCm) > Math.abs(a.heightCm - S.clearanceCm) ? b : a),
-    )
-    warnings.push({
-      code: SPACER_MISMATCH_CODE,
-      count: offBy.length,
-      clearanceCm: S.clearanceCm,
-      worstHeightCm: worst.heightCm,
-      spacer: worst.id,
-      cell: worst.cell,
-      message:
-        `${offBy.length} ground spacer(s) do not span the ${S.clearanceCm}cm clearance — worst is ` +
-        `${worst.id} under ${worst.cell} at ${worst.heightCm}cm. Grounding puts the network's LOWEST ` +
-        'material at the clearance, so this means the lowest flat cells are not the lowest thing in ' +
-        'the design (a ramp toe or an anchor is below them) and the posts under those cells are the ' +
-        'wrong length for the gap they are meant to hold open',
-    })
-  }
-
-  return { joints, envelope, collisions, cornerContacts, obstacles, spacers: spacerReport, metrics, warnings }
+  return { joints, envelope, collisions, cornerContacts, obstacles, metrics, warnings }
 }
 
 /**

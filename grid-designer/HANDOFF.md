@@ -1015,7 +1015,6 @@ geometry, the wrong shape for lighting a scene. `src/v4/objExport.js` emits inst
 | `diffuser_NNN_<id>` | **one per panel**, so each lit face can take its own brightness |
 | `frame` | every panel's housing, merged |
 | `connectors` | every printed part, both pieces, merged |
-| `spacers` | every ground spacer post, merged (added in §9.12) |
 | `power_supplies` | every driver box, merged |
 
 The diffuser/frame cut costs nothing to maintain because it was already drawn: `panelGeometry.js`
@@ -1080,66 +1079,68 @@ every `newmtl`, re-checks index integrity, and asserts the OBJ `o` list and the 
 equal `buildSceneGroup`'s so the two writers cannot drift. `tests/screenshot-v4-export.mjs` clicks
 the real buttons and parses the files that actually land on disk.
 
-### 9.12 The clearance and the spacer are two different things, and keeping them apart is what makes either checkable
+### 9.12 The feet came out, and the number under them turned into a plain y offset
 
-The brief was one sentence — *everything laying flat on the ground needs a 15cm spacer or gap,
-matching the pattern of the other connectors* — and it named two things that wanted building in two
-places.
+> Let's lose the feet under the flat panels, that was a failed idea, but add a simple slider to
+> adjust the entire system in y
 
-**The gap is grounding.** `placement.groundClearanceCm` (default 15, range 0..50) moves what
-`groundToFloor` aims at: the network's lowest material lands at the clearance instead of at 0. It is
-a rigid translation of the whole network, like the wall and window offsets. The tempting alternative
-— lift the cells that rest on the floor, leave the rest — is wrong for a reason that has nothing to
-do with taste: the network is one rigid assembly and every joint between a lifted cell and an
-unlifted ramp would have to open by 15cm. There is no per-cell version of this.
+**The user judged the idea failed.** That is the reason, stated plainly. Nothing in the module was
+wrong: `src/core/v4/spacers.js` stood 64 posts under the eight floor-resting cells on the shipped
+default, spaced by the connectors' own `stationCount` rule, and cross-checked its measured heights
+against the clearance `lattice.js` had translated by. It worked. The user looked at the feet under
+the flat panels and did not want them, and no amount of the model being right about a part answers
+that.
 
-**The spacer is a part**, in a new `src/core/v4/spacers.js`, and it is the thing that holds the gap
-open. 64 posts on the shipped default.
+**Deleted, not flagged.** A part nobody wants is not a setting — `showSpacers` would have been a
+toggle whose off state is the design and whose on state is a rejected idea. The whole of it goes:
+the module, `report.spacers`, `W_SPACER_MISMATCH`, the viewport toggle and posts, the metrics count,
+and the `spacers` group in BOTH exports. Commit `71f8b15` built them and is the record.
 
-#### The measurement is the whole design of the module
+The one habit worth carrying forward: the module **measured** undersides rather than testing
+`level === 0`, and the wave later proved that was the right call (§9.14 point 2). Grounding still
+measures, which is why a scrunched wave grounds on the one corner actually touching the floor.
 
-`spacers.js` could have written `heightCm: config.placement.groundClearanceCm` and been correct on
-every design. It measures the underside instead, and the report cross-checks the two:
+#### What survives: the gap half, honestly named
 
-- `lattice.js` **applies** the clearance as a translation;
-- `spacers.js` **measures** the underside it landed at;
-- `report.spacers.heightsCm` is the set of distinct results, and there should be exactly one.
+The old §9.12 split one brief into two things, and the split was right — but only one of them was a
+part. The other was **grounding**, and it survives as `placement.yOffsetCm`.
 
-A module that asserts its own inputs cannot detect its own bug — the same rule `connectors.js`
-follows when it measures a span it knows is `gap`, and the reason the suite's central claim is worth
-anything. `W_SPACER_MISMATCH` is what fires when they disagree, and it is non-vacuous: a design with
-no ground cells present has its lowest flat cells one level up, something else (a ramp toe) is the
-lowest material, and the posts under those cells are genuinely the wrong length.
+It is still a **rigid translation of the whole network**, like the wall and window offsets. The
+tempting alternative — lift the cells resting on the floor, leave the rest — is wrong for a reason
+that has nothing to do with taste: the network is one rigid assembly, and every joint between a
+lifted cell and an unlifted ramp would have to open by the offset. There is no per-cell version of
+this, which is exactly why "adjust the entire system in y" is the honest description of the control.
 
-#### "Matching the pattern of the other connectors" is a reused rule, not a look
+**The name was the actual bug.** It was `groundClearanceCm`, then labelled "spacer height" in the UI
+because "ground clearance" was unfindable — named after a part you could see. With the part gone,
+both names were wrong: there is no clearance and nothing standing in it. It is now `yOffsetCm`,
+labelled **height (y)**, and the help text says what it does — lifts or lowers the entire network,
+measured from the network's own lowest point when `groundToFloor` is on.
 
-The stations come from `stationCount` in `core/v3/connectors.js` — the same function, the same
-`config.connectors.spacingCm` / `minPerJoint`, and the same `(m + 0.5)/n` symmetric spacing
-`solveConnectorsV4` uses — applied to each of the cell's four edges. A joint's rim and a cell's edge
-are both 60cm, so if the rule is really shared the two counts have to track each other exactly, and
-`tests/test-v4-spacers.mjs` §6 sweeps the spacing knob and asserts they do. A hardcoded four per
-cell would have looked identical on the default design and drifted apart the first time the knob
-moved; that check is the difference between a shared rule and a coincidence.
+**The band moved for the same reason.** 0..50 was sized for a post: 50cm is where a spacer becomes a
+leg. Nothing is standing now, so what bounds it is the wall the design hangs against — the mullions
+run to 375cm, so the band is **−100 .. 400**. The negative end is not a degenerate case: sinking a
+design below y = 0 is a real thing to ask for, and it makes `W_BELOW_FLOOR` reachable a second way,
+so that warning's message was corrected to name both causes rather than only "grounding is off".
 
-#### Only the lowest cells, and it is measured rather than looked up
+#### The legacy key is read on purpose, and the version was deliberately NOT bumped
 
-A high cell is held up by the four ramps that reach it — that is what the checkerboard is for — so
-propping one would be a redundant load path and a 66cm leg standing in the room. The qualifying set
-is found by measuring each present cell's underside and keeping those within 1e-6 of the lowest,
-not by testing `level === 0`. They agree on every design this model can build. The measurement is
-what keeps meaning the right thing if a third level ever arrives.
+`normalizeConfig` still accepts `placement.groundClearanceCm` and folds it into `yOffsetCm`. This is
+not defensive habit — it is the only thing between the user's saved slots and their working
+localStorage config and a silent reset to the default. Bumping `EXPECTED_CONFIG_VERSION` would have
+been the *wrong* move for exactly the same reason: the config SHAPE did not change, only a name and
+a band, and a version bump discards rather than migrates. The new key wins when both are present, so
+a config written today means what it says. `tests/test-v4-schema.mjs` §L pins all four cases.
 
-#### Smaller decisions worth the record
+#### The geometry did not move, and that was checked structurally
 
-- **The post is set in by half its section**, so its outer face is flush with the rim. Centred on
-  the rim line, half of it would hang outside the panel.
-- **Its section is `PANEL_PROFILE.overallThickness`**, derived rather than picked — as wide as the
-  housing it stands under (HANDOFF §2.19 on constants with no provenance).
-- **Grounding off means no spacers at all**, not zero-height ones. A post from the floor to a cell
-  that is under the floor is an artefact of asking a question that does not apply.
-- **What the post is made of and how it fixes to the panel is not modelled.** The rim is 1.2cm of
-  outer wall where the foot lands and does not reach full thickness until `bodyInset` inboard, so
-  the load path there is a real question. Same contract as the wall anchor: do not invent a bracket.
+The rename touches the one line in `lattice.js` that reads the knob. To prove nothing else shifted,
+the whole `solveLattice` output — every panel, corner, quaternion, OBB and joint — was dumped over a
+spread of designs (trapezoid, phased, wave; grounded and not) at three offsets before the change and
+again after, and diffed. The only textual difference in a megabyte of output was the config echo's
+key name. `tests/test-v4-lattice.mjs` §10 keeps the claim live: every panel corner minus the offset
+is identical at −50, 0, 15 and 200, and non-vacuously so — the four raw solves really are four
+different designs.
 
 ### 9.14 The wave — a varying angle, and why the checkerboard cannot have one
 
@@ -1201,11 +1202,11 @@ the angle that delivers it is bisected (60 fixed steps, on `[base, ANGLE_MAX]`).
 1. **`level` had to stop being binary**, and the honest generalisation was to rank cells by MEASURED
    height rather than to invent a third enum. `level === 0` still means "on the floor", which is the
    only thing anything downstream ever asked of it.
-2. **`spacers.js` was already right, and this is the payoff.** §9.12 chose to *measure* undersides
-   rather than test `level === 0`, "in case a third level ever arrives". It arrived. On a scrunched
-   wave the module correctly props the **one** cell actually resting on the floor — which is itself
-   a finding: a scrunched wave stands on one corner and is grounded as a rigid body, not laid on the
-   floor.
+2. **Measuring rather than testing `level === 0` was already right, and this is the payoff.** The
+   spacers chose to *measure* undersides "in case a third level ever arrives". It arrived. The
+   spacers themselves are gone (§9.12) but grounding kept the habit, so on a scrunched wave the y
+   offset lands the **one** cell actually resting on the floor — which is itself a finding: a
+   scrunched wave stands on one corner and is grounded as a rigid body, not laid on the floor.
 3. **The envelope stopped being a property of `(gap, θ)`** and the report had to say so rather than
    keep quoting one boundary. `maxAngleDeg` under the wave means *the largest **base** angle*;
    `envelope.perJoint` carries the distinct-fold count, the dirty count and the worst joint. The
@@ -1229,7 +1230,8 @@ belongs in its own pass — the standing rule here is that the geometry does not
    network's joints are concave at any θ.
 3. **What the wall anchor fixes to.** The geometry says where the toe lands; the attachment is not
    modelled.
-4. **Whether the spacer's foot can bear on the rim** (§9.12) — the geometry places it; nothing
-   says the section is strong enough there.
+4. **What holds a flat cell off the floor**, now that the spacers are gone (§9.12). The y offset
+   says where the network sits; nothing says what it sits on. Deliberately open — the user rejected
+   feet, and inventing a different support would be the same mistake twice.
 5. Flippable ramps (§9.4); plateaus of same-level flats; plates. *(Per-cell angle and >2 levels are
    delivered by §9.14 for the separable family; on the checkerboard they are impossible, proven.)*

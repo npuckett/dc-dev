@@ -77,10 +77,10 @@ import {
   WALL_OFFSET_MAX,
   WINDOW_OFFSET_MIN,
   WINDOW_OFFSET_MAX,
-  GROUND_CLEARANCE_MIN,
+  Y_OFFSET_MIN,
+  Y_OFFSET_MAX,
   WALL_THICKNESS_MIN,
   WALL_THICKNESS_MAX,
-  GROUND_CLEARANCE_MAX,
   CONNECTOR_LENGTH_MIN,
   CONNECTOR_LENGTH_MAX,
   CONNECTOR_SPACING_MIN,
@@ -115,7 +115,6 @@ import {
 } from '../core/v4/schema.js'
 import { solveLattice } from '../core/v4/lattice.js'
 import { solveConnectorsV4 } from '../core/v4/connectors.js'
-import { solveSpacers } from '../core/v4/spacers.js'
 import { buildReportV4 } from '../core/v4/report.js'
 import { deleteSlot, loadSlot, loadWorkingConfig, saveSlot, saveWorkingConfig } from '../persistence.js'
 
@@ -128,7 +127,7 @@ const derivedCache = new WeakMap()
  * Solve + report a config, memoized on the config OBJECT IDENTITY.
  *
  * @param {object} config a validated, normalized v4 config
- * @returns {{ chain: object, connectors: object, spacers: object, report: object }}
+ * @returns {{ chain: object, connectors: object, report: object }}
  *   reference-stable per config
  */
 export function getDerived(config) {
@@ -136,12 +135,8 @@ export function getDerived(config) {
   if (!entry) {
     const chain = solveLattice(config)
     const connectors = solveConnectorsV4(config, chain)
-    // Chained for the same reason as the others: the report would otherwise
-    // re-solve the spacers internally, and the viewport needs the very same
-    // records the report counted.
-    const spacers = solveSpacers(config, chain)
-    const report = buildReportV4(config, chain, connectors, spacers)
-    entry = { chain, connectors, spacers, report }
+    const report = buildReportV4(config, chain, connectors)
+    entry = { chain, connectors, report }
     derivedCache.set(config, entry)
   }
   return entry
@@ -345,12 +340,6 @@ const useStoreV4 = create((set, get) => {
      * built around, so a view without them is a view of half the argument.
      */
     showConnectors: true,
-    /**
-     * Draw the ground spacers? Default ON, on the same reasoning as the
-     * connectors — they are structure, not annotation, and a view without them
-     * shows a network floating 15cm off the floor with nothing holding it there.
-     */
-    showSpacers: true,
     /** The world origin triad. On by default: the convention it draws is the one
      *  every on-site dimension is quoted from. */
     showOrigin: true,
@@ -492,17 +481,17 @@ const useStoreV4 = create((set, get) => {
         draft.placement.groundToFloor = on === undefined ? !draft.placement.groundToFloor : Boolean(on)
       }),
     /**
-     * How far off the floor the lowest material sits — and therefore how tall
-     * every ground spacer is (`core/v4/spacers.js`). Only bites when
-     * `groundToFloor` is on: with grounding off there is nothing anchoring the
-     * network to the floor for a clearance to be measured from.
+     * Where the whole network sits in y. A rigid translation of the finished
+     * design — nothing inside it changes shape. Only bites when `groundToFloor`
+     * is on: with grounding off there is nothing anchoring the network in y for
+     * the offset to be measured from.
      */
-    setGroundClearance: (v) =>
+    setYOffset: (v) =>
       commit((draft) => {
-        draft.placement.groundClearanceCm = clamp(
-          numOr(v, draft.placement.groundClearanceCm),
-          GROUND_CLEARANCE_MIN,
-          GROUND_CLEARANCE_MAX,
+        draft.placement.yOffsetCm = clamp(
+          numOr(v, draft.placement.yOffsetCm),
+          Y_OFFSET_MIN,
+          Y_OFFSET_MAX,
         )
       }),
 
@@ -911,7 +900,6 @@ const useStoreV4 = create((set, get) => {
       set((s) => ({ showConnectors: on === undefined ? !s.showConnectors : Boolean(on) })),
     toggleOrigin: (on) => set((s) => ({ showOrigin: on === undefined ? !s.showOrigin : Boolean(on) })),
 
-    toggleSpacers: (on) => set((s) => ({ showSpacers: on === undefined ? !s.showSpacers : Boolean(on) })),
     setColorMode: (mode) => set({ colorMode: mode }),
     setHoveredUnit: (id) => set({ hoveredUnitId: id ?? null }),
     setSelectedUnit: (id) => set((s) => ({ selectedUnitId: s.selectedUnitId === id ? null : (id ?? null) })),
