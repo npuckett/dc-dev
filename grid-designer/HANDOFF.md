@@ -1221,6 +1221,51 @@ floor; the wave has no such level, so the toe would land in mid-air. `braced` em
 `W_WAVE_NO_ANCHOR` says so. A per-cell anchor angle solved to reach the floor is a real design and
 belongs in its own pass — the standing rule here is that the geometry does not invent a bracket.
 
+### 9.15 The room was measured in, and three bounds quietly rewrote it
+
+The building is now modelled: the wall's thickness, a structural column, both window elevations
+either side of the corner, and the two heating runs. V4_SPEC §9.15 is the description; this is what
+it cost to get there.
+
+**Two datum errors, both caught by the user rather than by me.**
+
+`z = 0` was documented as "the window/shore line" and is not the glass — it is a reference plane
+with the real window at negative z. Every element placed against the old reading would have landed
+59.7cm out.
+
+`y = 0` is the floor the panels stand on. From the street that surface reads as a deep sill and I
+had put it in the questions that way. Had it gone in as a sill, the model would carry a solid
+exactly where the installation sits, and every clearance against it would have been wrong in the
+direction that looks safe. **A site photo settled in one glance what three rounds of questions had
+not.** Ask for one earlier.
+
+**Three clamps silently rewrote measurements, and none was caught by reading the record back.**
+
+| bound | was | did |
+|---|---|---|
+| `OBSTACLE_SIZE_MAX` | 500 | clamped the 594cm heating run to 500 — far end 94cm short |
+| `OBSTACLE_SIZE_MIN` | 1 | fattened the 0.5cm glass to 1.0 |
+| `placement.yOffsetCm` default | 15 | floated the whole network 15cm off the floor, long after the spacers it was named for were deleted |
+
+All three produce entirely plausible output. What caught them was checking emitted extents against
+hand arithmetic — `−81.3 + 594` against the emitted max, `0.5` against the emitted thickness. The
+lesson is narrow and worth keeping: **a bound sized for one element will silently rewrite the next
+one, and the only test that catches it is arithmetic done independently of the code.**
+
+**The corner is one description, not two lists.** `MULLION_SECTION` carries `acrossCm`/`depthCm`
+rather than width/depth because which world axis each maps to is precisely what a 90° turn changes.
+Named after axes, the return elevation's mullions come out 6.35 deep and 19.05 across — a mullion on
+its side, which reads as fine in a plan view and is wrong in section. The suite asserts each
+dimension lands on the right axis per elevation, and that the caps' "outside" direction turned too.
+
+**A saved design must not be able to withhold the room.** `obstacles` lives in `config`, so it
+persists, and normalize took a saved list verbatim. Anyone whose working config predated an element
+never saw it — the mullions and heating gap were invisible in a real browser while present in every
+test. My own checks missed it because they called `resetConfig()` first, which reloads the defaults:
+**the one path that mattered was the one I never took.** Same shape as the white-screen episode,
+where the cause was environmental rather than in the code just written. `mergeObstacles` folds by id
+now; the regression is its own test, both halves.
+
 ### 9.13 Open
 
 0. **A wall anchor for the wave** (§9.14) — see "refused rather than approximated" above.
@@ -1233,5 +1278,9 @@ belongs in its own pass — the standing rule here is that the geometry does not
 4. **What holds a flat cell off the floor**, now that the spacers are gone (§9.12). The y offset
    says where the network sits; nothing says what it sits on. Deliberately open — the user rejected
    feet, and inventing a different support would be the same mistake twice.
-5. Flippable ramps (§9.4); plateaus of same-level flats; plates. *(Per-cell angle and >2 levels are
+5. **The sill's depth** (§9.15) — set to the mullion footprint, the minimal claim. If it oversails
+   toward the room it can reach the network, so this is the one room dimension whose being wrong
+   would change a clearance verdict rather than just a picture.
+6. **The ceiling.** Nothing knows where the top of the room is; the mullions already reach 375.
+7. Flippable ramps (§9.4); plateaus of same-level flats; plates. *(Per-cell angle and >2 levels are
    delivered by §9.14 for the separable family; on the checkerboard they are impossible, proven.)*

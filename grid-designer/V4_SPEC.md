@@ -757,3 +757,103 @@ wall anchor for the wave (§9.14), and any physical design for the wall attachme
 
 *(Per-cell angle and more than two levels were on this list until §9.14, which delivers both — for
 the separable family only. On the checkerboard they remain impossible, and §9.14 has the proof.)*
+
+---
+
+## 9.15 The room
+
+Everything the installation has to be placed *against*. None of it is design: it is the building,
+measured on site, and nothing in `src/core/v4/lattice.js` reads any of it. `obstacles.js` only ever
+answers questions — it never moves a panel or refuses a config, the same "report the cost, do not
+veto" contract the connector flags follow.
+
+### The datum
+
+| axis | zero at | positive |
+|---|---|---|
+| **x** | the wall's **room-side face** | away from the wall, into the room |
+| **y** | **the floor the panels stand on** | up |
+| **z** | the **window side** | away from the window, into the room |
+
+Two of those are easy to get wrong and both have already been got wrong once:
+
+- **`z = 0` is a reference plane, not the glass.** The real window sits at negative z. Obstacles
+  therefore take signed coordinates, and anything assuming the room lives in the positive quadrant
+  is wrong.
+- **`y = 0` is the floor the panels stand on** — the surface visible in the site photo. From the
+  street it reads as a deep sill; it is not. Reading it as a sill would put a solid exactly where the
+  installation sits, and every clearance against it would be wrong in the reassuring direction.
+
+`RibbonViewport` draws the origin triad so the convention can be checked rather than trusted. Note
++X points to screen-**left**: the camera looks in from the window, so the wall renders on the right.
+
+### Elements
+
+`obstacles[]`, each an axis-aligned box with `anchor` (`corner` = min x/z, or `centre`), `baseYCm`
+(where it starts in y — routinely negative, and *not* anchored, because "how far up does it start"
+has no corner/centre ambiguity), and `kind`:
+
+| kind | what | drawn |
+|---|---|---|
+| `solid` | material — column, mullion, sill, cap | dense |
+| `zone` | reserved **empty space** the design must keep out of — the heating runs | outlined, faint |
+| `glass` | material, but see-through | nearly clear |
+
+All three are tested identically; `kind` never reaches `solveObstacles`.
+
+### The window turns a corner
+
+This is the corner of the building. The glazing runs along x, reaches **(−81.3, −59.7)**, and turns
+90° to run up the returning elevation with the same section, glass detail, height off the sidewalk,
+and spacing pattern measured from the corner.
+
+The two elevations are **one description with an axis swapped** — `facade('x')` and `facade('z')`.
+`MULLION_SECTION` is stated as `acrossCm` (6.35, the face width) and `depthCm` (19.05, how far it
+reaches back) rather than width/depth, because *which world axis each maps to is exactly what the
+turn changes*. Naming them x and z lays the return's mullions on their side — plausible in plan,
+wrong in section.
+
+Mullion centres step **129.5, then 152.4 × 3** from the corner on both elevations. Heights are
+identical on both — a corner changes plan, not section:
+
+```
+caps        y −65 → 375    1cm, one per mullion, outside the glazing plane
+glass       y −25 → 375    0.5 thick, flush to the STREET face
+mullions    y −25 → 375    6.35 across × 19.05 deep
+sill        y −30 → −25    top flush with the mullion bottom
+sill (low)  y −70 → −65    at sidewalk level, 40 below
+```
+
+The **corner post is shared** and appears in both elevations' lists: the two first mullions overlap
+in a 6.35 × 6.35 column, and that overlap *is* the post described twice. The element count is not a
+part count.
+
+### The heating runs are trenches
+
+```
+heating          x −62.25 → 512.7   y −25 → 0   z −59.7 → 0
+heating-return   x −62.25 → 0       y −25 → 0   z 0 → 533.35
+```
+
+**They stop at the floor, and that is load-bearing.** The wall slab is drawn from y = 0 up, so a
+trench below the floor and a wall above it never meet — which is the only reason the return run can
+legitimately reach x = 0, the wall's room-side face. It passes *under* the wall. If a run ever
+climbs past y = 0 again it starts intersecting the wall silently.
+
+They **tile** rather than overlap: gap 1 covers the corner square across gap 2's whole x range, so
+gap 2 starting at z = 0 leaves neither an overlap nor a missed strip (asserted with the SAT).
+
+### The saved-design contract
+
+Obstacles are site measurements, so a design saved before an element was measured must not be able
+to withhold it. `mergeObstacles` folds a saved list onto the room's known elements **by id**:
+
+- **absent** → the room as measured
+- **`[]`** → deliberately no room, for studying the design alone
+- **non-empty** → the room as measured, those entries overriding by id, unknown ids appended
+
+### Still assumed, not measured
+
+- **the sill's depth** — set to the mullion footprint, the minimal claim. If it oversails toward the
+  room it can reach the network.
+- **the ceiling** — nothing knows where the top of the room is. The mullions already reach 375.
