@@ -1398,3 +1398,23 @@ body {
   text-shadow: 0 0 4px #000, 0 0 8px #000;
   pointer-events: none;
 }
+
+/* Room obstacles collapsed into one native <details>. */
+.obstacles-block { padding: 8px 10px; }
+.obstacles-block > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+  outline: none;
+}
+.obstacles-block > summary::-webkit-details-marker { color: #7b869c; }
+.obstacles-block > summary .form-hint,
+.obstacles-block > summary .obstacle-hit { margin: 0; font-size: 11px; }
+.obstacles-block[open] > summary { margin-bottom: 8px; }
+.obstacle-row {
+  padding: 8px 0;
+  border-top: 1px solid #232733;
+}
+.obstacle-row:first-of-type { border-top: 0; }

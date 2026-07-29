@@ -106,6 +106,87 @@ function SliderRow({ testId, label, value, min, max, step, onChange, format, dis
 }
 
 /** A limit stated as a sentence, coloured by whether the design is past it. */
+/**
+ * The room's obstacles, in one collapsible block.
+ *
+ * See the call site in `StripPanel`: 92 obstacles blow the sidebar up, so the
+ * lot goes inside a native `<details>`. Closed by default; opening it prints
+ * exactly the same per-obstacle interface the sidebar had before, so the
+ * behaviour is unchanged and only the LAYOUT is folded.
+ *
+ * The summary shows the count and any panel hits, so the important line —
+ * "something is fouled" — is visible with the block closed. Anything worse
+ * than a hit belongs in the report panel below, not here.
+ */
+function ObstaclesBlock({ config, report, setObstacleField }) {
+  const items = config.obstacles ?? []
+  const solved = new Map(report.obstacles.map((o) => [o.id, o]))
+  const hits = report.obstacles.filter((o) => o.hitCount > 0)
+  return (
+    <details className="col-profile form-block obstacles-block" data-testid="obstacles-block">
+      <summary className="obstacles-summary">
+        <span className="slider-label">room ({items.length})</span>
+        <span className={hits.length ? 'obstacle-hit' : 'form-hint'}>
+          {hits.length
+            ? `${hits.length} fouled — ${hits.map((o) => o.label).join(', ')}`
+            : 'nothing fouled'}
+        </span>
+      </summary>
+      <p className="form-hint">
+        The room is <b>measured on site</b> and mostly derived: the mullions from the corner, the
+        stair from its riser, the column from the well between the flights. Editing a value below is
+        currently a no-op — a saved list cannot override the room — so this is a read-out, not an
+        editor. Opening a specific dimension for editing is a follow-up.
+      </p>
+      {items.map((o) => {
+        const s = solved.get(o.id)
+        const x0 = s?.extents.min[0]
+        const z0 = s?.extents.min[2]
+        return (
+          <div className="obstacle-row" key={o.id} data-testid={`obstacle-${o.id}`}>
+            <div className="form-check-row">
+              <span className="slider-label">{o.label || o.id}</span>
+              <div className="seg-group">
+                {['corner', 'centre'].map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    className={`seg-btn${o.anchor === a ? ' seg-btn-on' : ''}`}
+                    onClick={() => setObstacleField(o.id, 'anchor', a)}
+                    title={a === 'corner' ? 'x/z locate its near corner' : 'x/z locate its centre'}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="obstacle-fields">
+              {[['xCm', 'x'], ['zCm', 'z'], ['widthCm', 'w'], ['depthCm', 'd']].map(([f, lbl]) => (
+                <label key={f} className="obstacle-field">
+                  <span>{lbl}</span>
+                  <input
+                    type="number"
+                    value={o[f]}
+                    step={5}
+                    data-testid={`obstacle-${o.id}-${f}`}
+                    onChange={(e) => setObstacleField(o.id, f, e.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+            <p className={s?.hitCount ? 'form-annotation obstacle-hit' : 'form-annotation'}>
+              occupies <b>x {x0}–{s?.extents.max[0]}, z {z0}–{s?.extents.max[2]}cm</b>.{' '}
+              {s?.hitCount
+                ? `${s.hitCount} panel${s.hitCount === 1 ? '' : 's'} run through it — outlined red in the plan.`
+                : `nearest panel ${s?.nearestClearanceCm?.toFixed(0) ?? '—'}cm away.`}
+            </p>
+          </div>
+        )
+      })}
+    </details>
+  )
+}
+
 function LimitLine({ testId, over, children }) {
   return (
     <p className={`limit-line${over ? ' limit-line-over' : ''}`} data-testid={testId}>
@@ -513,54 +594,18 @@ export default function StripPanel() {
       </div>
 
       {/* --- the room's obstacles ---------------------------------------------- */}
-      {(config.obstacles ?? []).map((o) => {
-        const solved = report.obstacles.find((r) => r.id === o.id)
-        const x0 = solved?.extents.min[0]
-        const z0 = solved?.extents.min[2]
-        return (
-          <div className="col-profile form-block" key={o.id} data-testid={`obstacle-${o.id}`}>
-            <div className="form-check-row">
-              <span className="slider-label">{o.label}</span>
-              <div className="seg-group">
-                {['corner', 'centre'].map((a) => (
-                  <button
-                    key={a}
-                    type="button"
-                    className={`seg-btn${o.anchor === a ? ' seg-btn-on' : ''}`}
-                    onClick={() => setObstacleField(o.id, 'anchor', a)}
-                    title={a === 'corner' ? 'x/z locate its near corner' : 'x/z locate its centre'}
-                  >
-                    {a}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="obstacle-fields">
-              {[['xCm', 'x'], ['zCm', 'z'], ['widthCm', 'w'], ['depthCm', 'd']].map(([f, lbl]) => (
-                <label key={f} className="obstacle-field">
-                  <span>{lbl}</span>
-                  <input
-                    type="number"
-                    value={o[f]}
-                    step={5}
-                    data-testid={`obstacle-${o.id}-${f}`}
-                    onChange={(e) => setObstacleField(o.id, f, e.target.value)}
-                  />
-                </label>
-              ))}
-            </div>
-            <p className={solved?.hitCount ? 'form-annotation obstacle-hit' : 'form-annotation'}>
-              measured from the window/wall corner, so it occupies{' '}
-              <b>x {x0}–{solved?.extents.max[0]}, z {z0}–{solved?.extents.max[2]}cm</b>.{' '}
-              {solved?.hitCount
-                ? `${solved.hitCount} panel${solved.hitCount === 1 ? '' : 's'} currently run through it — they are outlined red in the plan.`
-                : `Nothing touches it; the nearest panel is ${solved?.nearestClearanceCm?.toFixed(0) ?? '—'}cm away.`}
-              {' '}<b>corner</b> reads x/z as its near face, <b>centre</b> as its middle — a 25cm
-              difference on a 50cm column, so check the extents above match the tape.
-            </p>
-          </div>
-        )
-      })}
+      {/*
+        ONE collapsible block for the LOT of them. 92 obstacles turn into 92
+        col-profile blocks, which is more sidebar than any other section put
+        together. `<details>` is a native disclosure, so this needs no state and
+        no store — open when the user wants them, gone otherwise.
+
+        The summary carries the count and any hits, so nothing important is
+        hidden BEHIND the fold: if a panel is running through the column, that
+        fact is visible with the block closed.
+      */}
+      <ObstaclesBlock config={config} report={report} setObstacleField={setObstacleField} />
+
 
       {/* --- where it sits ---------------------------------------------------- */}
       <div className="col-profile form-block">
