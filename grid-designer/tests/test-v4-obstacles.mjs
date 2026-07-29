@@ -203,5 +203,63 @@ console.log('4. the report surfaces it, and never enforces it')
   ok(junk.obstacles[0].id !== junk.obstacles[1].id, 'a duplicate id is renamed rather than losing a column')
 }
 
+// -----------------------------------------------------------------------------
+// 5. THE CORNER — the facade turns 90°, and the section must turn with it
+// -----------------------------------------------------------------------------
+console.log('5. the return facade is the main one rotated about the corner')
+{
+  const all = normalizeConfig({}).obstacles
+  const ext = (id) => obstacleExtents(all.find((o) => o.id === id))
+  const CORNER = [-81.3, -59.7]
+
+  // Both facades start AT the corner. The corner post is shared and appears in
+  // both lists, so their first mullions overlap in a 6.35 × 6.35 column there.
+  const m1 = ext('mullion-1')
+  const r1 = ext('mullion-1-return')
+  ok(m1.min[0] === CORNER[0] && m1.min[2] === CORNER[1], 'the main facade starts at the corner')
+  ok(r1.min[0] === CORNER[0] && r1.min[2] === CORNER[1], 'and so does the return')
+
+  // THE SECTION TURNS WITH THE FACADE. This is the failure the whole shared
+  // generator exists to prevent: naming the section's dimensions after world
+  // axes lays the return's mullions on their side — 6.35 deep and 19.05 across
+  // — which looks entirely plausible in plan and is wrong in section.
+  near(m1.max[0] - m1.min[0], 6.35, 1e-9, 'main mullion is 6.35 ACROSS in x')
+  near(m1.max[2] - m1.min[2], 19.05, 1e-9, '...and 19.05 DEEP in z')
+  near(r1.max[0] - r1.min[0], 19.05, 1e-9, 'the return mullion is 19.05 DEEP in x')
+  near(r1.max[2] - r1.min[2], 6.35, 1e-9, '...and 6.35 ACROSS in z — the section turned')
+
+  // Same spacing pattern, measured out from the corner on both.
+  const centresOf = (re, axis) => all
+    .filter((o) => re.test(o.id))
+    .map((o) => { const e = obstacleExtents(o); return (e.min[axis] + e.max[axis]) / 2 })
+  const mainC = centresOf(/^mullion-\d+$/, 0)
+  const retC = centresOf(/^mullion-\d+-return$/, 2)
+  const gaps = (v) => v.slice(1).map((x, i) => +(x - v[i]).toFixed(6))
+  ok(mainC.length === 5 && retC.length === 5, 'five mullions on each facade')
+  ok(JSON.stringify(gaps(mainC)) === JSON.stringify([129.5, 152.4, 152.4, 152.4]),
+    `main spacings are 129.5 then 152.4 × 3 (${gaps(mainC)})`)
+  ok(JSON.stringify(gaps(retC)) === JSON.stringify(gaps(mainC)),
+    `and the return repeats them exactly from the corner (${gaps(retC)})`)
+
+  // Heights are untouched by the turn — a corner changes plan, not section.
+  for (const id of ['mullion-1', 'mullion-1-return']) {
+    ok(ext(id).min[1] === -25 && ext(id).max[1] === 375, `${id} spans y −25 → 375`)
+  }
+  ok(ext('sill-return').max[1] === -25 && ext('sill-sidewalk-return').max[1] === -65,
+    'the return sill and sidewalk sill sit at the same levels as the main ones')
+
+  // Glass stays 0.5 thick — across x on the return, across z on the main. The
+  // thickness must land on the axis the facade faces, not on a fixed one.
+  near(ext('glass').max[2] - ext('glass').min[2], 0.5, 1e-9, 'main glass is 0.5 thick in z')
+  near(ext('glass-return').max[0] - ext('glass-return').min[0], 0.5, 1e-9,
+    'and the return glass 0.5 thick in x')
+
+  // The caps sit OUTSIDE their own glazing plane, which is a different
+  // direction on each facade.
+  ok(ext('mullion-1-cap').max[2] <= ext('glass').min[2], 'main caps are outside the main glass')
+  ok(ext('mullion-1-return-cap').max[0] <= ext('glass-return').min[0],
+    'and the return caps outside the return glass — the "outside" direction turned too')
+}
+
 console.log(`\ntest-v4-obstacles: ${passed} checks passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

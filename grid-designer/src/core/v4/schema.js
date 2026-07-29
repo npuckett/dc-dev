@@ -441,142 +441,116 @@ export const OBSTACLE_SIZE_MAX = 2000
  * measurements landing 0.95cm apart is the kind of agreement that says both
  * were read correctly.
  */
-const MULLION_X0_CM = -81.3
-const MULLION_Z0_CM = -59.7
-const MULLION_SECTION = { widthCm: 6.35, depthCm: 19.05, heightCm: 400, baseYCm: -25 }
-/** Centre-to-centre, walking in +x from mullion 1. */
+const CORNER_X_CM = -81.3
+const CORNER_Z_CM = -59.7
+const MULLION_SECTION = { acrossCm: 6.35, depthCm: 19.05, heightCm: 400, baseYCm: -25 }
+/** Centre-to-centre, walking away FROM THE CORNER. Used on both facades. */
 const MULLION_SPACINGS_CM = [129.5, 152.4, 152.4, 152.4]
 
-/**
- * THE WINDOW ASSEMBLY, from the site photo and the measurements taken off it.
- *
- * y = 0 IS THE FLOOR THE PANELS STAND ON — the surface visible in the photo.
- * That was worth pinning down: the deep ledge it looks like from the street is
- * the room floor, not a sill, and reading it as a sill would have put a solid
- * where the installation actually sits.
- *
- * So the sill is BELOW floor level, under the glazing:
- *
- *   sill        y −30 → −25   top face flush with the mullion bottom, so the
- *                             glass lands on it
- *   sill (low)  y −70 → −65   "another 40cm down", at sidewalk level
- *   glass       y −25 → 375   full mullion height, flush to the STREET face
- *   caps        y −65 → 375   1cm outer skin, one per mullion, down to the
- *                             sidewalk
- *
- * The sill's z depth is the one number still not measured: it is set to the
- * mullion footprint, which is the minimal claim — enough to carry the glass and
- * the mullions and nothing more. If it actually oversails toward the room it
- * could reach the network, so it is flagged rather than assumed correct.
- *
- * The caps are PER MULLION rather than one band across the opening, because
- * "covers the mullions" is what was said and a full-width band would also cover
- * the glass — which would be wrong, and would hide the view the whole model
- * exists to sit inside.
- */
-const SILL_DEPTH_CM = MULLION_SECTION.depthCm
 const SILL_THICKNESS_CM = 5
 const SILL_TOP_Y_CM = MULLION_SECTION.baseYCm
 const SIDEWALK_DROP_CM = 40
 const GLASS_THICKNESS_CM = 0.5
 const CAP_THICKNESS_CM = 1
 
-/** The full x run of the glazing: mullion 1's near face to mullion 5's far face. */
-function mullionRun() {
-  const ms = mullions()
-  const first = ms[0]
-  const last = ms[ms.length - 1]
-  return { x0: first.xCm, x1: last.xCm + last.widthCm }
-}
+const SIDEWALK_Y_CM = SILL_TOP_Y_CM - SIDEWALK_DROP_CM
+const MULLION_TOP_Y_CM = MULLION_SECTION.baseYCm + MULLION_SECTION.heightCm
 
-function windowAssembly() {
-  const { x0, x1 } = mullionRun()
-  const widthCm = Math.round((x1 - x0) * 1e9) / 1e9
-  const z0 = MULLION_Z0_CM
-  const sidewalkY = SILL_TOP_Y_CM - SIDEWALK_DROP_CM
-  const mullionTopY = MULLION_SECTION.baseYCm + MULLION_SECTION.heightCm
+/**
+ * THE WINDOW, AND IT TURNS A CORNER.
+ *
+ * This is the corner of the building. The glazing runs along x, reaches the
+ * corner at (−81.3, −59.7), and turns 90° to run along z up the returning
+ * elevation — same section, same glass detail, same height off the sidewalk,
+ * and the same spacing pattern measured out from the corner.
+ *
+ * So the two facades are ONE description with an axis swapped, not two lists.
+ * Writing them out twice would mean every later correction had to be made in
+ * two places and would be made in one.
+ *
+ *   'x'  the main elevation. Outer face at z = −59.7, depth running INWARD
+ *        (+z, toward the room). Mullions step along x from the corner.
+ *   'z'  the return. Outer face at x = −81.3, depth running inward (+x).
+ *        Mullions step along z from the corner.
+ *
+ * MULLION_SECTION is stated as `acrossCm` (6.35, the face width) and `depthCm`
+ * (19.05, how far it reaches back) rather than width/depth, because which world
+ * axis each maps to is exactly what the turn changes. Naming them x and z here
+ * is what would make the return facade come out 6.35 deep and 19.05 wide — a
+ * mullion lying on its side, which reads as plausible in a plan view and is
+ * completely wrong in section.
+ *
+ * y is identical on both: sill −30 → −25, glass and mullions −25 → 375, caps
+ * and sidewalk down to −65. The corner does not change any height.
+ *
+ * y = 0 IS THE FLOOR THE PANELS STAND ON — the surface visible in the site
+ * photo. The deep ledge it looks like from the street is the room floor, not a
+ * sill; reading it as a sill would put a solid exactly where the installation
+ * sits.
+ *
+ * THE CORNER POST IS SHARED, and appears in both facades' lists. Their first
+ * mullions overlap in a 6.35 × 6.35 column at the corner — that overlap IS the
+ * post, described twice. Harmless here (obstacles are context, and the design
+ * is tested against each independently) but do not read the count as a part
+ * count.
+ *
+ * STILL NOT MEASURED: the sill's depth, set to the mullion footprint — the
+ * minimal claim, enough to carry the glass and the mullions and nothing more.
+ * If it oversails toward the room it can reach the network.
+ */
+function facade(axis) {
+  const along = axis === 'x' ? 'x' : 'z'
+  const corner = along === 'x' ? CORNER_X_CM : CORNER_Z_CM
+  const outer = along === 'x' ? CORNER_Z_CM : CORNER_X_CM
+  const { acrossCm, depthCm } = MULLION_SECTION
 
-  const out = [
-    {
-      id: 'sill',
-      label: 'sill',
-      kind: 'solid',
-      xCm: x0,
-      zCm: z0,
-      widthCm,
-      depthCm: SILL_DEPTH_CM,
-      heightCm: SILL_THICKNESS_CM,
-      baseYCm: SILL_TOP_Y_CM - SILL_THICKNESS_CM,
-      anchor: 'corner',
-    },
-    {
-      id: 'sill-sidewalk',
-      label: 'sill (sidewalk)',
-      kind: 'solid',
-      xCm: x0,
-      zCm: z0,
-      widthCm,
-      depthCm: SILL_DEPTH_CM,
-      heightCm: SILL_THICKNESS_CM,
-      baseYCm: sidewalkY - SILL_THICKNESS_CM,
-      anchor: 'corner',
-    },
-    {
-      // Flush to the STREET face, so the mullion depth reads from inside —
-      // which is what the photo shows.
-      id: 'glass',
-      label: 'glass',
-      kind: 'glass',
-      xCm: x0,
-      zCm: z0,
-      widthCm,
-      depthCm: GLASS_THICKNESS_CM,
-      heightCm: mullionTopY - SILL_TOP_Y_CM,
-      baseYCm: SILL_TOP_Y_CM,
-      anchor: 'corner',
-    },
-  ]
+  // Lay the box out in (along, outward) terms, then map onto world x/z once.
+  // Every element goes through this, so the turn cannot be got right for the
+  // mullions and wrong for the glass.
+  const place = (id, label, kind, alongStart, alongLen, outStart, outLen, baseY, height) => ({
+    id, label, kind,
+    xCm: along === 'x' ? alongStart : outStart,
+    zCm: along === 'x' ? outStart : alongStart,
+    widthCm: along === 'x' ? alongLen : outLen,
+    depthCm: along === 'x' ? outLen : alongLen,
+    heightCm: height,
+    baseYCm: baseY,
+    anchor: 'corner',
+  })
 
-  // One cap per mullion, sitting just OUTSIDE the glazing plane.
-  for (const m of mullions()) {
-    out.push({
-      id: `${m.id}-cap`,
-      label: `${m.label} cap`,
-      kind: 'solid',
-      xCm: m.xCm,
-      zCm: Math.round((z0 - CAP_THICKNESS_CM) * 1e9) / 1e9,
-      widthCm: m.widthCm,
-      depthCm: CAP_THICKNESS_CM,
-      heightCm: mullionTopY - sidewalkY,
-      baseYCm: sidewalkY,
-      anchor: 'corner',
-    })
+  const centres = []
+  let c = corner + acrossCm / 2
+  centres.push(c)
+  for (const step of MULLION_SPACINGS_CM) {
+    c += step
+    centres.push(c)
   }
-  return out
-}
+  const round = (v) => Math.round(v * 1e9) / 1e9
+  const starts = centres.map((v) => round(v - acrossCm / 2))
+  const runLen = round(starts[starts.length - 1] + acrossCm - corner)
+  const tag = along === 'x' ? '' : '-return'
+  // Appended, so a label reads "sill (sidewalk) — return" rather than growing a
+  // second bracket. The main facade's labels stay exactly as they were.
+  const suffix = along === 'x' ? '' : ' — return'
 
-function mullions() {
-  const half = MULLION_SECTION.widthCm / 2
-  let centre = MULLION_X0_CM + half
   const out = []
-  for (let k = 0; k <= MULLION_SPACINGS_CM.length; k++) {
-    if (k > 0) centre += MULLION_SPACINGS_CM[k - 1]
-    out.push({
-      id: `mullion-${k + 1}`,
-      label: `mullion ${k + 1}`,
-      kind: 'solid',
-      // Rounded to the grid the rest of the core rounds to, so a half-width of
-      // 3.175 cannot leave 1e-13 of float dust in a config that is compared by
-      // deep equality and round-tripped through JSON.
-      xCm: Math.round((centre - half) * 1e9) / 1e9,
-      zCm: MULLION_Z0_CM,
-      widthCm: MULLION_SECTION.widthCm,
-      depthCm: MULLION_SECTION.depthCm,
-      heightCm: MULLION_SECTION.heightCm,
-      baseYCm: MULLION_SECTION.baseYCm,
-      anchor: 'corner',
-    })
-  }
+  starts.forEach((a, k) => {
+    out.push(place(`mullion-${k + 1}${tag}`, `mullion ${k + 1}${suffix}`, 'solid',
+      a, acrossCm, outer, depthCm, MULLION_SECTION.baseYCm, MULLION_SECTION.heightCm))
+  })
+  out.push(place(`sill${tag}`, `sill${suffix}`, 'solid',
+    corner, runLen, outer, depthCm, SILL_TOP_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  out.push(place(`sill-sidewalk${tag}`, `sill (sidewalk)${suffix}`, 'solid',
+    corner, runLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  // Flush to the STREET face, so the mullion depth reads from inside.
+  out.push(place(`glass${tag}`, `glass${suffix}`, 'glass',
+    corner, runLen, outer, GLASS_THICKNESS_CM, SILL_TOP_Y_CM, MULLION_TOP_Y_CM - SILL_TOP_Y_CM))
+  // One cap per mullion, just OUTSIDE the glazing plane, down to the sidewalk.
+  starts.forEach((a, k) => {
+    out.push(place(`mullion-${k + 1}${tag}-cap`, `mullion ${k + 1}${suffix} cap`, 'solid',
+      a, acrossCm, round(outer - CAP_THICKNESS_CM), CAP_THICKNESS_CM,
+      SIDEWALK_Y_CM, MULLION_TOP_Y_CM - SIDEWALK_Y_CM))
+  })
   return out
 }
 
@@ -667,8 +641,8 @@ export const DEFAULT_OBSTACLES = [
     baseYCm: -25,
     anchor: 'corner',
   },
-  ...mullions(),
-  ...windowAssembly(),
+  ...facade('x'),
+  ...facade('z'),
 ]
 
 /** Which edge of every panel carries its power supply — a GLOBAL convention.
