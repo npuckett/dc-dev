@@ -814,6 +814,24 @@ function mergeObstacles(saved) {
 
 export const DEFAULT_OBSTACLES = [
   {
+    // The raised platform the display panels stand on. Fills from the wall/window
+    // corner out to mullion 5 (the stair's +X edge), and back in +z to the return
+    // elevation's far end at 533.35. Rises 65cm from the sidewalk to the floor
+    // at y = 0 — the surface `y = 0` is DEFINED to be, and what the panels sit
+    // on. Derived from the room's own datums, so it cannot drift from them.
+    id: 'floor',
+    label: 'display floor',
+    kind: 'solid',
+    xCm: 0,
+    zCm: 0,
+    widthCm: CORNER_X_CM + FACADE_RUN_CM,
+    depthCm: CORNER_Z_CM + FACADE_RUN_CM,
+    heightCm: -SIDEWALK_Y_CM,
+    baseYCm: SIDEWALK_Y_CM,
+    labelled: true,
+    anchor: 'corner',
+  },
+  {
     id: 'column',
     label: 'column',
     kind: 'solid',
