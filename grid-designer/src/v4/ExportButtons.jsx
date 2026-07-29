@@ -85,6 +85,25 @@ export default function ExportButtons() {
       <button
         type="button"
         className="preset-btn"
+        data-testid="export-glb-env"
+        title={
+          `the .glb above PLUS the room — walls, mullions, sills, glass, heating gaps, the ` +
+          'stair and the display floor — merged one mesh per family (env_mullions, env_stair_treads, …). ' +
+          'For placing the installation against its actual context'
+        }
+        onClick={async () => {
+          const buffer = await glbPayloadV4(config, chain, connectors, { includeEnvironment: true })
+          downloadBlob(
+            new Blob([buffer], { type: 'model/gltf-binary' }),
+            `drop-ceiling-with-room_${timestamp()}.glb`,
+          )
+        }}
+      >
+        Export GLB + room
+      </button>
+      <button
+        type="button"
+        className="preset-btn"
         data-testid="export-connector-stl"
         title={`one of each of the ${summary.partTypes} unique connector types, in millimetres, laid out flat for printing`}
         onClick={() => exportConnectorPlateSTL(reportShape)}

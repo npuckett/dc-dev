@@ -340,5 +340,56 @@ console.log('5. buildSceneGroup gives every mesh its own material instance')
     'the power supplies do not glow')
 }
 
+// -----------------------------------------------------------------------------
+// 6. THE ROOM SHIPS AS OPT-IN, GROUPED BY FAMILY
+// -----------------------------------------------------------------------------
+console.log('6. env_* groups: opt-in, one mesh per family, every obstacle accounted for')
+{
+  const { environmentFamily, ENV_GROUPS } = await import('../src/v4/objExport.js')
+  const { DEFAULT_OBSTACLES } = await import('../src/core/v4/schema.js')
+
+  // OFF by default: an installation-only export must not carry the room, or the
+  // downstream that reads it as "the parts" gets a room too.
+  const plain = readGLB(await glbPayloadV4(base.cfg, base.chain, base.connectors)).json
+  ok(!plain.nodes.some((n) => (n.name || '').startsWith('env_')),
+    'the default GLB has no env_ nodes')
+
+  // ON: one merged node per family that had any obstacles in it.
+  const withRoom = readGLB(
+    await glbPayloadV4(base.cfg, base.chain, base.connectors, { includeEnvironment: true }),
+  ).json
+  const envNodes = withRoom.nodes.filter((n) => (n.name || '').startsWith('env_')).map((n) => n.name)
+  ok(envNodes.length > 0 && envNodes.every((n) => ENV_GROUPS.includes(n)),
+    `every env_ node is a declared family (got ${envNodes.join(', ')})`)
+  ok(new Set(envNodes).size === envNodes.length,
+    'no family emits two nodes — the merging is per family, not per obstacle')
+  ok(withRoom.nodes.length - plain.nodes.length === envNodes.length,
+    `adding the room adds exactly one node per family (${withRoom.nodes.length - plain.nodes.length} new, ${envNodes.length} families)`)
+
+  // EVERY DEFAULT OBSTACLE MAPS TO A FAMILY. The rule is closed on purpose —
+  // an id with no rule silently vanishes, which is the failure this catches.
+  const unmapped = DEFAULT_OBSTACLES.filter((o) => environmentFamily(o.id) === null)
+  ok(unmapped.length === 0,
+    `no default obstacle is unmapped (${unmapped.map((o) => o.id).join(', ') || 'none'})`)
+
+  // ...and the families named in ENV_GROUPS actually have obstacles in them,
+  // so we do not ship phantom empty node names.
+  const used = new Set(DEFAULT_OBSTACLES.map((o) => environmentFamily(o.id)).filter(Boolean))
+  const extras = ENV_GROUPS.filter((g) => !used.has(g))
+  ok(extras.length === 0, `no family is declared without members (${extras.join(', ') || 'none'})`)
+
+  // Order is by ENV_GROUPS, not by whatever the obstacles happened to iterate
+  // in — determinism is the standing rule and the emit order is the visible
+  // proof of it.
+  const expected = ENV_GROUPS.filter((g) => used.has(g))
+  ok(envNodes.join('|') === expected.join('|'),
+    `env_ nodes come out in ENV_GROUPS order (got ${envNodes.join('|')})`)
+
+  // Every env_ material is a fresh instance — same reason the diffusers are.
+  const envMats = withRoom.materials.filter((m) => (m.name || '').startsWith('env_'))
+  ok(new Set(envMats.map((m) => m.name)).size === envMats.length,
+    'and each env_ mesh carries a material of its own')
+}
+
 console.log(`\ntest-v4-export: ${passed} checks passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

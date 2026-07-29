@@ -75,6 +75,7 @@ import {
 } from '../geometry/panelGeometry.js'
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
+import { obstacleExtents } from '../core/v4/obstacles.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
@@ -82,6 +83,52 @@ export const GROUP_FRAME = 'frame'
 export const GROUP_CONNECTORS = 'connectors'
 export const GROUP_SUPPLIES = 'power_supplies'
 export const DIFFUSER_PREFIX = 'diffuser'
+
+/**
+ * The environment groups. Prefixed `env_` so nothing that reads only the
+ * installation ever picks them up by accident, and named by FAMILY rather than
+ * by kind — a stair tread and a mullion are both `solid` but nobody thinks of
+ * them as the same thing.
+ */
+export const ENV_PREFIX = 'env_'
+export const ENV_GROUPS = [
+  'env_floor',
+  'env_column',
+  'env_mullions',
+  'env_mullion_caps',
+  'env_sills',
+  'env_glass',
+  'env_heating',
+  'env_stair_treads',
+  'env_stair_landing',
+  'env_stair_balustrades',
+]
+
+/**
+ * Which family an obstacle belongs to, by id.
+ *
+ * Explicit and small on purpose: obstacles are DERIVED, so the id vocabulary is
+ * closed and adding one that needs its own family means updating this file too.
+ * A rule matched by regex over `kind` would work today and fall apart the first
+ * time a new solid did not want to be in `env_other`.
+ *
+ * Returns null for an id no rule matches; the caller drops it rather than
+ * inventing a bucket for a naming mistake.
+ */
+export function environmentFamily(id) {
+  if (id === 'column') return 'env_column'
+  if (id === 'floor') return 'env_floor'
+  if (id === 'stair-landing') return 'env_stair_landing'
+  if (id === 'stair-landing-glass') return 'env_stair_balustrades'
+  if (id.startsWith('heating')) return 'env_heating'
+  if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
+  if (/^stair-f\d+-glass-/.test(id)) return 'env_stair_balustrades'
+  if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
+  if (id.startsWith('mullion-')) return 'env_mullions'
+  if (id === 'glass' || id === 'glass-return') return 'env_glass'
+  if (id.startsWith('sill')) return 'env_sills'
+  return null
+}
 
 /** Default companion-library name, for callers that do not stamp their files. */
 export const DEFAULT_MTL_NAME = 'drop-ceiling.mtl'
@@ -113,6 +160,19 @@ const GROUP_LOOKS = {
   [GROUP_FRAME]: { color: 0x2e3033, roughness: 0.55, metalness: 0.4 },
   [GROUP_CONNECTORS]: { color: 0xd06a2c, roughness: 0.8, metalness: 0 },
   [GROUP_SUPPLIES]: { color: 0x3f8f5a, roughness: 0.6, metalness: 0.2 },
+  // Environment. Visibly distinct starting looks; the whole point of exporting
+  // them is so they can be re-shaded in the DCC. Glass and heating are
+  // translucent so the installation reads through them by default.
+  env_floor: { color: 0x6d5642, roughness: 0.9, metalness: 0 },
+  env_column: { color: 0x8a8f96, roughness: 0.7, metalness: 0.1 },
+  env_mullions: { color: 0x1f242b, roughness: 0.4, metalness: 0.6 },
+  env_mullion_caps: { color: 0x1f242b, roughness: 0.4, metalness: 0.6 },
+  env_sills: { color: 0x8a8f96, roughness: 0.7, metalness: 0.1 },
+  env_glass: { color: 0xb8dcee, roughness: 0.05, metalness: 0, opacity: 0.15, transparent: true },
+  env_heating: { color: 0xd07a3a, roughness: 0.8, metalness: 0, opacity: 0.25, transparent: true },
+  env_stair_treads: { color: 0xf1efe9, roughness: 0.6, metalness: 0 },
+  env_stair_landing: { color: 0xf1efe9, roughness: 0.6, metalness: 0 },
+  env_stair_balustrades: { color: 0xb8dcee, roughness: 0.05, metalness: 0, opacity: 0.2, transparent: true },
 }
 
 /**
@@ -245,18 +305,63 @@ function meshOf(geometry, name) {
 }
 
 /**
+ * Add the room's obstacles to an export scene as ONE MERGED MESH PER FAMILY.
+ *
+ * Every obstacle is an axis-aligned box, so each becomes a `BoxGeometry` and is
+ * translated to its own centre. Same-family boxes merge into one indexed
+ * geometry, one material — a DCC importer then sees ten mullions as one
+ * `env_mullions` object, forty stair treads as one `env_stair_treads`, and so
+ * on. The families are declared in `ENV_GROUPS`; `environmentFamily` decides
+ * which one an id belongs to.
+ *
+ * These groups exist ALONGSIDE the installation groups, prefixed `env_` — so
+ * anything that reads only the design can filter them out by name.
+ */
+function addEnvironment(group, config) {
+  const mergers = new Map()
+  const seenIds = new Set()
+  for (const obstacle of (config.obstacles ?? [])) {
+    const fam = environmentFamily(obstacle.id)
+    if (fam === null) continue
+    if (seenIds.has(obstacle.id)) continue
+    seenIds.add(obstacle.id)
+    const e = obstacleExtents(obstacle)
+    const box = new THREE.BoxGeometry(e.size[0], e.size[1], e.size[2])
+    box.translate(e.centre[0], e.centre[1], e.centre[2])
+    if (!mergers.has(fam)) mergers.set(fam, Merger())
+    mergers.get(fam).add(box)
+    box.dispose()
+  }
+  // Emit in the declared order, so the export is deterministic even if the
+  // obstacle list happens to iterate in a different one.
+  for (const fam of ENV_GROUPS) {
+    const m = mergers.get(fam)
+    if (!m || m.isEmpty()) continue
+    const geometry = m.build()
+    geometry.computeBoundingBox()
+    geometry.computeBoundingSphere()
+    group.add(meshOf(geometry, fam))
+  }
+}
+
+/**
  * Build the export scene: individual diffusers, then the merged groups.
  *
  * ABSENT PANELS ARE NOT EXPORTED. `present: false` means the panel is not there;
  * the chain keeps its record so removal stays non-destructive, but the OBJ is a
  * description of what actually gets built.
  *
+ * With `{ includeEnvironment: true }` the room's obstacles are appended as
+ * per-family merged meshes — the panels get placed against something. See
+ * `addEnvironment` for how families are decided.
+ *
  * @param {object} config normalized v4 config
  * @param {object} chain `solveLattice` output
  * @param {object} connectors `solveConnectorsV4` output
+ * @param {{ includeEnvironment?: boolean }} [options]
  * @returns {THREE.Group}
  */
-export function buildSceneGroup(config, chain, connectors) {
+export function buildSceneGroup(config, chain, connectors, options = {}) {
   const group = new THREE.Group()
   group.name = 'drop_ceiling'
 
@@ -320,6 +425,8 @@ export function buildSceneGroup(config, chain, connectors) {
   if (!frame.isEmpty()) group.add(meshOf(frame.build(), GROUP_FRAME))
   if (!parts.isEmpty()) group.add(meshOf(parts.build(), GROUP_CONNECTORS))
   if (!supplies.isEmpty()) group.add(meshOf(supplies.build(), GROUP_SUPPLIES))
+
+  if (options.includeEnvironment) addEnvironment(group, config)
 
   group.updateMatrixWorld(true)
   return group
