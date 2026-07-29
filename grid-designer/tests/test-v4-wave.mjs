@@ -336,19 +336,25 @@ console.log('8. every trapezoid solve is byte-identical to 71f8b15')
   }
 
   const FROZEN = [
-    ['default', 888684285, 54139, {}],
+    // EVERY config pins `yOffsetCm` explicitly. These hashes are the frozen
+    // record of the trapezoid geometry at 71f8b15, and they must not move when
+    // an unrelated DEFAULT does — which is exactly what happened when the
+    // default offset went 15 → 0 and six of the seven fired at once. A
+    // regression check that trips on a deliberate, unrelated change is a check
+    // whose numbers get rubber-stamped.
+    ['default', 888684285, 54139, { placement: { yOffsetCm: 15 } }],
     ['ribbon', 647362578, 10538,
-      { lattice: { cols: 1, rows: 5, panelType: '2x2' }, angleDeg: 30, gap: 2 }],
+      { lattice: { cols: 1, rows: 5, panelType: '2x2' }, angleDeg: 30, gap: 2, placement: { yOffsetCm: 15 } }],
     ['4x4-45-phase1', 243507324, 60547,
-      { lattice: { cols: 4, rows: 4, panelType: '2x2' }, angleDeg: 45, gap: 3.5, pattern: { kind: 'trapezoid', phase: 1 } }],
+      { lattice: { cols: 4, rows: 4, panelType: '2x2' }, angleDeg: 45, gap: 3.5, pattern: { kind: 'trapezoid', phase: 1 }, placement: { yOffsetCm: 15 } }],
     ['flat', 2459399168, 13457,
-      { lattice: { cols: 2, rows: 3, panelType: '2x2' }, angleDeg: 0, gap: 0.4 }],
+      { lattice: { cols: 2, rows: 3, panelType: '2x2' }, angleDeg: 0, gap: 0.4, placement: { yOffsetCm: 15 } }],
     ['braced-62.5-8', 2080408362, 60248,
       { lattice: { cols: 3, rows: 5, panelType: '2x2' }, angleDeg: 62.5, gap: 8, placement: { wallAnchor: 'braced', groundToFloor: true, yOffsetCm: 15, wallOffsetCm: 12, windowOffsetCm: 7 } }],
     ['overrides', 2362091016, 30377,
-      { lattice: { cols: 5, rows: 2, panelType: '2x2' }, angleDeg: 20, gap: 1.25, overrides: { cells: [{ i: 1, j: 0, present: false }, { i: 3, j: 1, flipped: true }], edges: [{ i: 2, j: 1, axis: 'x', present: false }] } }],
+      { lattice: { cols: 5, rows: 2, panelType: '2x2' }, angleDeg: 20, gap: 1.25, placement: { yOffsetCm: 15 }, overrides: { cells: [{ i: 1, j: 0, present: false }, { i: 3, j: 1, flipped: true }], edges: [{ i: 2, j: 1, axis: 'x', present: false }] } }],
     ['6x6-braced', 3464671071, 156438,
-      { lattice: { cols: 6, rows: 6, panelType: '2x2' }, angleDeg: 33.3, gap: 2.4, placement: { wallAnchor: 'braced' } }],
+      { lattice: { cols: 6, rows: 6, panelType: '2x2' }, angleDeg: 33.3, gap: 2.4, placement: { wallAnchor: 'braced', yOffsetCm: 15 } }],
   ]
 
   // Hash the GEOMETRY, not the whole solve. The record also carries the

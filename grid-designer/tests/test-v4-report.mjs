@@ -470,8 +470,14 @@ console.log('6. metrics')
   near(m.overall.size[2], 4 * Pexact + L, 1e-9, 'and five rows 4·P + 60 in z')
   near(m.overall.size[1], R.metrics.lattice.riseCm + T, 1e-9,
     'the height is the level rise plus one housing thickness')
-  ok(m.overall.min[1] === 15,
-    `and it sits at the 15cm ground clearance (got ${m.overall.min[1]})`)
+  // The panels stand ON the floor, and the floor is y = 0 — the surface in the
+  // site photo. Checked against a non-zero offset too, so "0" cannot pass by
+  // being the value an unset field happens to hold.
+  ok(m.overall.min[1] === 0,
+    `and it sits on the floor at y = 0 (got ${m.overall.min[1]})`)
+  ok(buildReportV4({ ...DEFAULT_CONFIG, placement: { ...DEFAULT_CONFIG.placement, yOffsetCm: 37.5 } })
+    .metrics.overall.min[1] === 37.5,
+    'and follows the y offset when it is moved — so the 0 above is measured, not assumed')
 
   // Counts by role — V4_SPEC §9.6.
   ok(m.counts.cells === 15, '15 cells')
@@ -648,7 +654,7 @@ console.log('8. the front bar bites the bezels in a deep enough valley')
 console.log('9. report has no spacers section')
 {
   const R = buildReportV4({ ...DEFAULT_CONFIG })
-  ok(R.metrics.overall.min[1] === 15, 'the design under test IS grounded, at 15 — not a vacuous check')
+  ok(R.metrics.overall.min[1] === 0, 'the design under test IS grounded, on the floor — not a vacuous check')
   ok(!('spacers' in R), 'report has no `spacers` key at all')
   ok(R.warnings.every((w) => w.code !== 'W_SPACER_MISMATCH'), 'and no spacer warning can be raised')
   ok(Object.keys(R).sort().join(',') ===

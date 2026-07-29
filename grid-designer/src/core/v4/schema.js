@@ -712,7 +712,11 @@ export const DEFAULT_PLACEMENT = {
   wallOffsetCm: 0,
   windowOffsetCm: 0,
   groundToFloor: true,
-  yOffsetCm: 15,
+  // THE PANELS SIT ON THE FLOOR, AND THE FLOOR IS y = 0 — the surface visible
+  // in the site photo. 15 was the ground-spacer height and outlived the part it
+  // was named after; leaving it there floated the whole network 15cm off the
+  // floor it is supposed to stand on.
+  yOffsetCm: 0,
   wallAnchor: 'free',
 }
 export const DEFAULT_CONNECTORS = {
