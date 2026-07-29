@@ -548,6 +548,10 @@ function Obstacles() {
         // and a fainter body so it cannot be mistaken for something to bolt to;
         // a solid keeps the denser fill. Both are tested identically.
         const zone = o.kind === 'zone'
+        // Glass is material, but it stands between the camera and the whole
+        // design — drawn nearly clear with a faint edge, or the model would be
+        // viewed through a wall.
+        const glass = o.kind === 'glass'
         return (
           <group key={o.id}>
             <mesh position={c}>
@@ -556,14 +560,14 @@ function Obstacles() {
                 color={color}
                 toneMapped={false}
                 transparent
-                opacity={hit ? 0.3 : zone ? 0.09 : 0.16}
+                opacity={hit ? 0.3 : glass ? 0.045 : zone ? 0.09 : 0.16}
                 depthWrite={false}
               />
             </mesh>
-            {zone && (
+            {(zone || glass) && (
               <lineSegments position={c}>
                 <edgesGeometry args={[new THREE.BoxGeometry(w, h, d)]} />
-                <lineBasicMaterial color={color} toneMapped={false} transparent opacity={0.7} />
+                <lineBasicMaterial color={color} toneMapped={false} transparent opacity={glass ? 0.3 : 0.7} />
               </lineSegments>
             )}
             {/* A solid skirt at the base: the footprint is the part that
@@ -571,15 +575,19 @@ function Obstacles() {
                 reads as fog from most angles. Pinned to the obstacle's OWN
                 base, not to y = 1 — a mullion starts 25cm below the floor, and
                 a skirt left at floor level would float free of it. */}
-            <mesh position={[c[0], o.extents.min[1] + 1, c[2]]}>
-              <boxGeometry args={[w, 2, d]} />
-              <meshBasicMaterial
-                color={color}
-                toneMapped={false}
-                transparent={zone}
-                opacity={zone ? 0.35 : 1}
-              />
-            </mesh>
+            {/* No base skirt on glass: it is a thin sheet, not a footprint,
+                and a solid bar along its foot reads as a plinth. */}
+            {!glass && (
+              <mesh position={[c[0], o.extents.min[1] + 1, c[2]]}>
+                <boxGeometry args={[w, 2, d]} />
+                <meshBasicMaterial
+                  color={color}
+                  toneMapped={false}
+                  transparent={zone}
+                  opacity={zone ? 0.35 : 1}
+                />
+              </mesh>
+            )}
             {/* Relative to the obstacle's own base, for the same reason as the
                 skirt: `h * 0.42` alone is an absolute height and drifts off
                 anything that does not start at the floor. */}

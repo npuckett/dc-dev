@@ -27,7 +27,7 @@ import {
 } from '../src/core/v4/obstacles.js'
 import { solveLattice } from '../src/core/v4/lattice.js'
 import { buildReportV4 } from '../src/core/v4/report.js'
-import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES } from '../src/core/v4/schema.js'
+import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES, OBSTACLE_SIZE_MIN } from '../src/core/v4/schema.js'
 import { obbPenetration } from '../src/core/v3/collide.js'
 
 let passed = 0
@@ -168,8 +168,15 @@ console.log('4. the report surfaces it, and never enforces it')
   const partial = normalizeConfig({ obstacles: [{ id: 'column', xCm: 380, zCm: 285, widthCm: 50, depthCm: 50 }] })
   ok(partial.obstacles.length === DEFAULT_OBSTACLES.length,
     `a save carrying only the column still loads the whole room (got ${partial.obstacles.length})`)
-  ok(partial.obstacles.some((o) => o.id === 'heating') && partial.obstacles.filter((o) => o.id.startsWith('mullion')).length === 5,
-    'including the heating gap and all five mullions')
+  // The caps are `mullion-N-cap`, so count the mullions themselves explicitly —
+  // a bare startsWith('mullion') now matches ten things and would pass by
+  // accident if the mullions vanished and only their caps survived.
+  const mullionCount = partial.obstacles.filter((o) => /^mullion-\d+$/.test(o.id)).length
+  const capCount = partial.obstacles.filter((o) => /^mullion-\d+-cap$/.test(o.id)).length
+  ok(partial.obstacles.some((o) => o.id === 'heating') && mullionCount === 5 && capCount === 5,
+    `including the heating gap, all five mullions and their caps (${mullionCount} + ${capCount})`)
+  ok(['sill', 'sill-sidewalk', 'glass'].every((id) => partial.obstacles.some((o) => o.id === id)),
+    '...and the sill, the sidewalk sill and the glass')
   // ...and a tuned entry is not overwritten by the default it merges onto.
   const tuned = normalizeConfig({ obstacles: [{ id: 'column', xCm: 999, zCm: 285, widthCm: 50, depthCm: 50, heightCm: 300 }] })
   ok(tuned.obstacles.find((o) => o.id === 'column').xCm === 999,
@@ -188,7 +195,11 @@ console.log('4. the report surfaces it, and never enforces it')
   // by what it added rather than by the whole length.
   const added = junk.obstacles.filter((o) => !DEFAULT_OBSTACLES.some((d) => d.id === o.id))
   ok(added.length === 2, `non-objects are dropped (got ${added.length} added)`)
-  ok(added[0].xCm === 0 && added[0].widthCm >= 1, 'and bad numbers are replaced or clamped')
+  ok(added[0].xCm === 0 && added[0].widthCm === OBSTACLE_SIZE_MIN,
+    `and bad numbers are replaced or clamped (widthCm ${added[0].widthCm}, floor ${OBSTACLE_SIZE_MIN})`)
+  // The floor has to stay below the thinnest real element or it rewrites it —
+  // it already did that to the 0.5cm glass once.
+  ok(OBSTACLE_SIZE_MIN <= 0.5, 'and the floor is thin enough not to fatten the glazing')
   ok(junk.obstacles[0].id !== junk.obstacles[1].id, 'a duplicate id is renamed rather than losing a column')
 }
 

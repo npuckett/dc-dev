@@ -383,11 +383,14 @@ export const OBSTACLE_ANCHORS = ['corner', 'centre']
  *            gap, a service run, a maintenance swing. Drawn as a translucent
  *            volume, because a keep-out that looks like a wall reads as
  *            something you could bolt to.
+ *   'glass'  material, but see-through. Separate from 'solid' ONLY so a 5.9m
+ *            sheet standing between the camera and the design does not black
+ *            the whole thing out.
  *
  * Both are tested identically — the design must not enter either — so this
  * never touches `solveObstacles`.
  */
-export const OBSTACLE_KINDS = ['solid', 'zone']
+export const OBSTACLE_KINDS = ['solid', 'zone', 'glass']
 
 export const OBSTACLE_POS_MIN = -500
 export const OBSTACLE_POS_MAX = 2000
@@ -396,7 +399,14 @@ export const OBSTACLE_POS_MAX = 2000
 export const OBSTACLE_BASE_Y_MIN = -500
 export const OBSTACLE_BASE_Y_MAX = 2000
 
-export const OBSTACLE_SIZE_MIN = 1
+/**
+ * Thin enough for glazing. This was 1, sized for columns, and it silently
+ * clamped the 0.5cm glass to 1.0 — the second time this pair of bounds has
+ * quietly rewritten a measurement (OBSTACLE_SIZE_MAX did it to the 594cm
+ * heating run). Both failures produce a plausible-looking number, which is why
+ * the extents are checked against hand arithmetic rather than read back.
+ */
+export const OBSTACLE_SIZE_MIN = 0.1
 /**
  * Room-scale, not column-scale. This was 500, which silently CLAMPED the 594cm
  * heating run to 500 and put its far end 94cm short — a wrong number that looks
@@ -436,6 +446,114 @@ const MULLION_Z0_CM = -59.7
 const MULLION_SECTION = { widthCm: 6.35, depthCm: 19.05, heightCm: 400, baseYCm: -25 }
 /** Centre-to-centre, walking in +x from mullion 1. */
 const MULLION_SPACINGS_CM = [129.5, 152.4, 152.4, 152.4]
+
+/**
+ * THE WINDOW ASSEMBLY, from the site photo and the measurements taken off it.
+ *
+ * y = 0 IS THE FLOOR THE PANELS STAND ON — the surface visible in the photo.
+ * That was worth pinning down: the deep ledge it looks like from the street is
+ * the room floor, not a sill, and reading it as a sill would have put a solid
+ * where the installation actually sits.
+ *
+ * So the sill is BELOW floor level, under the glazing:
+ *
+ *   sill        y −30 → −25   top face flush with the mullion bottom, so the
+ *                             glass lands on it
+ *   sill (low)  y −70 → −65   "another 40cm down", at sidewalk level
+ *   glass       y −25 → 375   full mullion height, flush to the STREET face
+ *   caps        y −65 → 375   1cm outer skin, one per mullion, down to the
+ *                             sidewalk
+ *
+ * The sill's z depth is the one number still not measured: it is set to the
+ * mullion footprint, which is the minimal claim — enough to carry the glass and
+ * the mullions and nothing more. If it actually oversails toward the room it
+ * could reach the network, so it is flagged rather than assumed correct.
+ *
+ * The caps are PER MULLION rather than one band across the opening, because
+ * "covers the mullions" is what was said and a full-width band would also cover
+ * the glass — which would be wrong, and would hide the view the whole model
+ * exists to sit inside.
+ */
+const SILL_DEPTH_CM = MULLION_SECTION.depthCm
+const SILL_THICKNESS_CM = 5
+const SILL_TOP_Y_CM = MULLION_SECTION.baseYCm
+const SIDEWALK_DROP_CM = 40
+const GLASS_THICKNESS_CM = 0.5
+const CAP_THICKNESS_CM = 1
+
+/** The full x run of the glazing: mullion 1's near face to mullion 5's far face. */
+function mullionRun() {
+  const ms = mullions()
+  const first = ms[0]
+  const last = ms[ms.length - 1]
+  return { x0: first.xCm, x1: last.xCm + last.widthCm }
+}
+
+function windowAssembly() {
+  const { x0, x1 } = mullionRun()
+  const widthCm = Math.round((x1 - x0) * 1e9) / 1e9
+  const z0 = MULLION_Z0_CM
+  const sidewalkY = SILL_TOP_Y_CM - SIDEWALK_DROP_CM
+  const mullionTopY = MULLION_SECTION.baseYCm + MULLION_SECTION.heightCm
+
+  const out = [
+    {
+      id: 'sill',
+      label: 'sill',
+      kind: 'solid',
+      xCm: x0,
+      zCm: z0,
+      widthCm,
+      depthCm: SILL_DEPTH_CM,
+      heightCm: SILL_THICKNESS_CM,
+      baseYCm: SILL_TOP_Y_CM - SILL_THICKNESS_CM,
+      anchor: 'corner',
+    },
+    {
+      id: 'sill-sidewalk',
+      label: 'sill (sidewalk)',
+      kind: 'solid',
+      xCm: x0,
+      zCm: z0,
+      widthCm,
+      depthCm: SILL_DEPTH_CM,
+      heightCm: SILL_THICKNESS_CM,
+      baseYCm: sidewalkY - SILL_THICKNESS_CM,
+      anchor: 'corner',
+    },
+    {
+      // Flush to the STREET face, so the mullion depth reads from inside —
+      // which is what the photo shows.
+      id: 'glass',
+      label: 'glass',
+      kind: 'glass',
+      xCm: x0,
+      zCm: z0,
+      widthCm,
+      depthCm: GLASS_THICKNESS_CM,
+      heightCm: mullionTopY - SILL_TOP_Y_CM,
+      baseYCm: SILL_TOP_Y_CM,
+      anchor: 'corner',
+    },
+  ]
+
+  // One cap per mullion, sitting just OUTSIDE the glazing plane.
+  for (const m of mullions()) {
+    out.push({
+      id: `${m.id}-cap`,
+      label: `${m.label} cap`,
+      kind: 'solid',
+      xCm: m.xCm,
+      zCm: Math.round((z0 - CAP_THICKNESS_CM) * 1e9) / 1e9,
+      widthCm: m.widthCm,
+      depthCm: CAP_THICKNESS_CM,
+      heightCm: mullionTopY - sidewalkY,
+      baseYCm: sidewalkY,
+      anchor: 'corner',
+    })
+  }
+  return out
+}
 
 function mullions() {
   const half = MULLION_SECTION.widthCm / 2
@@ -550,6 +668,7 @@ export const DEFAULT_OBSTACLES = [
     anchor: 'corner',
   },
   ...mullions(),
+  ...windowAssembly(),
 ]
 
 /** Which edge of every panel carries its power supply — a GLOBAL convention.
