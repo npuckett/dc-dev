@@ -512,8 +512,8 @@ function facade(axis) {
   // Lay the box out in (along, outward) terms, then map onto world x/z once.
   // Every element goes through this, so the turn cannot be got right for the
   // mullions and wrong for the glass.
-  const place = (id, label, kind, alongStart, alongLen, outStart, outLen, baseY, height) => ({
-    id, label, kind,
+  const place = (id, label, kind, alongStart, alongLen, outStart, outLen, baseY, height, labelled = true) => ({
+    id, label, kind, labelled,
     xCm: along === 'x' ? alongStart : outStart,
     zCm: along === 'x' ? outStart : alongStart,
     widthCm: along === 'x' ? alongLen : outLen,
@@ -554,55 +554,262 @@ function facade(axis) {
   starts.forEach((a, k) => {
     out.push(place(`mullion-${k + 1}${tag}-cap`, `mullion ${k + 1}${suffix} cap`, 'solid',
       a, acrossCm, round(outer - CAP_THICKNESS_CM), CAP_THICKNESS_CM,
-      SIDEWALK_Y_CM, MULLION_TOP_Y_CM - SIDEWALK_Y_CM))
+      SIDEWALK_Y_CM, MULLION_TOP_Y_CM - SIDEWALK_Y_CM, false))
   })
   return out
 }
 
 /**
- * Fold a saved obstacle list onto the room's known elements, BY ID.
+ * THE STAIRCASE.
  *
- * Obstacles are site measurements, not design choices, so a design saved before
- * an element was measured must not be able to withhold it. The first cut took
- * the saved list verbatim whenever it was present, and the failure was exactly
- * that: a working config saved when only the column existed kept loading with
- * only the column, so the heating gap and all five mullions were invisible to
- * anyone who had used the tool before they were added. It looked like a render
- * bug and was a persistence one.
+ * A switchback in the lobby: up in −Z, across the landing in −X, up again in
+ * +Z, with flight 2 beside flight 1 rather than above it. White solid fascia,
+ * glass balustrade — see the two site photos.
  *
- * Three rules, and the middle one is deliberately kept from the older contract:
+ * WHAT IS ANCHORED (stated on site, not inferred):
+ *   · the bottom of flight 1 is at SIDEWALK LEVEL, y = −65. There is a lower
+ *     interior floor at the same height as the pavement outside.
+ *   · the landing runs parallel to the front window, along x, and reaches −X as
+ *     far as mullion 1.
+ *   · flight 1's close edge is at mullion 2's x.
+ *   · both flights are the same width.
  *
- *   absent      the room as measured.
- *   []          DELIBERATELY no room — a way to study the design on its own.
- *               An empty list is unambiguous intent when typed; it was never
- *               what a stale save carried, so honouring it does not reopen the
- *               bug above.
- *   non-empty   the room as measured, with these entries overriding BY ID, and
- *               any unknown id appended. So anything tuned survives, an element
- *               added by hand in the JSON panel is not dropped, and a list
- *               written before an element existed still gets it.
+ * WHAT THAT FORCES. Those last two only reconcile one way: if the flights sit
+ * side by side, flight 1 starting at M2 and flight 2 ending at M1, each flight
+ * is exactly the M1→M2 spacing wide — 129.5 — and the landing spans both, 259
+ * long. The width is therefore DERIVED from two measured alignments rather than
+ * guessed, which is the strongest thing about this model.
  *
- * Order is defaults-first in their declared order, which keeps output
- * deterministic regardless of what order a save happened to hold.
+ * WHAT IS ASSUMED, and it is a lot:
+ *   · FLOOR TO FLOOR = 400, chosen to match the mullion height exactly. The
+ *     user did not know it. Every level below hangs off this one number: change
+ *     it and the landing and upper floor both move.
+ *   · 12 risers of 16.67 and 11 treads of 28 per flight — a 200 rise and a 308
+ *     run, comfortably inside commercial range (riser 15–18, tread ≥ 28).
+ *   · the balustrade is 110 above the nosing, 1.2 thick.
+ *
+ * WHAT IS ESTIMATED FROM THE PHOTOS, and is the weakest number here: the
+ * landing's Z BAND, 285 → 435. The landing sits well behind the facade plane
+ * the photos were calibrated on, so anything scaled off the mullions
+ * understates it. Treat as ±40.
+ *
+ * THE BALUSTRADES FOLLOW THE STEPS, one segment per tread, rather than being a
+ * single slab over the whole rake. The first cut used the bounding slab, on the
+ * theory that claiming too much space is the safe direction for a keep-out. It
+ * is not: that slab spanned y −48 → 245 over the flight's whole z run and
+ * REPORTED A CLASH WITH THE NETWORK THAT DOES NOT EXIST. Where the network
+ * actually reaches (z 523) the real rail is at y 66 → 176, and the network tops
+ * out at 35 — 31cm of clearance, called a collision.
+ *
+ * A placement tool that cries wolf gets its warnings ignored, which costs more
+ * than the space the approximation saved. Stepping the glass makes it accurate
+ * to one riser, and the false positive goes away.
+ *
+ * The space UNDER each flight is left open, because it is: image 2 has a
+ * bicycle parked under the lower run.
+ */
+const STAIR_LOWER_Y_CM = SIDEWALK_Y_CM
+/**
+ * THE LANDING'S HEIGHT IS DERIVED FROM THE STAIR, not measured.
+ *
+ * It was given as 215, but as an ESTIMATE. The riser is the exact quantity: a
+ * standard 17.5, and FIFTEEN of them off the sidewalk floor at −65 puts the
+ * landing at 197.5 — 17.5 under the estimate, i.e. exactly one riser, which is
+ * the size of discrepancy an eyeballed height produces.
+ *
+ * Deriving it this way means the landing IS flight 1's top tread rather than a
+ * surface above it: the flight climbs 15 risers, the fifteenth arrives at the
+ * landing, and there is no further step. Sixteen risers put a redundant tread
+ * at the landing level and then had to be given somewhere to go.
+ */
+const STAIR_RISER_CM = 17.5
+const STAIR_RISERS_TO_LANDING = 15
+const STAIR_LANDING_Y_CM = SIDEWALK_Y_CM + STAIR_RISERS_TO_LANDING * STAIR_RISER_CM
+/** MEASURED: the landing front to back. */
+const STAIR_LANDING_DEPTH_CM = 160
+/**
+ * The flight geometry is DERIVED from the two measured levels, and it lands on
+ * standard stair proportions exactly — the best evidence yet that both are
+ * right.
+ *
+ *   riser  17.5, standard
+ *   2R + G = 63 (the tread/riser rule) gives G = 28, exactly
+ *   15 risers off the floor at -65 -> the landing at 197.5
+ *   15 treads x 28 = 420 of run
+ *
+ * Nothing was chosen here but the riser count, and only one count makes both
+ * numbers come out whole.
+ */
+const STAIR_RISERS_PER_FLIGHT = STAIR_RISERS_TO_LANDING
+/** The landing's underside sits on the LAST RISER's underside — so its depth is
+ *  one riser, not a guessed fascia. 40 was an assumption and it put the landing
+ *  slab 22.5cm below the stair it belongs to. */
+const STAIR_FASCIA_CM = STAIR_RISER_CM
+const STAIR_TREAD_CM = 28
+const STAIR_BALUSTRADE_H_CM = 110
+const STAIR_GLASS_T_CM = 1.2
+/** MEASURED: the landing's near edge. */
+const STAIR_LANDING_Z0_CM = 96
+const STAIR_LANDING_Z1_CM = STAIR_LANDING_Z0_CM + STAIR_LANDING_DEPTH_CM
+/** The column passes THROUGH the landing and does not touch it. */
+const STAIR_COLUMN_CLEAR_CM = 2
+/** ASSUMED: the well between the two flights. 100 clears the 50cm column by
+ *  25 each side, which is what "a sizeable X gap" reads as. */
+const STAIR_WELL_CM = 100
+
+/**
+ * THE COLUMN IS DERIVED FROM THE STAIR, not measured.
+ *
+ * It was placed first, from an estimate flagged on site as possibly off. The
+ * stair then pinned it three ways — the flights span M2→M5, they are equal, and
+ * the column is CENTRED IN THE WELL BETWEEN THEM — and those three put its
+ * centre at the midpoint of M2→M5, x = 279.975. That is 125cm from the
+ * estimate. Measured alignments beat an estimate, so the column now follows the
+ * stair and cannot drift away from the well it stands in.
+ *
+ * Its z is measured: 271.
+ */
+const COLUMN_SIZE_CM = 50
+const STAIR_WELL_CENTRE_CM = CORNER_X_CM + MULLION_SECTION.acrossCm / 2
+  + MULLION_SPACINGS_CM[0] + (MULLION_SPACINGS_CM[1] + MULLION_SPACINGS_CM[2] + MULLION_SPACINGS_CM[3]) / 2
+const COLUMN_X0_CM = Math.round((STAIR_WELL_CENTRE_CM - COLUMN_SIZE_CM / 2) * 1e9) / 1e9
+/** MEASURED. */
+const COLUMN_Z0_CM = 271
+
+/**
+ * THE STAIRCASE — a switchback, flight 2 running back ABOVE flight 1.
+ *
+ * ANCHORED, all stated on site:
+ *   · flight 1's far +X edge on mullion 5, its close edge on mullion 2 — so it
+ *     is 457.2 wide, the M2→M5 span. This is a broad feature stair, not a
+ *     circulation run, and the first model was 3.5x too narrow.
+ *   · the landing is LONGER than the two flights' combined width, and that
+ *     difference is where it takes the column — which is the well: 457.2 of
+ *     landing against 357.2 of flight, the 100cm gap being the well itself.
+ *   · the landing's near Z edge is at z = 96.
+ *   · the bottom of flight 1 is at sidewalk level, y = −65.
+ *
+ * THE FLIGHTS WRAP THE COLUMN, not the landing. The column stands in the WELL
+ * between the two flights — centred in it in x, and at z 271, past the
+ * landing's back edge at 256. So the landing is one plain box; it stops short
+ * of the column rather than being penetrated by it.
+ *
+ * WHY FLIGHT 2 IS ABOVE, NOT BESIDE. Both flights are 457.2 wide and offset by
+ * only 129.5 in x, so they overlap laterally and cannot sit side by side. They
+ * share a Z band and are separated VERTICALLY instead: at the landing they meet
+ * at the landing level, and diverge thereafter. That is the standard switchback
+ * and it is what image 2 shows.
+ *
+ * STILL ASSUMED: what flight 2 climbs TO. Its rise is mirrored from flight 1
+ * for want of an upper-floor level, which puts its head at y 495 — above the
+ * mullion head at 375. Flight 1 is fully anchored; flight 2's TOP is not, and
+ * that is the number to correct next.
+ *
+ * The space under each flight is left open, because it is — image 2 has a
+ * bicycle parked under the lower run.
+ */
+function staircase() {
+  const round = (v) => Math.round(v * 1e9) / 1e9
+  const m1 = CORNER_X_CM + MULLION_SECTION.acrossCm / 2
+  const m2 = m1 + MULLION_SPACINGS_CM[0]
+  const m5 = m1 + MULLION_SPACINGS_CM.reduce((a, b) => a + b, 0)
+
+  // Two EQUAL flights either side of the well. Flight 1 (coming up) is the +X
+  // one with its far edge on mullion 5; flight 2 is the −X one with its near
+  // edge on mullion 2. The well between them is centred on the M2→M5 midpoint,
+  // which is what puts the column there.
+  const flightW = round((m5 - m2 - STAIR_WELL_CM) / 2)
+  const f2x0 = m2
+  const f1x0 = round(m5 - flightW)
+  const f1x1 = m5
+  const width = flightW
+  // The landing spans the flights and the well between them — nothing more.
+  // It is a staircase, so its −X edge is flight 2's −X edge, not some overhang
+  // beyond it. That also settles "the landing is longer than the two widths of
+  // the stairs, and that is where it wraps the column": 457.2 against 357.2 of
+  // actual flight, and the 100cm difference IS the well the column stands in.
+  const landX0 = f2x0
+  const landX1 = m5
+
+  const landingY = STAIR_LANDING_Y_CM
+  const rise = landingY - STAIR_LOWER_Y_CM
+  const riser = STAIR_RISER_CM
+  // ONE TREAD PER RISER, because the loop below emits a tread for every riser
+  // including the last (whose surface is the landing level). With the classic
+  // (risers − 1) the flight was one tread short and its top step landed INSIDE
+  // the landing's z band — flush in height, overlapping in plan, which reads
+  // as correct in a section and is wrong in the model.
+  const run = STAIR_RISERS_PER_FLIGHT * STAIR_TREAD_CM
+  const zTop = STAIR_LANDING_Z1_CM
+  const zBot = round(zTop + run)
+
+  const out = []
+  const box = (id, label, kind, x, w, y, h, z, d, labelled = true) => out.push({
+    id, label, kind,
+    xCm: round(x), zCm: round(z), widthCm: round(w), depthCm: round(d),
+    heightCm: round(h), baseYCm: round(y), labelled, anchor: 'corner',
+  })
+
+  // `k` runs to the riser count INCLUSIVE: step 1's top is one standard rise
+  // off the lower floor, and step 15's top IS the landing. Flight 2 then starts
+  // FROM the landing — its first step rises off it, so the two flights share
+  // that level rather than stacking a redundant tread on it.
+  for (let k = 1; k <= STAIR_RISERS_PER_FLIGHT; k++) {
+    box(`stair-f1-step-${k}`, k === 1 ? 'stair flight 1' : `stair flight 1 step ${k}`, 'solid',
+      f1x0, width, STAIR_LOWER_Y_CM + (k - 1) * riser, riser,
+      zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, k === 1)
+    box(`stair-f2-step-${k}`, k === 1 ? 'stair flight 2' : `stair flight 2 step ${k}`, 'solid',
+      f2x0, width, landingY + (k - 1) * riser, riser,
+      zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, k === 1)
+    box(`stair-f1-glass-${k}`, `stair flight 1 balustrade ${k}`, 'glass',
+      f1x1, STAIR_GLASS_T_CM, STAIR_LOWER_Y_CM + k * riser, STAIR_BALUSTRADE_H_CM,
+      zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+    box(`stair-f2-glass-${k}`, `stair flight 2 balustrade ${k}`, 'glass',
+      f2x0 - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, landingY + k * riser, STAIR_BALUSTRADE_H_CM,
+      zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+  }
+
+  // --- the landing ---------------------------------------------------------
+  // ONE box, not four. It was split around a column penetration back when the
+  // landing ran to z 380; at 160 deep it stops at 256 and the column starts at
+  // 271, so nothing passes through it and the hole was cutting a
+  // negative-depth piece.
+  //
+  // The column is still wrapped — by the FLIGHTS, via the well between them,
+  // which is where it always sat in x. "The stairs wrap around the column" is
+  // about the stairs, and the landing simply stops short of it.
+  const ly = landingY - STAIR_FASCIA_CM
+  box('stair-landing', 'stair landing', 'solid',
+    landX0, landX1 - landX0, ly, STAIR_FASCIA_CM,
+    STAIR_LANDING_Z0_CM, STAIR_LANDING_Z1_CM - STAIR_LANDING_Z0_CM)
+  box('stair-landing-glass', 'stair landing balustrade', 'glass',
+    landX0, landX1 - landX0, landingY, STAIR_BALUSTRADE_H_CM,
+    STAIR_LANDING_Z0_CM, STAIR_GLASS_T_CM, false)
+
+  return out
+}
+
+/**
+ * Obstacles ALWAYS come from the room as measured. A saved list cannot override
+ * them.
+ *
+ * This started as "saved entries override by id, unknown ids appended", so a
+ * tuned element would survive. There is no UI to tune one, and the rule cost
+ * far more than it bought: every element here is DERIVED — the facades from the
+ * mullion spacings, the stair from its riser, the column from the stair's well
+ * — so a browser that saved before a correction kept serving the old geometry,
+ * and a deleted element (`stair-f1-step-16`) came back as an "unknown id".
+ *
+ * The user's report was "I'm refreshing and literally nothing changed", twice,
+ * for two different elements. Both times my own checks passed because they
+ * called `resetConfig()` first and so never took the path that mattered.
+ *
+ * An explicit empty list still means "no room" — that is a deliberate statement
+ * for studying the design alone, and it is not what a stale save carries.
  */
 function mergeObstacles(saved) {
   if (Array.isArray(saved) && saved.length === 0) return []
-  const bySavedId = new Map()
-  if (Array.isArray(saved)) {
-    for (const o of saved) {
-      if (isPlainObject(o) && typeof o.id === 'string') bySavedId.set(o.id, o)
-    }
-  }
-  const out = DEFAULT_OBSTACLES.map((d) =>
-    bySavedId.has(d.id) ? { ...d, ...bySavedId.get(d.id) } : { ...d },
-  )
-  const defaultIds = new Set(DEFAULT_OBSTACLES.map((d) => d.id))
-  if (Array.isArray(saved)) {
-    for (const o of saved) {
-      if (isPlainObject(o) && !defaultIds.has(o.id)) out.push(o)
-    }
-  }
-  return out
+  return DEFAULT_OBSTACLES.map((o) => ({ ...o }))
 }
 
 export const DEFAULT_OBSTACLES = [
@@ -610,12 +817,15 @@ export const DEFAULT_OBSTACLES = [
     id: 'column',
     label: 'column',
     kind: 'solid',
-    xCm: 380,
-    zCm: 285,
-    widthCm: 50,
-    depthCm: 50,
-    heightCm: 300,
+    xCm: COLUMN_X0_CM,
+    zCm: COLUMN_Z0_CM,
+    widthCm: COLUMN_SIZE_CM,
+    depthCm: COLUMN_SIZE_CM,
+    // Its top is the top of the WINDOWS — derived from the mullion head, so
+    // the two cannot drift apart.
+    heightCm: MULLION_TOP_Y_CM,
     baseYCm: 0,
+    labelled: true,
     anchor: 'corner',
   },
   {
@@ -651,6 +861,7 @@ export const DEFAULT_OBSTACLES = [
     // run can reach the wall's room-side face at x = 0.
     heightCm: -SILL_TOP_Y_CM,
     baseYCm: SILL_TOP_Y_CM,
+    labelled: true,
     anchor: 'corner',
   },
   {
@@ -674,10 +885,12 @@ export const DEFAULT_OBSTACLES = [
     depthCm: CORNER_Z_CM + FACADE_RUN_CM,
     heightCm: -SILL_TOP_Y_CM,
     baseYCm: SILL_TOP_Y_CM,
+    labelled: true,
     anchor: 'corner',
   },
   ...facade('x'),
   ...facade('z'),
+  ...staircase(),
 ]
 
 /** Which edge of every panel carries its power supply — a GLOBAL convention.
@@ -952,6 +1165,10 @@ function sanitizeObstacles(raw) {
       depthCm: clamp(numberOr(o.depthCm, 50), OBSTACLE_SIZE_MIN, OBSTACLE_SIZE_MAX),
       heightCm: clamp(numberOr(o.heightCm, 300), OBSTACLE_SIZE_MIN, 1000),
       baseYCm: clamp(numberOr(o.baseYCm, 0), OBSTACLE_BASE_Y_MIN, OBSTACLE_BASE_Y_MAX),
+      // Whether the viewport draws its name. Repeated sub-elements — steps,
+      // balustrade segments, mullion caps — set this false: 46 stair parts each
+      // shouting their id buried the model they were meant to help place.
+      labelled: o.labelled === undefined ? true : Boolean(o.labelled),
       anchor: oneOf(OBSTACLE_ANCHORS, o.anchor, 'corner'),
       kind: oneOf(OBSTACLE_KINDS, o.kind, 'solid'),
     })

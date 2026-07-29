@@ -591,12 +591,14 @@ function Obstacles() {
             {/* Relative to the obstacle's own base, for the same reason as the
                 skirt: `h * 0.42` alone is an absolute height and drifts off
                 anything that does not start at the floor. */}
-            <Html position={[c[0], o.extents.min[1] + h * 0.42, c[2]]} center distanceFactor={520} zIndexRange={[10, 0]}>
-              <div className={`obstacle-label${hit ? ' obstacle-label-hit' : ''}`}>
-                {o.label.toUpperCase()}
-                {hit ? ` · ${o.hitCount} PANEL${o.hitCount === 1 ? '' : 'S'} THROUGH IT` : ''}
-              </div>
-            </Html>
+            {(o.labelled || hit) && (
+              <Html position={[c[0], o.extents.min[1] + h * 0.42, c[2]]} center distanceFactor={520} zIndexRange={[10, 0]}>
+                <div className={`obstacle-label${hit ? ' obstacle-label-hit' : ''}`}>
+                  {(o.label || o.id).toUpperCase()}
+                  {hit ? ` · ${o.hitCount} PANEL${o.hitCount === 1 ? '' : 'S'} THROUGH IT` : ''}
+                </div>
+              </Html>
+            )}
           </group>
         )
       })}

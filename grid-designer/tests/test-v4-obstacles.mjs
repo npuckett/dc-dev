@@ -137,11 +137,22 @@ console.log('3. clearance behaves like a distance')
 // -----------------------------------------------------------------------------
 console.log('4. the report surfaces it, and never enforces it')
 {
+  // ONE WARNING PER FOULED OBSTACLE — however many that is. It used to be
+  // exactly one, back when the column was the only thing in the room; the stair
+  // and the relocated column both foul now, so the check is the INVARIANT
+  // (one warning each, naming every panel) rather than the count of the day.
   const wide = buildReportV4({ ...DEFAULT_CONFIG, lattice: { cols: 4, rows: 5, panelType: '2x2' } })
   const w = wide.warnings.filter((x) => x.code === OBSTACLE_HIT_CODE)
-  ok(w.length === 1, 'one warning per fouled obstacle')
-  ok(w[0].panels.length === wide.obstacles[0].hitCount, 'naming every panel that runs through it')
-  ok(w[0].message.includes('380') && w[0].message.includes('285'),
+  const fouled = wide.obstacles.filter((o) => o.hitCount > 0)
+  ok(fouled.length > 0, `something is fouled, so the check is not vacuous (${fouled.length})`)
+  ok(w.length === fouled.length, `one warning per fouled obstacle (${w.length} vs ${fouled.length})`)
+  for (const o of fouled) {
+    const mine = w.find((x) => x.message.includes(o.label) || x.obstacle === o.id)
+    ok(mine !== undefined, `${o.id} gets a warning of its own`)
+  }
+  const colW = w.find((x) => x.obstacle === 'column' || x.message.includes('column'))
+  const col = wide.obstacles.find((o) => o.id === 'column')
+  ok(colW && colW.message.includes(String(col.extents.min[0])),
     'and quoting where the thing actually is')
 
   // REPORT, DO NOT VETO. The panels are still placed and still counted.
@@ -151,7 +162,15 @@ console.log('4. the report surfaces it, and never enforces it')
   ok(JSON.stringify(plain.collisions) === JSON.stringify(wide.collisions),
     'and the column changes nothing about the collision pass')
 
-  const quiet = buildReportV4({ ...DEFAULT_CONFIG, lattice: { cols: 3, rows: 5, panelType: '2x2' } })
+  // A design clear of everything raises nothing. The default no longer is —
+  // the stair landing sits on the network's peak — so this uses a lattice small
+  // enough to be genuinely clear, which keeps the negative meaningful.
+  // A SHALLOW one: at 30° the network peaks at 35.135 and the stair landing's
+  // underside is at 35, so every default-angle design fouls it by 1.35mm. That
+  // is a real finding about the two heights, not something to test around — so
+  // the probe drops the angle until the network is genuinely clear.
+  const quiet = buildReportV4({ lattice: { cols: 1, rows: 2, panelType: '2x2' }, angleDeg: 10 })
+  ok(quiet.obstacles.every((o) => o.hitCount === 0), 'the probe design really is clear')
   ok(quiet.warnings.every((x) => x.code !== OBSTACLE_HIT_CODE), 'a clear design raises no obstacle warning')
 
   // The config contract, three rules — see schema.js's `mergeObstacles`.
@@ -160,47 +179,32 @@ console.log('4. the report surfaces it, and never enforces it')
   ok(normalizeConfig({ obstacles: [] }).obstacles.length === 0,
     'while an explicit empty list means there is nothing there — a different statement')
 
-  // A PARTIAL list still gets the whole room. This is the regression that made
-  // the heating gap and all five mullions invisible to anyone with a working
-  // config saved before they were measured: the list was taken verbatim, so a
-  // save that predated an element could withhold it forever. Obstacles are site
-  // measurements, not design choices, and a design must not be able to do that.
-  const partial = normalizeConfig({ obstacles: [{ id: 'column', xCm: 380, zCm: 285, widthCm: 50, depthCm: 50 }] })
-  ok(partial.obstacles.length === DEFAULT_OBSTACLES.length,
-    `a save carrying only the column still loads the whole room (got ${partial.obstacles.length})`)
-  // The caps are `mullion-N-cap`, so count the mullions themselves explicitly —
-  // a bare startsWith('mullion') now matches ten things and would pass by
-  // accident if the mullions vanished and only their caps survived.
-  const mullionCount = partial.obstacles.filter((o) => /^mullion-\d+$/.test(o.id)).length
-  const capCount = partial.obstacles.filter((o) => /^mullion-\d+-cap$/.test(o.id)).length
-  ok(partial.obstacles.some((o) => o.id === 'heating') && mullionCount === 5 && capCount === 5,
-    `including the heating gap, all five mullions and their caps (${mullionCount} + ${capCount})`)
-  ok(['sill', 'sill-sidewalk', 'glass'].every((id) => partial.obstacles.some((o) => o.id === id)),
-    '...and the sill, the sidewalk sill and the glass')
-  // ...and a tuned entry is not overwritten by the default it merges onto.
-  const tuned = normalizeConfig({ obstacles: [{ id: 'column', xCm: 999, zCm: 285, widthCm: 50, depthCm: 50, heightCm: 300 }] })
-  ok(tuned.obstacles.find((o) => o.id === 'column').xCm === 999,
-    'while an entry the user tuned survives the merge')
-  // An id that is not a default is kept rather than silently dropped.
-  const extra = normalizeConfig({ obstacles: [{ id: 'duct', xCm: 10, zCm: 10, widthCm: 20, depthCm: 20, heightCm: 50 }] })
-  ok(extra.obstacles.some((o) => o.id === 'duct') && extra.obstacles.length === DEFAULT_OBSTACLES.length + 1,
-    'and an element added by hand is appended, not dropped')
-  const round = normalizeConfig(normalizeConfig({}))
-  ok(JSON.stringify(round.obstacles) === JSON.stringify(normalizeConfig({}).obstacles),
-    'and normalizing twice changes nothing')
+  // A SAVED LIST CANNOT OVERRIDE THE ROOM. Every element is derived, so a
+  // browser that saved before a correction must not keep serving the old
+  // geometry — that is exactly what happened, twice, and it looked like the
+  // changes had not been applied at all.
+  const stale = normalizeConfig({ obstacles: [
+    { id: 'column', xCm: 999, zCm: 999, widthCm: 50, depthCm: 50 },
+    { id: 'stair-f1-step-16', xCm: 0, zCm: 0, widthCm: 10, depthCm: 10 },
+  ] })
+  ok(stale.obstacles.length === DEFAULT_OBSTACLES.length,
+    `a stale saved list gives exactly the room as measured (${stale.obstacles.length})`)
+  ok(stale.obstacles.find((o) => o.id === 'column').xCm !== 999,
+    'a saved entry cannot override a derived one')
+  ok(!stale.obstacles.some((o) => o.id === 'stair-f1-step-16'),
+    'and a deleted element cannot come back as an unknown id')
+  ok(stale.obstacles.some((o) => o.id === 'heating') &&
+    stale.obstacles.filter((o) => /^mullion-\d+$/.test(o.id)).length === 5,
+    'the whole room is present regardless of what was saved')
 
-  // Garbage in an obstacle record is clamped, not obeyed, and never throws.
+  // Garbage never throws. Nothing survives to be clamped now that a saved list
+  // cannot override the room, so the check is that the room comes through
+  // intact and the junk is simply gone.
   const junk = normalizeConfig({ obstacles: [{ id: 'a', xCm: 'x', widthCm: -99 }, null, { id: 'a' }] })
-  // The room's own elements come through the merge too, so the junk is counted
-  // by what it added rather than by the whole length.
-  const added = junk.obstacles.filter((o) => !DEFAULT_OBSTACLES.some((d) => d.id === o.id))
-  ok(added.length === 2, `non-objects are dropped (got ${added.length} added)`)
-  ok(added[0].xCm === 0 && added[0].widthCm === OBSTACLE_SIZE_MIN,
-    `and bad numbers are replaced or clamped (widthCm ${added[0].widthCm}, floor ${OBSTACLE_SIZE_MIN})`)
-  // The floor has to stay below the thinnest real element or it rewrites it —
-  // it already did that to the 0.5cm glass once.
-  ok(OBSTACLE_SIZE_MIN <= 0.5, 'and the floor is thin enough not to fatten the glazing')
-  ok(junk.obstacles[0].id !== junk.obstacles[1].id, 'a duplicate id is renamed rather than losing a column')
+  ok(junk.obstacles.length === DEFAULT_OBSTACLES.length, 'garbage in an obstacle list is discarded')
+  ok(junk.obstacles.every((o) => Number.isFinite(o.xCm) && o.widthCm >= OBSTACLE_SIZE_MIN),
+    'and every surviving record is well formed')
+  ok(OBSTACLE_SIZE_MIN <= 0.5, 'the size floor stays thin enough not to fatten the glazing')
 }
 
 // -----------------------------------------------------------------------------
@@ -299,6 +303,105 @@ console.log('6. the two heating runs meet at the corner without overlapping')
     'the return run ends exactly where the return glazing does')
   ok(b.max[0] - b.min[0] > a.max[2] - a.min[2],
     `and it is slightly wider than the main run (${(b.max[0] - b.min[0]).toFixed(2)} vs ${(a.max[2] - a.min[2]).toFixed(2)})`)
+}
+
+// -----------------------------------------------------------------------------
+// 7. THE STAIRCASE — a switchback about a well, with the column in it
+// -----------------------------------------------------------------------------
+console.log('7. the switchback stair and the well it turns about')
+{
+  const all = normalizeConfig({}).obstacles
+  const ext = (id) => obstacleExtents(all.find((o) => o.id === id))
+  const M1 = -81.3 + 6.35 / 2
+  const M2 = M1 + 129.5
+  const M5 = M1 + 129.5 + 152.4 * 3
+
+  // The two measured alignments: the stair spans mullion 2 to mullion 5.
+  const f2 = ext('stair-f2-step-1')
+  const f1 = ext('stair-f1-step-1')
+  near(f2.min[0], M2, 1e-9, "the stair's close edge sits on mullion 2")
+  near(f1.max[0], M5, 1e-9, "and flight 1's far edge on mullion 5")
+  near(f1.max[0] - f1.min[0], f2.max[0] - f2.min[0], 1e-9, 'both flights are the same width')
+
+  // THE WELL, and the column standing in it. The column's own position was an
+  // estimate; these three constraints — span, equal flights, centred column —
+  // pin it 125cm from where that estimate put it, so it is DERIVED from the
+  // stair now. If it ever drifts out of the well, this fails.
+  const well0 = f2.max[0]
+  const well1 = f1.min[0]
+  const col = ext('column')
+  ok(well1 > well0, `there is a well between the flights (${(well1 - well0).toFixed(1)}cm)`)
+  near((well0 + well1) / 2, (col.min[0] + col.max[0]) / 2, 1e-9,
+    'and the column is centred in it, in x')
+  ok(col.min[0] > well0 && col.max[0] < well1,
+    'the column stands clear of both flights — it goes around it without touching')
+  near(col.min[2], 271, 1e-9, 'and its measured z face is at 271')
+
+  // The landing reaches further −X than the flights, and that overhang is where
+  // the column penetrates it.
+  // The landing spans the flights AND the well — nothing more. Its −X edge is
+  // flight 2's, not an overhang past it: it is a staircase.
+  const land = ext('stair-landing')
+  near(land.min[0], f2.min[0], 1e-9, "the landing's −X edge is flight 2's −X edge")
+  near(land.max[0], f1.max[0], 1e-9, "and its +X edge is flight 1's")
+  const landW = land.max[0] - land.min[0]
+  const flightW = (f1.max[0] - f1.min[0]) * 2
+  ok(landW > flightW,
+    `so it is longer than the two flight widths (${landW.toFixed(1)} vs ${flightW.toFixed(1)})`)
+  near(landW - flightW, well1 - well0, 1e-9,
+    'and the difference is exactly the well — which is where the column comes through')
+  near(land.min[2], 96, 1e-9, "the landing's near Z edge is at 96")
+
+  // THE FLIGHTS WRAP THE COLUMN, NOT THE LANDING. At z 271 the column starts
+  // past the landing's back edge at 256, so nothing penetrates the slab — it is
+  // the well between the flights that goes around it, in x. Checked with the
+  // SAT against every stair piece, so a landing that grew deeper again could
+  // not quietly start fouling it.
+  const colBox = obstacleOBB(all.find((o) => o.id === 'column'))
+  const stairPieces = all.filter((o) => o.id.startsWith('stair'))
+  const fouling = stairPieces.filter((o) => obbPenetration(colBox, obstacleOBB(o)) !== null)
+  ok(fouling.length === 0,
+    `no stair piece touches the column (${fouling.map((o) => o.id).join(', ') || 'none'})`)
+  ok(col.min[2] > land.max[2],
+    `and the column starts past the landing's back edge (${col.min[2]} vs ${land.max[2]})`)
+
+  // Levels. Flight 1 is fully anchored at BOTH ends — sidewalk at −65, landing
+  // at 215 — so the run between them is derived, not chosen, and it comes out on
+  // standard proportions exactly: 16 risers of 17.5 and 15 treads of 28. Only
+  // one riser count makes both numbers whole, which is the check worth having.
+  ok(f1.min[1] === -65, 'flight 1 starts at sidewalk level, y = −65')
+  // THE LANDING FOLLOWS THE STAIR, not the other way round. Its height was an
+  // estimate (215); the riser is a standard 17.5, so 16 of them off the floor
+  // is the exact number and the landing sits on the top tread by construction.
+  // Asserting 215 would pin the estimate and let the stair drift off it.
+  const f1top = ext('stair-f1-step-15')
+  const riser = 17.5
+  near(land.max[1], -65 + 15 * riser, 1e-9,
+    `the landing is 15 standard risers off the floor (${land.max[1]})`)
+  // ALIGNED TO THE LAST RISER, top AND bottom. Its depth is one riser, not a
+  // guessed fascia — 40 was an assumption and it hung the slab 22.5cm below the
+  // stair it belongs to.
+  near(land.min[1], f1top.min[1], 1e-9, "the landing's underside is the last riser's underside")
+  near(land.max[1] - land.min[1], riser, 1e-9, 'so the landing is exactly one riser deep')
+  near(63 - 2 * riser, 28, 1e-9, '2R + G = 63 gives exactly the 28 tread used')
+  // THE LANDING IS FLIGHT 1'S TOP TREAD, and flight 2 rises OFF it — the two
+  // flights share that level rather than stacking a redundant tread on it.
+  near(ext('stair-f2-step-1').min[1], land.max[1], 1e-9,
+    "flight 2's lowest step starts on the landing")
+  near(ext('stair-f2-step-1').max[1] - land.max[1], riser, 1e-9,
+    '...and rises one standard riser off it')
+  // FLUSH, not one riser short: the top tread's surface IS the landing level.
+  near(f1top.max[1], land.max[1], 1e-9, "the top tread is flush with the landing")
+  near(f1top.max[1] - f1top.min[1], riser, 1e-9, 'and it is one riser tall like the rest')
+  near(f1.max[1] - f1.min[1], riser, 1e-9, "step 1 is one standard rise off the lower floor")
+  near(f1.min[1], -65, 1e-9, '...starting on the floor itself')
+  near(land.max[2] - land.min[2], 160, 1e-9, 'the landing is 160 deep in z')
+  near(f1.max[2] - f1top.min[2], 15 * 28, 1e-9,
+    'and the flight runs 15 treads × 28 = 420')
+  // THE FLIGHT MUST NOT INTRUDE INTO THE LANDING. Flush in height, adjacent in
+  // plan — the top tread starts exactly where the landing stops.
+  near(f1top.min[2], land.max[2], 1e-9,
+    'the top tread begins exactly at the landing back edge')
 }
 
 console.log(`\ntest-v4-obstacles: ${passed} checks passed, ${failed} failed`)

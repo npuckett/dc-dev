@@ -199,6 +199,11 @@ export function solveObstacles(lattice, obstacles) {
       // Carried through for the viewport: a reserved ZONE and a SOLID are drawn
       // differently and tested identically (schema.js's OBSTACLE_KINDS).
       kind: o.kind ?? 'solid',
+      // Repeated sub-elements suppress their name — see schema.js.
+      // The FLAG decides, not the text: sanitizeObstacles falls an empty label
+      // back to the id (so nothing is ever nameless in a warning), which means
+      // emptiness cannot be the signal.
+      labelled: o.labelled !== false,
       extents,
       hits,
       hitCount: hits.length,
