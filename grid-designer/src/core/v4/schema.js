@@ -454,6 +454,11 @@ const GLASS_THICKNESS_CM = 0.5
 const CAP_THICKNESS_CM = 1
 
 const SIDEWALK_Y_CM = SILL_TOP_Y_CM - SIDEWALK_DROP_CM
+/** How far a facade runs from the corner: last mullion's far face. Derived, so
+ *  a change to the spacings moves the heating run with the glazing. */
+const FACADE_RUN_CM = MULLION_SPACINGS_CM.reduce((a, b) => a + b, 0) + MULLION_SECTION.acrossCm
+/** The return elevation's inner face — where the floor of that bay begins. */
+const RETURN_INNER_X_CM = CORNER_X_CM + MULLION_SECTION.depthCm
 const MULLION_TOP_Y_CM = MULLION_SECTION.baseYCm + MULLION_SECTION.heightCm
 
 /**
@@ -629,16 +634,46 @@ export const DEFAULT_OBSTACLES = [
     id: 'heating',
     label: 'heating gap',
     kind: 'zone',
-    xCm: -81.3,
-    zCm: -59.7,
-    widthCm: 594,
-    depthCm: 59.7,
-    // Its BOTTOM aligns with the mullions' bottom at y = −25 (measured). The
-    // TOP is still not measured — 20 was a placeholder and is left where it
-    // was rather than quietly re-invented, so the height is what the two ends
-    // imply: 45. Flagged, not presented as a dimension.
-    heightCm: 45,
-    baseYCm: -25,
+    // STARTS AT THE RETURN MULLIONS' INNER FACE, not at the corner. The return
+    // elevation occupies x −81.3 → −62.25, so the run along the main elevation
+    // cannot begin until past it. Derived from the section rather than typed,
+    // so it follows if the mullion depth is ever corrected.
+    xCm: RETURN_INNER_X_CM,
+    zCm: CORNER_Z_CM,
+    widthCm: 512.7 - RETURN_INNER_X_CM,
+    depthCm: -CORNER_Z_CM,
+    // A TRENCH: bottom on the mullions' bottom at y = −25, top at the FLOOR,
+    // y = 0. The 20cm top was my placeholder and is gone.
+    //
+    // Stopping at the floor is what lets this run pass UNDER the wall slab
+    // rather than through it — the wall is drawn from y = 0 up, so a gap below
+    // the floor and a wall above it never meet. That is exactly why the second
+    // run can reach the wall's room-side face at x = 0.
+    heightCm: -SILL_TOP_Y_CM,
+    baseYCm: SILL_TOP_Y_CM,
+    anchor: 'corner',
+  },
+  {
+    // The run along the RETURN elevation, in the bay beyond the wall.
+    //
+    // Spans the floor from the return glazing's inner face to the wall's
+    // room-side face (x −62.25 → 0, 62.25 wide — slightly wider than the main
+    // run's 59.7 depth), and runs in +z from where the main run ends to the far
+    // end of the return glazing. Starting at z = 0 makes the two tile exactly:
+    // the main run already covers the corner square across this whole x range,
+    // so there is neither an overlap nor a missed strip.
+    //
+    // It reaches x = 0, the wall's ROOM-SIDE face, and that is only coherent
+    // because the trench stops at the floor — see the note on `heating`.
+    id: 'heating-return',
+    label: 'heating gap — return',
+    kind: 'zone',
+    xCm: RETURN_INNER_X_CM,
+    zCm: 0,
+    widthCm: -RETURN_INNER_X_CM,
+    depthCm: CORNER_Z_CM + FACADE_RUN_CM,
+    heightCm: -SILL_TOP_Y_CM,
+    baseYCm: SILL_TOP_Y_CM,
     anchor: 'corner',
   },
   ...facade('x'),

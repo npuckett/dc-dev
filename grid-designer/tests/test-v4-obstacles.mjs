@@ -261,5 +261,45 @@ console.log('5. the return facade is the main one rotated about the corner')
     'and the return caps outside the return glass — the "outside" direction turned too')
 }
 
+// -----------------------------------------------------------------------------
+// 6. THE HEATING RUNS — they tile, and they stop at the floor
+// -----------------------------------------------------------------------------
+console.log('6. the two heating runs meet at the corner without overlapping')
+{
+  const all = normalizeConfig({}).obstacles
+  const ext = (id) => obstacleExtents(all.find((o) => o.id === id))
+  const a = ext('heating')
+  const b = ext('heating-return')
+
+  // BOTH STOP AT THE FLOOR. This is what lets the return run reach the wall's
+  // room-side face at x = 0: the wall is drawn from y = 0 up, so a trench below
+  // the floor and a wall above it never meet. If a heating run ever climbs past
+  // y = 0 again it starts intersecting the wall, silently.
+  ok(a.max[1] === 0 && b.max[1] === 0, 'both runs top out at the floor, y = 0')
+  ok(a.min[1] === -25 && b.min[1] === -25, 'and both bottom on the mullion base at −25')
+  ok(b.max[0] === 0, 'the return run reaches the wall room-side face at x = 0')
+
+  // The main run starts at the RETURN mullions' inner face, not at the corner —
+  // the return elevation occupies that ground.
+  near(a.min[0], ext('mullion-1-return').max[0], 1e-9,
+    'the main run starts exactly at the return mullions\' inner face')
+
+  // They TILE: gap 1 covers the corner square across gap 2's whole x range, so
+  // gap 2 starting at z = 0 leaves neither an overlap nor a missed strip.
+  ok(a.max[2] === 0 && b.min[2] === 0, 'they meet at z = 0')
+  ok(a.min[0] <= b.min[0] && a.max[0] >= b.max[0],
+    'and gap 1 spans gap 2\'s full x range, so the corner square is covered once')
+  ok(obbPenetration(obstacleOBB(all.find((o) => o.id === 'heating')),
+    obstacleOBB(all.find((o) => o.id === 'heating-return'))) === null,
+    'the two runs do not interpenetrate — checked with the SAT, not by eye')
+
+  // The return run ends where the return glazing does, and is derived from the
+  // same spacings — so correcting a mullion spacing moves both together.
+  near(b.max[2], ext('glass-return').max[2], 1e-9,
+    'the return run ends exactly where the return glazing does')
+  ok(b.max[0] - b.min[0] > a.max[2] - a.min[2],
+    `and it is slightly wider than the main run (${(b.max[0] - b.min[0]).toFixed(2)} vs ${(a.max[2] - a.min[2]).toFixed(2)})`)
+}
+
 console.log(`\ntest-v4-obstacles: ${passed} checks passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)
