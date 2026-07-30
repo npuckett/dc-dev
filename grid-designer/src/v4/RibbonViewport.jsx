@@ -608,7 +608,12 @@ function Obstacles() {
     <group>
       {report.obstacles.map((o) => {
         const hit = o.hitCount > 0
-        const color = hit ? OBSTACLE_HIT_COLOR : OBSTACLE_COLOR
+        // The stair's structural band reads as WHITE and nearly opaque here, not
+        // the faint grey every other obstacle gets: it is a defining piece of the
+        // stair and was invisible when drawn like a generic box. The GLB export
+        // gives it the same white via `env_stair_band`.
+        const band = /-band(-|$)/.test(o.id)
+        const color = hit ? OBSTACLE_HIT_COLOR : band ? '#f4f4f2' : OBSTACLE_COLOR
         const [w, h, d] = o.extents.size
         const c = o.extents.centre
         // A ZONE is reserved empty space, not material. It gets an edge outline
@@ -627,8 +632,8 @@ function Obstacles() {
                 color={color}
                 toneMapped={false}
                 transparent
-                opacity={hit ? 0.3 : glass ? 0.045 : zone ? 0.09 : 0.16}
-                depthWrite={false}
+                opacity={hit ? 0.3 : glass ? 0.045 : zone ? 0.09 : band ? 0.92 : 0.16}
+                depthWrite={band}
               />
             </mesh>
             {(zone || glass) && (
