@@ -403,38 +403,73 @@ function ConnectorParts() {
 }
 
 // -----------------------------------------------------------------------------
-// Wall (x = 0) / Window-Shore (z = 0) — the world conventions, unchanged
+// Wall (x = 0) — the interior slat screen
+//
+// It is NOT a solid wall: the site photos show a screen of vertical brown
+// timber slats of varying width with gaps between them, which is why the
+// building edge and the main-facade mullions read straight through it. So it is
+// drawn as slats, not a plane.
+//
+// It stays a VIEWPORT BACKDROP rather than real geometry: it is not collision-
+// tested (it sits at x ≤ 0, behind every panel) and does not export, because
+// its z-extent is a viewport convenience — the screen is run to the depth of
+// the scene, not to a measured length. Making it export would bake that guess
+// into the deliverable. See the note offered to the user.
 // -----------------------------------------------------------------------------
-const WALL_HEIGHT_CM = 250
-const WALL_COLOR = '#3ad0c0'
 const WALL_MIN_DEPTH_CM = 200
 const WALL_DEPTH_MARGIN_CM = 40
+const WALL_TOP_FALLBACK_CM = 375 // the window head, when no glazing is present to read it off
+
+// A repeating-but-varied rhythm of slat widths and the gap between them, in cm.
+// Deterministic, so the screen does not reshuffle on every render.
+const SLAT_WIDTHS_CM = [11, 6, 15, 8, 5, 13, 7, 9]
+const SLAT_GAP_CM = 5
+const SLAT_BROWNS = ['#6b4a2f', '#7a5636', '#5e4029', '#73502f']
+
+/** The window head, read off the glazing so the wall follows it rather than
+ *  carrying its own copy of 375. */
+function windowHeadCm(report) {
+  let top = -Infinity
+  for (const o of report.obstacles) {
+    if (o.id === 'glass' || o.id === 'glass-return') top = Math.max(top, o.extents.max[1])
+  }
+  return Number.isFinite(top) ? top : WALL_TOP_FALLBACK_CM
+}
 
 function Wall() {
   const config = useStoreV4((s) => s.config)
-  const { chain } = getDerived(config)
+  const { chain, report } = getDerived(config)
   const deepest = Number.isFinite(chain.bounds.max?.[2]) ? chain.bounds.max[2] : 0
   const depth = Math.max(deepest + WALL_DEPTH_MARGIN_CM, WALL_MIN_DEPTH_CM)
-  // MEASURED, and it builds up AWAY from the installation: the wall occupies
-  // x ∈ [−t, 0] and its FACE stays on the datum at x = 0. So thickening it can
-  // never push a panel — the slab grows backwards, out of the room.
+  // MEASURED, and it builds up AWAY from the installation: the screen occupies
+  // x ∈ [−t, 0] and its FACE stays on the datum at x = 0.
   const t = config.room.wallThicknessCm
+  const height = windowHeadCm(report) // same height as the windows
+
+  // Lay slats along z, cycling the width pattern, until the run is filled.
+  const slats = useMemo(() => {
+    const out = []
+    let z = 0
+    let i = 0
+    while (z < depth) {
+      const w = SLAT_WIDTHS_CM[i % SLAT_WIDTHS_CM.length]
+      const cut = Math.min(w, depth - z) // last slat is clipped to the run, not overhung
+      out.push({ z: z + cut / 2, w: cut, color: SLAT_BROWNS[i % SLAT_BROWNS.length] })
+      z += cut + SLAT_GAP_CM
+      i += 1
+    }
+    return out
+  }, [depth, t, height])
 
   return (
     <group>
-      <mesh position={[-t / 2, WALL_HEIGHT_CM / 2, depth / 2]}>
-        <boxGeometry args={[Math.max(t, 0.01), WALL_HEIGHT_CM, depth]} />
-        <meshBasicMaterial color={WALL_COLOR} toneMapped={false} transparent opacity={0.1} depthWrite={false} />
-      </mesh>
-      <mesh position={[0, 0.4, depth / 2]}>
-        <boxGeometry args={[2.4, 0.8, depth]} />
-        <meshBasicMaterial color={WALL_COLOR} toneMapped={false} />
-      </mesh>
-      <mesh position={[0, WALL_HEIGHT_CM, depth / 2]}>
-        <boxGeometry args={[1.6, 0.8, depth]} />
-        <meshBasicMaterial color={WALL_COLOR} toneMapped={false} transparent opacity={0.45} />
-      </mesh>
-      <Html position={[-14, 120, depth * 0.55]} center distanceFactor={520} zIndexRange={[10, 0]}>
+      {slats.map((s, k) => (
+        <mesh key={k} position={[-t / 2, height / 2, s.z]}>
+          <boxGeometry args={[Math.max(t, 0.01), height, s.w]} />
+          <meshStandardMaterial color={s.color} roughness={0.8} metalness={0} />
+        </mesh>
+      ))}
+      <Html position={[-14, height * 0.5, depth * 0.55]} center distanceFactor={520} zIndexRange={[10, 0]}>
         <div className="wall-label">WALL</div>
       </Html>
     </group>
