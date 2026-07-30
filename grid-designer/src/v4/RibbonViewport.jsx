@@ -750,19 +750,34 @@ function ribbonGeometry({ polygon, thickness, xCenter }) {
   return geo
 }
 
+// How each stair edge part is shaded: the band is the solid white fascia, the
+// glass a near-clear pane, the handrail a dark metal cap.
+function StairPartMaterial({ part }) {
+  if (part === 'glass') {
+    return <meshStandardMaterial color="#b8dcee" roughness={0.05} metalness={0} transparent opacity={0.2} side={THREE.DoubleSide} />
+  }
+  if (part === 'handrail') {
+    return <meshStandardMaterial color="#2a2d33" roughness={0.4} metalness={0.6} side={THREE.DoubleSide} />
+  }
+  return <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} side={THREE.DoubleSide} />
+}
+
 function StairBands() {
-  const ribbons = useMemo(() => STAIR_BAND.ribbons.map((r) => ({ id: r.id, geometry: ribbonGeometry(r) })), [])
+  const ribbons = useMemo(
+    () => STAIR_BAND.ribbons.map((r) => ({ id: r.id, part: r.part, geometry: ribbonGeometry(r) })),
+    [],
+  )
   return (
     <group>
       {ribbons.map((r) => (
         <mesh key={r.id} geometry={r.geometry}>
-          <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} side={THREE.DoubleSide} />
+          <StairPartMaterial part={r.part} />
         </mesh>
       ))}
       {STAIR_BAND.boxes.map((b) => (
         <mesh key={b.id} position={b.center}>
           <boxGeometry args={b.size} />
-          <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} />
+          <StairPartMaterial part={b.part} />
         </mesh>
       ))}
     </group>

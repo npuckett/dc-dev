@@ -104,7 +104,15 @@ export const ENV_GROUPS = [
   'env_stair_landing',
   'env_stair_band',
   'env_stair_balustrades',
+  'env_stair_handrail',
 ]
+
+/** The stair edge assembly's `part` → env family. */
+const STAIR_PART_FAMILY = {
+  band: 'env_stair_band',
+  glass: 'env_stair_balustrades',
+  handrail: 'env_stair_handrail',
+}
 
 /**
  * Which family an obstacle belongs to, by id.
@@ -121,10 +129,8 @@ export function environmentFamily(id) {
   if (id === 'column') return 'env_column'
   if (id === 'floor') return 'env_floor'
   if (id === 'stair-landing') return 'env_stair_landing'
-  if (id.startsWith('stair-landing-glass')) return 'env_stair_balustrades'
   if (id.startsWith('heating')) return 'env_heating'
   if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
-  if (/^stair-f\d+-glass-/.test(id)) return 'env_stair_balustrades'
   if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
   if (id.startsWith('mullion-')) return 'env_mullions'
   if (id === 'glass' || id === 'glass-return') return 'env_glass'
@@ -177,6 +183,8 @@ const GROUP_LOOKS = {
   // The strong white structural band. Brightest white of the stair, since the
   // photos read it as the crisp painted fascia the glass sits on.
   env_stair_band: { color: 0xffffff, roughness: 0.5, metalness: 0 },
+  // The handrail cap along the top of the glass — dark metal.
+  env_stair_handrail: { color: 0x2a2d33, roughness: 0.4, metalness: 0.6 },
   env_stair_balustrades: { color: 0xb8dcee, roughness: 0.05, metalness: 0, opacity: 0.2, transparent: true },
 }
 
@@ -338,26 +346,28 @@ function addEnvironment(group, config) {
     box.dispose()
   }
 
-  // The stair band is not an obstacle — a raking stringer cannot be axis-aligned.
-  // Its mitred `ribbon` profiles are extruded along x; its straight `boxes` are
-  // plain. All merge into the one `env_stair_band` mesh.
+  // The stair edge assembly is not obstacles — a raking stringer cannot be
+  // axis-aligned. Its mitred `ribbon` profiles are extruded along x; its
+  // straight `boxes` are plain. Each routes to a family by its `part`
+  // (band / glass / handrail) via STAIR_PART_FAMILY.
   const stair = stairBands()
-  const stairMerger = () => {
-    if (!mergers.has('env_stair_band')) mergers.set('env_stair_band', Merger())
-    return mergers.get('env_stair_band')
+  const stairMerger = (part) => {
+    const fam = STAIR_PART_FAMILY[part]
+    if (!mergers.has(fam)) mergers.set(fam, Merger())
+    return mergers.get(fam)
   }
   for (const r of stair.ribbons) {
     const shape = new THREE.Shape(r.polygon.map((p) => new THREE.Vector2(p[0], p[1])))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: r.thickness, bevelEnabled: false })
     geo.rotateY(-Math.PI / 2)
     geo.translate(r.xCenter + r.thickness / 2, 0, 0)
-    stairMerger().add(geo) // ExtrudeGeometry is already non-indexed
+    stairMerger(r.part).add(geo) // ExtrudeGeometry is already non-indexed
     geo.dispose()
   }
   for (const b of stair.boxes) {
     const box = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2])
     box.translate(b.center[0], b.center[1], b.center[2])
-    stairMerger().add(box)
+    stairMerger(b.part).add(box)
     box.dispose()
   }
 
