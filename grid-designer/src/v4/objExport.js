@@ -76,7 +76,7 @@ import {
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
 import { obstacleExtents } from '../core/v4/obstacles.js'
-import { stairBands } from '../core/v4/schema.js'
+import { stairBands, slatWall, wallDepthCm } from '../core/v4/schema.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
@@ -93,6 +93,7 @@ export const DIFFUSER_PREFIX = 'diffuser'
  */
 export const ENV_PREFIX = 'env_'
 export const ENV_GROUPS = [
+  'env_wall',
   'env_floor',
   'env_column',
   'env_mullions',
@@ -134,7 +135,7 @@ export function environmentFamily(id) {
   if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
   if (id.startsWith('mullion-')) return 'env_mullions'
   if (id === 'glass' || id === 'glass-return') return 'env_glass'
-  if (id.startsWith('sill')) return 'env_sills'
+  if (id.startsWith('sill') || id.startsWith('spandrel')) return 'env_sills'
   return null
 }
 
@@ -171,6 +172,7 @@ const GROUP_LOOKS = {
   // Environment. Visibly distinct starting looks; the whole point of exporting
   // them is so they can be re-shaded in the DCC. Glass and heating are
   // translucent so the installation reads through them by default.
+  env_wall: { color: 0x6b4a2f, roughness: 0.8, metalness: 0 },
   env_floor: { color: 0x6d5642, roughness: 0.9, metalness: 0 },
   env_column: { color: 0x8a8f96, roughness: 0.7, metalness: 0.1 },
   env_mullions: { color: 0x1f242b, roughness: 0.4, metalness: 0.6 },
@@ -330,7 +332,17 @@ function meshOf(geometry, name) {
  * These groups exist ALONGSIDE the installation groups, prefixed `env_` — so
  * anything that reads only the design can filter them out by name.
  */
-function addEnvironment(group, config) {
+/** The window head off the glazing, for the wall's height — matches the
+ *  viewport's `windowHeadCm`. */
+function wallHeightCm(config) {
+  let top = -Infinity
+  for (const o of (config.obstacles ?? [])) {
+    if (o.id === 'glass' || o.id === 'glass-return') top = Math.max(top, obstacleExtents(o).max[1])
+  }
+  return Number.isFinite(top) ? top : 375
+}
+
+function addEnvironment(group, config, chain) {
   const mergers = new Map()
   const seenIds = new Set()
   for (const obstacle of (config.obstacles ?? [])) {
@@ -368,6 +380,24 @@ function addEnvironment(group, config) {
     const box = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2])
     box.translate(b.center[0], b.center[1], b.center[2])
     stairMerger(b.part).add(box)
+    box.dispose()
+  }
+
+  // The interior SLAT WALL — the same box geometry the viewport draws, from the
+  // shared `slatWall()`. Frame and slats merge into one `env_wall` mesh.
+  const wall = slatWall({
+    thicknessCm: config.room?.wallThicknessCm ?? 8.9,
+    heightCm: wallHeightCm(config),
+    depthCm: wallDepthCm(chain),
+  })
+  const wallMerger = () => {
+    if (!mergers.has('env_wall')) mergers.set('env_wall', Merger())
+    return mergers.get('env_wall')
+  }
+  for (const m of [...wall.frame, ...wall.slats]) {
+    const box = new THREE.BoxGeometry(Math.max(m.size[0], 0.01), m.size[1], m.size[2])
+    box.translate(m.center[0], m.center[1], m.center[2])
+    wallMerger().add(box)
     box.dispose()
   }
 
@@ -465,7 +495,7 @@ export function buildSceneGroup(config, chain, connectors, options = {}) {
   if (!parts.isEmpty()) group.add(meshOf(parts.build(), GROUP_CONNECTORS))
   if (!supplies.isEmpty()) group.add(meshOf(supplies.build(), GROUP_SUPPLIES))
 
-  if (options.includeEnvironment) addEnvironment(group, config)
+  if (options.includeEnvironment) addEnvironment(group, config, chain)
 
   group.updateMatrixWorld(true)
   return group

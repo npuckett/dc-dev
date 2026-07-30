@@ -547,6 +547,11 @@ function facade(axis) {
     corner, runLen, outer, depthCm, SILL_TOP_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
   out.push(place(`sill-sidewalk${tag}`, `sill (sidewalk)${suffix}`, 'solid',
     corner, runLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  // The SPANDREL — the solid wall below the glazing, from the mullion bottom
+  // down to the sidewalk. This span was open; a curtain wall has a spandrel
+  // panel here. Full run, on the glazing plane (the mullion depth).
+  out.push(place(`spandrel${tag}`, `spandrel${suffix}`, 'solid',
+    corner, runLen, outer, depthCm, SIDEWALK_Y_CM, SILL_TOP_Y_CM - SIDEWALK_Y_CM))
   // Flush to the STREET face, so the mullion depth reads from inside.
   out.push(place(`glass${tag}`, `glass${suffix}`, 'glass',
     corner, runLen, outer, GLASS_THICKNESS_CM, SILL_TOP_Y_CM, MULLION_TOP_Y_CM - SILL_TOP_Y_CM))
@@ -945,6 +950,68 @@ export function stairBands() {
     ...straight('stair-landing-well', (f2Inner + f1Inner) / 2, zTop - X / 2, (f1Inner - f2Inner) + X),
   ]
   return { ribbons, boxes }
+}
+
+// -----------------------------------------------------------------------------
+// THE INTERIOR SLAT WALL (x = 0)
+// -----------------------------------------------------------------------------
+/** How wide each frame member reads. ASSUMED, not measured. */
+export const WALL_FRAME_FACE_CM = 8
+/** The slats are 1cm deep in x, centred in the frame. Measured. */
+export const WALL_SLAT_X_CM = 1
+/** A deterministic, varied rhythm of slat widths and the gap between them. */
+export const WALL_SLAT_WIDTHS_CM = [11, 6, 15, 8, 5, 13, 7, 9]
+export const WALL_SLAT_GAP_CM = 5
+export const WALL_MIN_DEPTH_CM = 200
+export const WALL_DEPTH_MARGIN_CM = 40
+
+/** The wall's z-run — a viewport convenience: as deep as the scene (the network's
+ *  z extent) plus a margin, floored at a minimum. Both the viewport and the GLB
+ *  read it from here so they agree. */
+export function wallDepthCm(chain) {
+  const deepest = Number.isFinite(chain?.bounds?.max?.[2]) ? chain.bounds.max[2] : 0
+  return Math.max(deepest + WALL_DEPTH_MARGIN_CM, WALL_MIN_DEPTH_CM)
+}
+
+/**
+ * The interior slat screen at x = 0, as box geometry — shared by the viewport
+ * and the GLB exporter so the two cannot draw different walls.
+ *
+ * A FRAME carries the wall's full thickness `t` around all four edges; thin
+ * slats hang INSIDE it, centred in that depth. The wall occupies x ∈ [−t, 0],
+ * its face on the datum. `depthCm` is how far it runs in z — a viewport
+ * convenience (the depth of the scene), not a measured length, which is why the
+ * wall was a backdrop before; exporting it bakes that one estimate in.
+ *
+ * @returns {{ frame: {center,size}[], slats: {center,size}[] }}
+ */
+export function slatWall({ thicknessCm, heightCm, depthCm }) {
+  const round = (v) => Math.round(v * 1e9) / 1e9
+  const t = Math.max(thicknessCm, 0.01)
+  const f = WALL_FRAME_FACE_CM
+  const h = heightCm
+  const d = depthCm
+  const innerH = Math.max(h - 2 * f, 0.01)
+  const bx = (cx, cy, cz, sx, sy, sz) => ({ center: [round(cx), round(cy), round(cz)], size: [round(sx), round(sy), round(sz)] })
+
+  const frame = [
+    bx(-t / 2, f / 2, d / 2, t, f, d), // bottom rail
+    bx(-t / 2, h - f / 2, d / 2, t, f, d), // top rail
+    bx(-t / 2, h / 2, f / 2, t, innerH, f), // near post (z = 0)
+    bx(-t / 2, h / 2, d - f / 2, t, innerH, f), // far post
+  ]
+  const slats = []
+  const z1 = d - f
+  let z = f
+  let i = 0
+  while (z < z1) {
+    const w = WALL_SLAT_WIDTHS_CM[i % WALL_SLAT_WIDTHS_CM.length]
+    const cut = Math.min(w, z1 - z) // last slat clipped to the opening, not overhung
+    if (cut > 0.1) slats.push(bx(-t / 2, h / 2, z + cut / 2, WALL_SLAT_X_CM, innerH, cut))
+    z += cut + WALL_SLAT_GAP_CM
+    i += 1
+  }
+  return { frame, slats }
 }
 
 /**

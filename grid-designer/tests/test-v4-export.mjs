@@ -377,11 +377,12 @@ console.log('6. env_* groups: opt-in, one mesh per family, every obstacle accoun
   // obstacles — it is the oriented raking beams from `stairBands()` — so it is
   // added to the used set explicitly.
   const used = new Set(DEFAULT_OBSTACLES.map((o) => environmentFamily(o.id)).filter(Boolean))
-  // The three stair edge families are fed by `stairBands()` (band / glass /
-  // handrail ribbons), not by obstacles, so add them explicitly.
+  // The stair edge families come from `stairBands()`, and the wall from
+  // `slatWall()` — neither is an obstacle, so add them explicitly.
   used.add('env_stair_band')
   used.add('env_stair_balustrades')
   used.add('env_stair_handrail')
+  used.add('env_wall')
   const extras = ENV_GROUPS.filter((g) => !used.has(g))
   ok(extras.length === 0, `no family is declared without members (${extras.join(', ') || 'none'})`)
 
