@@ -372,9 +372,12 @@ console.log('6. env_* groups: opt-in, one mesh per family, every obstacle accoun
   ok(unmapped.length === 0,
     `no default obstacle is unmapped (${unmapped.map((o) => o.id).join(', ') || 'none'})`)
 
-  // ...and the families named in ENV_GROUPS actually have obstacles in them,
-  // so we do not ship phantom empty node names.
+  // ...and the families named in ENV_GROUPS actually have members, so we do not
+  // ship phantom empty node names. `env_stair_band` is the one family NOT fed by
+  // obstacles — it is the oriented raking beams from `stairBands()` — so it is
+  // added to the used set explicitly.
   const used = new Set(DEFAULT_OBSTACLES.map((o) => environmentFamily(o.id)).filter(Boolean))
+  used.add('env_stair_band')
   const extras = ENV_GROUPS.filter((g) => !used.has(g))
   ok(extras.length === 0, `no family is declared without members (${extras.join(', ') || 'none'})`)
 

@@ -76,6 +76,7 @@ import {
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
 import { obstacleExtents } from '../core/v4/obstacles.js'
+import { stairBands } from '../core/v4/schema.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
@@ -121,10 +122,8 @@ export function environmentFamily(id) {
   if (id === 'floor') return 'env_floor'
   if (id === 'stair-landing') return 'env_stair_landing'
   if (id === 'stair-landing-glass') return 'env_stair_balustrades'
-  if (id === 'stair-landing-band') return 'env_stair_band'
   if (id.startsWith('heating')) return 'env_heating'
   if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
-  if (/^stair-f\d+-band-/.test(id)) return 'env_stair_band'
   if (/^stair-f\d+-glass-/.test(id)) return 'env_stair_balustrades'
   if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
   if (id.startsWith('mullion-')) return 'env_mullions'
@@ -338,6 +337,22 @@ function addEnvironment(group, config) {
     mergers.get(fam).add(box)
     box.dispose()
   }
+
+  // The stair band is not an obstacle — it is a set of ORIENTED beams (a raking
+  // stringer cannot be axis-aligned). Each is a box placed by its own
+  // centre/quaternion, merged into the one `env_stair_band` mesh.
+  for (const beam of stairBands().beams) {
+    const box = new THREE.BoxGeometry(beam.size[0], beam.size[1], beam.size[2])
+    box.applyMatrix4(new THREE.Matrix4().compose(
+      new THREE.Vector3().fromArray(beam.center),
+      new THREE.Quaternion().fromArray(beam.quaternion),
+      new THREE.Vector3(1, 1, 1),
+    ))
+    if (!mergers.has('env_stair_band')) mergers.set('env_stair_band', Merger())
+    mergers.get('env_stair_band').add(box)
+    box.dispose()
+  }
+
   // Emit in the declared order, so the export is deterministic even if the
   // obstacle list happens to iterate in a different one.
   for (const fam of ENV_GROUPS) {

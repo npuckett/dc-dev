@@ -61,6 +61,7 @@ import useStoreV4, { getDerived } from './store.js'
 import { ADVISORY_FLAGS, getConnectorKit } from './exportAdapter.js'
 import { buildPanelGeometry } from '../geometry/panelGeometry.js'
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
+import { stairBands } from '../core/v4/schema.js'
 
 // -----------------------------------------------------------------------------
 // Nominal framing — DEFAULT_CONFIG's nine-unit ribbon: 60cm wide, ~523cm deep.
@@ -608,12 +609,7 @@ function Obstacles() {
     <group>
       {report.obstacles.map((o) => {
         const hit = o.hitCount > 0
-        // The stair's structural band reads as WHITE and nearly opaque here, not
-        // the faint grey every other obstacle gets: it is a defining piece of the
-        // stair and was invisible when drawn like a generic box. The GLB export
-        // gives it the same white via `env_stair_band`.
-        const band = /-band(-|$)/.test(o.id)
-        const color = hit ? OBSTACLE_HIT_COLOR : band ? '#f4f4f2' : OBSTACLE_COLOR
+        const color = hit ? OBSTACLE_HIT_COLOR : OBSTACLE_COLOR
         const [w, h, d] = o.extents.size
         const c = o.extents.centre
         // A ZONE is reserved empty space, not material. It gets an edge outline
@@ -632,8 +628,8 @@ function Obstacles() {
                 color={color}
                 toneMapped={false}
                 transparent
-                opacity={hit ? 0.3 : glass ? 0.045 : zone ? 0.09 : band ? 0.92 : 0.16}
-                depthWrite={band}
+                opacity={hit ? 0.3 : glass ? 0.045 : zone ? 0.09 : 0.16}
+                depthWrite={false}
               />
             </mesh>
             {(zone || glass) && (
@@ -737,6 +733,25 @@ function MeasuringBox() {
 // The <Canvas> — deliberately reads NO store state directly (see file header):
 // keeps the camera / OrbitControls instance stable across every toolbar toggle.
 // -----------------------------------------------------------------------------
+// The stair's white structural band — continuous raking beams, drawn opaque
+// white so it reads as the solid stringer it is. Not an obstacle (an obstacle
+// is axis-aligned and could only be stepped); the geometry comes from
+// `stairBands()`, each beam a box with its own centre / size / quaternion.
+const STAIR_BANDS = stairBands().beams
+
+function StairBands() {
+  return (
+    <group>
+      {STAIR_BANDS.map((b) => (
+        <mesh key={b.id} position={b.center} quaternion={b.quaternion}>
+          <boxGeometry args={b.size} />
+          <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 function Scene() {
   return (
     <Canvas
@@ -753,6 +768,7 @@ function Scene() {
       <directionalLight position={[-200, 240, 500]} intensity={0.35} />
 
       <Obstacles />
+      <StairBands />
       <OriginMarker />
 
       <Grid

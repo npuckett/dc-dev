@@ -782,26 +782,12 @@ function staircase() {
     box(`stair-f2-glass-${k}`, `stair flight 2 balustrade ${k}`, 'glass',
       f2x0 - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, landingY + k * riser, STAIR_BALUSTRADE_H_CM,
       zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
-    // The white band, directly BELOW each glass run: its top is the glass base
-    // (the tread nosing), and it runs STAIR_BAND_H_CM down as the outer edge
-    // beam. Flight 1's beam is inboard of its +X edge; flight 2's inboard of its
-    // −X edge — each on the same side its glass is.
-    //
-    // The bottom is CLAMPED to the sidewalk level: a full 45cm beam hung under
-    // the lowest treads would sink 27.5cm below the floor the stair stands on.
-    // So the beam shortens as it meets the ground rather than diving through it,
-    // which is what a raking stringer actually does at its foot.
-    const f1top = STAIR_LOWER_Y_CM + k * riser
-    const f1bot = Math.max(f1top - STAIR_BAND_H_CM, STAIR_LOWER_Y_CM)
-    box(`stair-f1-band-${k}`, `stair flight 1 band ${k}`, 'solid',
-      f1x1 - STAIR_BAND_X_CM, STAIR_BAND_X_CM,
-      f1bot, f1top - f1bot,
-      zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
-    box(`stair-f2-band-${k}`, `stair flight 2 band ${k}`, 'solid',
-      f2x0, STAIR_BAND_X_CM,
-      landingY + k * riser - STAIR_BAND_H_CM, STAIR_BAND_H_CM,
-      zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
   }
+  // The white structural band is NOT emitted here. It is a continuous RAKING
+  // beam, and an obstacle is axis-aligned — a per-tread band could only ever be
+  // stepped. So it lives in `stairBands()` as sloped beams, drawn by the
+  // viewport and the exporter rather than collision-tested (it is up at the
+  // stair, nowhere near a panel).
 
   // --- the landing ---------------------------------------------------------
   // ONE box, not four. It was split around a column penetration back when the
@@ -819,14 +805,92 @@ function staircase() {
   box('stair-landing-glass', 'stair landing balustrade', 'glass',
     landX0, landX1 - landX0, landingY, STAIR_BALUSTRADE_H_CM,
     STAIR_LANDING_Z0_CM, STAIR_GLASS_T_CM, false)
-  // The band under the landing's front balustrade, running the full x span so it
-  // ties flight 2's beam to flight 1's — this is where the band "wraps" the
-  // landing. Top at the landing surface, hanging STAIR_BAND_H_CM below it.
-  box('stair-landing-band', 'stair landing band', 'solid',
-    landX0, landX1 - landX0, landingY - STAIR_BAND_H_CM, STAIR_BAND_H_CM,
-    STAIR_LANDING_Z0_CM, STAIR_BAND_X_CM, false)
 
   return out
+}
+
+/**
+ * THE WHITE STRUCTURAL BAND, as continuous beams rather than stepped boxes.
+ *
+ * The band is the raking edge beam the glass sits on. Modelled as an obstacle it
+ * could only be stepped, one axis-aligned box per tread — which is what the
+ * photos are NOT: a single unbroken diagonal line down each flight. So it is a
+ * set of oriented beams here, consumed by the viewport and the GLB exporter
+ * (`env_stair_band`); it is never collision-tested, because it is up at the
+ * stair and cannot reach a panel.
+ *
+ * Each beam is a box of cross-section STAIR_BAND_X_CM (across the rail) ×
+ * STAIR_BAND_H_CM (deep), swept along its length. The two FLIGHT beams rake with
+ * the stair; the THREE landing beams — front and the two SIDES the previous
+ * model left out — are horizontal. Every beam carries its own `center`, `size`
+ * and `quaternion`, so a consumer just places a box and needs no stair maths.
+ *
+ * Returns `{ beams: [{ id, label, center, size, quaternion }] }`. The quaternion
+ * is a rotation about world X only (the rail is straight in x), built by hand as
+ * `[sin(φ/2), 0, 0, cos(φ/2)]` so this file need not import three.
+ */
+export function stairBands() {
+  const round = (v) => Math.round(v * 1e9) / 1e9
+  const m1 = CORNER_X_CM + MULLION_SECTION.acrossCm / 2
+  const m2 = m1 + MULLION_SPACINGS_CM[0]
+  const m5 = m1 + MULLION_SPACINGS_CM.reduce((a, b) => a + b, 0)
+  const f2x0 = m2
+  const f1x1 = m5
+  const landX0 = f2x0
+  const landX1 = m5
+  const landingY = STAIR_LANDING_Y_CM
+  const rise = landingY - STAIR_LOWER_Y_CM
+  const run = STAIR_RISERS_PER_FLIGHT * STAIR_TREAD_CM
+  const zTop = STAIR_LANDING_Z1_CM
+  const zBot = round(zTop + run)
+  const upperY = landingY + rise
+  const H = STAIR_BAND_H_CM
+  const X = STAIR_BAND_X_CM
+
+  // A raking beam between two points on the flight's edge line, at fixed x. It
+  // is CENTRED ON the line but then shifted so it hangs BELOW: the perpendicular
+  // whose world-y is negative is picked, whichever way the flight tilts.
+  const rake = (id, label, x, Az, Ay, Bz, By) => {
+    const dz = Bz - Az
+    const dy = By - Ay
+    const L = Math.hypot(dz, dy)
+    const phi = Math.atan2(-dy, dz) // rotation about X sending local +Z along A→B
+    const ly = Math.cos(phi) // world-y of the beam's local +Y after the rotation
+    const s = ly < 0 ? 1 : -1 // the downward perpendicular
+    return {
+      id,
+      label,
+      center: [round(x), round((Ay + By) / 2 + s * (H / 2) * Math.cos(phi)),
+        round((Az + Bz) / 2 + s * (H / 2) * Math.sin(phi))],
+      size: [X, H, round(L)],
+      quaternion: [round(Math.sin(phi / 2)), 0, 0, round(Math.cos(phi / 2))],
+    }
+  }
+  // A horizontal beam, top at the landing surface, hanging H below it.
+  const flat = (id, label, cx, cz, sx, sz) => ({
+    id,
+    label,
+    center: [round(cx), round(landingY - H / 2), round(cz)],
+    size: [round(sx), H, round(sz)],
+    quaternion: [0, 0, 0, 1],
+  })
+
+  const beams = [
+    // Flight 1 rakes from its foot on the floor up to the landing, on its +X
+    // edge; flight 2 from the landing up to the upper floor, on its −X edge.
+    rake('stair-f1-band', 'stair flight 1 band', f1x1 - X / 2, zBot, STAIR_LOWER_Y_CM, zTop, landingY),
+    rake('stair-f2-band', 'stair flight 2 band', f2x0 + X / 2, zTop, landingY, zBot, upperY),
+    // The landing, wrapped on its front and BOTH sides — the sides are the
+    // support the stepped model never had. Each side meets a flight beam at the
+    // landing corner (same x), so the band is continuous all the way round.
+    flat('stair-landing-band-front', 'stair landing band (front)',
+      (landX0 + landX1) / 2, STAIR_LANDING_Z0_CM + X / 2, landX1 - landX0, X),
+    flat('stair-landing-band-left', 'stair landing band (left)',
+      landX0 + X / 2, (STAIR_LANDING_Z0_CM + zTop) / 2, X, zTop - STAIR_LANDING_Z0_CM),
+    flat('stair-landing-band-right', 'stair landing band (right)',
+      landX1 - X / 2, (STAIR_LANDING_Z0_CM + zTop) / 2, X, zTop - STAIR_LANDING_Z0_CM),
+  ]
+  return { beams }
 }
 
 /**
