@@ -745,6 +745,8 @@ function staircase() {
   // actual flight, and the 100cm difference IS the well the column stands in.
   const landX0 = f2x0
   const landX1 = m5
+  const f1Inner = f1x0 // flight 1's −X (well-facing) edge
+  const f2Inner = f2x0 + width // flight 2's +X (well-facing) edge
 
   const landingY = STAIR_LANDING_Y_CM
   const rise = landingY - STAIR_LOWER_Y_CM
@@ -782,6 +784,15 @@ function staircase() {
     box(`stair-f2-glass-${k}`, `stair flight 2 balustrade ${k}`, 'glass',
       f2x0 - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, landingY + k * riser, STAIR_BALUSTRADE_H_CM,
       zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+    // The INNER balustrade, on each flight's well-facing edge — mirroring the
+    // outer glass so both sides of the stair are railed. Flight 1's inner edge
+    // is at f1Inner (its −X side); flight 2's at f2Inner (its +X side).
+    box(`stair-f1-glass-inner-${k}`, `stair flight 1 balustrade (inner) ${k}`, 'glass',
+      f1Inner - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, STAIR_LOWER_Y_CM + k * riser, STAIR_BALUSTRADE_H_CM,
+      zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+    box(`stair-f2-glass-inner-${k}`, `stair flight 2 balustrade (inner) ${k}`, 'glass',
+      f2Inner, STAIR_GLASS_T_CM, landingY + k * riser, STAIR_BALUSTRADE_H_CM,
+      zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
   }
   // The white structural band is NOT emitted here. It is a continuous RAKING
   // beam, and an obstacle is axis-aligned — a per-tread band could only ever be
@@ -805,6 +816,11 @@ function staircase() {
   box('stair-landing-glass', 'stair landing balustrade', 'glass',
     landX0, landX1 - landX0, landingY, STAIR_BALUSTRADE_H_CM,
     STAIR_LANDING_Z0_CM, STAIR_GLASS_T_CM, false)
+  // The inner balustrade across the WELL opening at the landing's back edge,
+  // tying flight 1's inner rail to flight 2's so the inner run is continuous.
+  box('stair-landing-glass-well', 'stair landing balustrade (well)', 'glass',
+    f2Inner, f1Inner - f2Inner, landingY, STAIR_BALUSTRADE_H_CM,
+    zTop - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, false)
 
   return out
 }
@@ -834,8 +850,11 @@ export function stairBands() {
   const m1 = CORNER_X_CM + MULLION_SECTION.acrossCm / 2
   const m2 = m1 + MULLION_SPACINGS_CM[0]
   const m5 = m1 + MULLION_SPACINGS_CM.reduce((a, b) => a + b, 0)
+  const flightW = (m5 - m2 - STAIR_WELL_CM) / 2
   const f2x0 = m2
   const f1x1 = m5
+  const f1Inner = m5 - flightW // flight 1's −X edge, facing the well
+  const f2Inner = m2 + flightW // flight 2's +X edge, facing the well
   const landX0 = f2x0
   const landX1 = m5
   const landingY = STAIR_LANDING_Y_CM
@@ -875,20 +894,32 @@ export function stairBands() {
     quaternion: [0, 0, 0, 1],
   })
 
+  // The landing SIDES run past the landing into the flights (z beyond zTop) so
+  // they OVERLAP the flight beams' landing ends rather than butting against
+  // their angled faces, which left a wedge gap — the break the band showed at
+  // the foot of flight 2. `zSideEnd` is how far past zTop they reach.
+  const zSideEnd = zTop + H
+
   const beams = [
+    // --- the OUTER band, all the way round ---------------------------------
     // Flight 1 rakes from its foot on the floor up to the landing, on its +X
     // edge; flight 2 from the landing up to the upper floor, on its −X edge.
     rake('stair-f1-band', 'stair flight 1 band', f1x1 - X / 2, zBot, STAIR_LOWER_Y_CM, zTop, landingY),
     rake('stair-f2-band', 'stair flight 2 band', f2x0 + X / 2, zTop, landingY, zBot, upperY),
-    // The landing, wrapped on its front and BOTH sides — the sides are the
-    // support the stepped model never had. Each side meets a flight beam at the
-    // landing corner (same x), so the band is continuous all the way round.
     flat('stair-landing-band-front', 'stair landing band (front)',
       (landX0 + landX1) / 2, STAIR_LANDING_Z0_CM + X / 2, landX1 - landX0, X),
     flat('stair-landing-band-left', 'stair landing band (left)',
-      landX0 + X / 2, (STAIR_LANDING_Z0_CM + zTop) / 2, X, zTop - STAIR_LANDING_Z0_CM),
+      landX0 + X / 2, (STAIR_LANDING_Z0_CM + zSideEnd) / 2, X, zSideEnd - STAIR_LANDING_Z0_CM),
     flat('stair-landing-band-right', 'stair landing band (right)',
-      landX1 - X / 2, (STAIR_LANDING_Z0_CM + zTop) / 2, X, zTop - STAIR_LANDING_Z0_CM),
+      landX1 - X / 2, (STAIR_LANDING_Z0_CM + zSideEnd) / 2, X, zSideEnd - STAIR_LANDING_Z0_CM),
+
+    // --- the INNER band, on the well edges, matching the outer -------------
+    // Same rake as the outer beams but on the flights' well-facing edges, tied
+    // across the well at the landing so the inner line is continuous too.
+    rake('stair-f1-band-inner', 'stair flight 1 band (inner)', f1Inner + X / 2, zBot, STAIR_LOWER_Y_CM, zTop, landingY),
+    rake('stair-f2-band-inner', 'stair flight 2 band (inner)', f2Inner - X / 2, zTop, landingY, zBot, upperY),
+    flat('stair-landing-band-well', 'stair landing band (well)',
+      (f2Inner + f1Inner) / 2, zTop - X / 2, f1Inner - f2Inner + X, X),
   ]
   return { beams }
 }

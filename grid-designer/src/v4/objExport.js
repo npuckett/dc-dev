@@ -121,7 +121,7 @@ export function environmentFamily(id) {
   if (id === 'column') return 'env_column'
   if (id === 'floor') return 'env_floor'
   if (id === 'stair-landing') return 'env_stair_landing'
-  if (id === 'stair-landing-glass') return 'env_stair_balustrades'
+  if (id.startsWith('stair-landing-glass')) return 'env_stair_balustrades'
   if (id.startsWith('heating')) return 'env_heating'
   if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
   if (/^stair-f\d+-glass-/.test(id)) return 'env_stair_balustrades'
