@@ -101,6 +101,7 @@ export const ENV_GROUPS = [
   'env_heating',
   'env_stair_treads',
   'env_stair_landing',
+  'env_stair_band',
   'env_stair_balustrades',
 ]
 
@@ -120,8 +121,10 @@ export function environmentFamily(id) {
   if (id === 'floor') return 'env_floor'
   if (id === 'stair-landing') return 'env_stair_landing'
   if (id === 'stair-landing-glass') return 'env_stair_balustrades'
+  if (id === 'stair-landing-band') return 'env_stair_band'
   if (id.startsWith('heating')) return 'env_heating'
   if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
+  if (/^stair-f\d+-band-/.test(id)) return 'env_stair_band'
   if (/^stair-f\d+-glass-/.test(id)) return 'env_stair_balustrades'
   if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
   if (id.startsWith('mullion-')) return 'env_mullions'
@@ -172,6 +175,9 @@ const GROUP_LOOKS = {
   env_heating: { color: 0xd07a3a, roughness: 0.8, metalness: 0, opacity: 0.25, transparent: true },
   env_stair_treads: { color: 0xf1efe9, roughness: 0.6, metalness: 0 },
   env_stair_landing: { color: 0xf1efe9, roughness: 0.6, metalness: 0 },
+  // The strong white structural band. Brightest white of the stair, since the
+  // photos read it as the crisp painted fascia the glass sits on.
+  env_stair_band: { color: 0xffffff, roughness: 0.5, metalness: 0 },
   env_stair_balustrades: { color: 0xb8dcee, roughness: 0.05, metalness: 0, opacity: 0.2, transparent: true },
 }
 

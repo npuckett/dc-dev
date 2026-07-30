@@ -648,6 +648,21 @@ const STAIR_FASCIA_CM = STAIR_RISER_CM
 const STAIR_TREAD_CM = 28
 const STAIR_BALUSTRADE_H_CM = 110
 const STAIR_GLASS_T_CM = 1.2
+/**
+ * The white structural band — the raking edge beam that carries the glass
+ * balustrade and wraps both flights and the landing. From the site photos it is
+ * the visible solid fascia along the outer edge, with the glass rail sitting on
+ * top of it.
+ *
+ * ESTIMATED, not measured. Against the model's own dimensions — 17.5cm risers,
+ * 28cm goings — the band in image 2 reads about 2.5 risers deep, so 45cm. It
+ * hangs BELOW the walking line: its top is the glass base (the tread nosing, or
+ * the landing surface) and it runs down from there, which is where the sloping
+ * soffit beam actually is. `STAIR_BAND_X_CM` is its thickness across the rail —
+ * thicker than the 1.2cm glass, so it reads as the "strong band" it is.
+ */
+const STAIR_BAND_H_CM = 45
+const STAIR_BAND_X_CM = 6
 /** MEASURED: the landing's near edge. */
 const STAIR_LANDING_Z0_CM = 96
 const STAIR_LANDING_Z1_CM = STAIR_LANDING_Z0_CM + STAIR_LANDING_DEPTH_CM
@@ -767,6 +782,25 @@ function staircase() {
     box(`stair-f2-glass-${k}`, `stair flight 2 balustrade ${k}`, 'glass',
       f2x0 - STAIR_GLASS_T_CM, STAIR_GLASS_T_CM, landingY + k * riser, STAIR_BALUSTRADE_H_CM,
       zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+    // The white band, directly BELOW each glass run: its top is the glass base
+    // (the tread nosing), and it runs STAIR_BAND_H_CM down as the outer edge
+    // beam. Flight 1's beam is inboard of its +X edge; flight 2's inboard of its
+    // −X edge — each on the same side its glass is.
+    //
+    // The bottom is CLAMPED to the sidewalk level: a full 45cm beam hung under
+    // the lowest treads would sink 27.5cm below the floor the stair stands on.
+    // So the beam shortens as it meets the ground rather than diving through it,
+    // which is what a raking stringer actually does at its foot.
+    const f1top = STAIR_LOWER_Y_CM + k * riser
+    const f1bot = Math.max(f1top - STAIR_BAND_H_CM, STAIR_LOWER_Y_CM)
+    box(`stair-f1-band-${k}`, `stair flight 1 band ${k}`, 'solid',
+      f1x1 - STAIR_BAND_X_CM, STAIR_BAND_X_CM,
+      f1bot, f1top - f1bot,
+      zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
+    box(`stair-f2-band-${k}`, `stair flight 2 band ${k}`, 'solid',
+      f2x0, STAIR_BAND_X_CM,
+      landingY + k * riser - STAIR_BAND_H_CM, STAIR_BAND_H_CM,
+      zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, false)
   }
 
   // --- the landing ---------------------------------------------------------
@@ -785,6 +819,12 @@ function staircase() {
   box('stair-landing-glass', 'stair landing balustrade', 'glass',
     landX0, landX1 - landX0, landingY, STAIR_BALUSTRADE_H_CM,
     STAIR_LANDING_Z0_CM, STAIR_GLASS_T_CM, false)
+  // The band under the landing's front balustrade, running the full x span so it
+  // ties flight 2's beam to flight 1's — this is where the band "wraps" the
+  // landing. Top at the landing surface, hanging STAIR_BAND_H_CM below it.
+  box('stair-landing-band', 'stair landing band', 'solid',
+    landX0, landX1 - landX0, landingY - STAIR_BAND_H_CM, STAIR_BAND_H_CM,
+    STAIR_LANDING_Z0_CM, STAIR_BAND_X_CM, false)
 
   return out
 }
