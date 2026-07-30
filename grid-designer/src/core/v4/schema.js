@@ -1091,10 +1091,14 @@ export const DEFAULT_OBSTACLES = [
     // elevation occupies x −81.3 → −62.25, so the run along the main elevation
     // cannot begin until past it. Derived from the section rather than typed,
     // so it follows if the mullion depth is ever corrected.
+    // Its window-ward edge stops at the mullions' ROOM-SIDE face, not at the
+    // glass — the trench is in the floor of the room, up to the frame, and does
+    // not run under the mullions and glazing. Derived from the section (corner
+    // plane + mullion depth) so it tracks the mullion depth.
     xCm: RETURN_INNER_X_CM,
-    zCm: CORNER_Z_CM,
+    zCm: CORNER_Z_CM + MULLION_SECTION.depthCm,
     widthCm: 512.7 - RETURN_INNER_X_CM,
-    depthCm: -CORNER_Z_CM,
+    depthCm: -(CORNER_Z_CM + MULLION_SECTION.depthCm),
     // A TRENCH: bottom on the mullions' bottom at y = −25, top at the FLOOR,
     // y = 0. The 20cm top was my placeholder and is gone.
     //
