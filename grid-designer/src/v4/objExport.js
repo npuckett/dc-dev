@@ -338,18 +338,26 @@ function addEnvironment(group, config) {
     box.dispose()
   }
 
-  // The stair band is not an obstacle — it is a set of ORIENTED beams (a raking
-  // stringer cannot be axis-aligned). Each is a box placed by its own
-  // centre/quaternion, merged into the one `env_stair_band` mesh.
-  for (const beam of stairBands().beams) {
-    const box = new THREE.BoxGeometry(beam.size[0], beam.size[1], beam.size[2])
-    box.applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3().fromArray(beam.center),
-      new THREE.Quaternion().fromArray(beam.quaternion),
-      new THREE.Vector3(1, 1, 1),
-    ))
+  // The stair band is not an obstacle — a raking stringer cannot be axis-aligned.
+  // Its mitred `ribbon` profiles are extruded along x; its straight `boxes` are
+  // plain. All merge into the one `env_stair_band` mesh.
+  const stair = stairBands()
+  const stairMerger = () => {
     if (!mergers.has('env_stair_band')) mergers.set('env_stair_band', Merger())
-    mergers.get('env_stair_band').add(box)
+    return mergers.get('env_stair_band')
+  }
+  for (const r of stair.ribbons) {
+    const shape = new THREE.Shape(r.polygon.map((p) => new THREE.Vector2(p[0], p[1])))
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: r.thickness, bevelEnabled: false })
+    geo.rotateY(-Math.PI / 2)
+    geo.translate(r.xCenter + r.thickness / 2, 0, 0)
+    stairMerger().add(geo) // ExtrudeGeometry is already non-indexed
+    geo.dispose()
+  }
+  for (const b of stair.boxes) {
+    const box = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2])
+    box.translate(b.center[0], b.center[1], b.center[2])
+    stairMerger().add(box)
     box.dispose()
   }
 

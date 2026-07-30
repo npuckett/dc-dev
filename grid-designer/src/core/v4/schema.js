@@ -771,12 +771,19 @@ function staircase() {
   // off the lower floor, and step 15's top IS the landing. Flight 2 then starts
   // FROM the landing — its first step rises off it, so the two flights share
   // that level rather than stacking a redundant tread on it.
+  // The treads sit BETWEEN the two bands, not across them: each flight is now
+  // railed on both edges (inner and outer), so a tread runs from one band's
+  // inner face to the other's — inset STAIR_BAND_X_CM on each side. Before this
+  // the full-width treads ran straight through the band ribbons.
+  const B = STAIR_BAND_X_CM
+  const treadX0 = f1x0 + B
+  const treadW = width - 2 * B
   for (let k = 1; k <= STAIR_RISERS_PER_FLIGHT; k++) {
     box(`stair-f1-step-${k}`, k === 1 ? 'stair flight 1' : `stair flight 1 step ${k}`, 'solid',
-      f1x0, width, STAIR_LOWER_Y_CM + (k - 1) * riser, riser,
+      treadX0, treadW, STAIR_LOWER_Y_CM + (k - 1) * riser, riser,
       zBot - k * STAIR_TREAD_CM, STAIR_TREAD_CM, k === 1)
     box(`stair-f2-step-${k}`, k === 1 ? 'stair flight 2' : `stair flight 2 step ${k}`, 'solid',
-      f2x0, width, landingY + (k - 1) * riser, riser,
+      f2x0 + B, treadW, landingY + (k - 1) * riser, riser,
       zTop + (k - 1) * STAIR_TREAD_CM, STAIR_TREAD_CM, k === 1)
     box(`stair-f1-glass-${k}`, `stair flight 1 balustrade ${k}`, 'glass',
       f1x1, STAIR_GLASS_T_CM, STAIR_LOWER_Y_CM + k * riser, STAIR_BALUSTRADE_H_CM,
@@ -809,10 +816,13 @@ function staircase() {
   // The column is still wrapped — by the FLIGHTS, via the well between them,
   // which is where it always sat in x. "The stairs wrap around the column" is
   // about the stairs, and the landing simply stops short of it.
+  // Inset on the three railed edges — the two sides (x) and the front (z) — so
+  // the slab abuts the band ribbons instead of running through them. The back
+  // edge (zTop) is left full: that is where the flights meet the landing.
   const ly = landingY - STAIR_FASCIA_CM
   box('stair-landing', 'stair landing', 'solid',
-    landX0, landX1 - landX0, ly, STAIR_FASCIA_CM,
-    STAIR_LANDING_Z0_CM, STAIR_LANDING_Z1_CM - STAIR_LANDING_Z0_CM)
+    landX0 + B, (landX1 - landX0) - 2 * B, ly, STAIR_FASCIA_CM,
+    STAIR_LANDING_Z0_CM + B, STAIR_LANDING_Z1_CM - STAIR_LANDING_Z0_CM - B)
   box('stair-landing-glass', 'stair landing balustrade', 'glass',
     landX0, landX1 - landX0, landingY, STAIR_BALUSTRADE_H_CM,
     STAIR_LANDING_Z0_CM, STAIR_GLASS_T_CM, false)
@@ -835,15 +845,19 @@ function staircase() {
  * (`env_stair_band`); it is never collision-tested, because it is up at the
  * stair and cannot reach a panel.
  *
- * Each beam is a box of cross-section STAIR_BAND_X_CM (across the rail) ×
- * STAIR_BAND_H_CM (deep), swept along its length. The two FLIGHT beams rake with
- * the stair; the THREE landing beams — front and the two SIDES the previous
- * model left out — are horizontal. Every beam carries its own `center`, `size`
- * and `quaternion`, so a consumer just places a box and needs no stair maths.
+ * A band is either a `ribbon` — an extruded profile that MITRES at its corners,
+ * so the run down a flight and along the landing is one unbroken line rather than
+ * a stack of butted boxes — or a straight `box` for the pieces that run along x
+ * (the landing front and the well connector) where there is no rake to mitre.
  *
- * Returns `{ beams: [{ id, label, center, size, quaternion }] }`. The quaternion
- * is a rotation about world X only (the rail is straight in x), built by hand as
- * `[sin(φ/2), 0, 0, cos(φ/2)]` so this file need not import three.
+ * A ribbon is a closed `polygon` of `[z, y]` points swept `thickness` along x at
+ * `xCenter`: the top edge follows the stair's own line, the bottom edge is that
+ * line offset STAIR_BAND_H_CM down with a mitred corner at the elbow. That miter
+ * is the whole point — it is what a box end cannot do, and what left a wedge gap
+ * (too short) or a protrusion (too long) at every attempt to fake it.
+ *
+ * Returns `{ ribbons: [{ id, label, xCenter, thickness, polygon }],
+ *            boxes:   [{ id, label, center, size }] }`, no three needed.
  */
 export function stairBands() {
   const round = (v) => Math.round(v * 1e9) / 1e9
@@ -863,65 +877,81 @@ export function stairBands() {
   const zTop = STAIR_LANDING_Z1_CM
   const zBot = round(zTop + run)
   const upperY = landingY + rise
+  const Z0 = STAIR_LANDING_Z0_CM
   const H = STAIR_BAND_H_CM
   const X = STAIR_BAND_X_CM
+  const LOWER = STAIR_LOWER_Y_CM
 
-  // A raking beam between two points on the flight's edge line, at fixed x. It
-  // is CENTRED ON the line but then shifted so it hangs BELOW: the perpendicular
-  // whose world-y is negative is picked, whichever way the flight tilts.
-  const rake = (id, label, x, Az, Ay, Bz, By) => {
-    const dz = Bz - Az
-    const dy = By - Ay
+  // The downward unit normal of a segment — the perpendicular with y ≤ 0, so the
+  // band always hangs BELOW its line whichever way the segment tilts.
+  const dn = (dz, dy) => {
     const L = Math.hypot(dz, dy)
-    const phi = Math.atan2(-dy, dz) // rotation about X sending local +Z along A→B
-    const ly = Math.cos(phi) // world-y of the beam's local +Y after the rotation
-    const s = ly < 0 ? 1 : -1 // the downward perpendicular
-    return {
-      id,
-      label,
-      center: [round(x), round((Ay + By) / 2 + s * (H / 2) * Math.cos(phi)),
-        round((Az + Bz) / 2 + s * (H / 2) * Math.sin(phi))],
-      size: [X, H, round(L)],
-      quaternion: [round(Math.sin(phi / 2)), 0, 0, round(Math.cos(phi / 2))],
-    }
+    let nz = -dy / L
+    let ny = dz / L
+    if (ny > 0) { nz = -nz; ny = -ny }
+    return [nz, ny]
   }
-  // A horizontal beam, top at the landing surface, hanging H below it.
-  const flat = (id, label, cx, cz, sx, sz) => ({
-    id,
-    label,
+  // Intersection of two lines given a point and a direction on each.
+  const isect = (p0, d0, p1, d1) => {
+    const den = d0[0] * d1[1] - d0[1] * d1[0]
+    const t = ((p1[0] - p0[0]) * d1[1] - (p1[1] - p0[1]) * d1[0]) / den
+    return [p0[0] + t * d0[0], p0[1] + t * d0[1]]
+  }
+  const rp = (p) => [round(p[0]), round(p[1])]
+
+  // An L-shaped ribbon from three top points: two segments, mitred where they
+  // meet. Its two open ends offset straight down their own segment's normal.
+  const outerL = (id, label, xCenter, top) => {
+    const u0 = [top[1][0] - top[0][0], top[1][1] - top[0][1]]
+    const u1 = [top[2][0] - top[1][0], top[2][1] - top[1][1]]
+    const n0 = dn(u0[0], u0[1])
+    const n1 = dn(u1[0], u1[1])
+    const b0 = [top[0][0] + H * n0[0], top[0][1] + H * n0[1]]
+    const bm = isect(
+      [top[1][0] + H * n0[0], top[1][1] + H * n0[1]], u0,
+      [top[1][0] + H * n1[0], top[1][1] + H * n1[1]], u1,
+    )
+    const b2 = [top[2][0] + H * n1[0], top[2][1] + H * n1[1]]
+    return { id, label, xCenter: round(xCenter), thickness: X, polygon: [top[0], top[1], top[2], b2, bm, b0].map(rp) }
+  }
+  // A single raking ribbon, its LANDING end squared off vertically (so it meets
+  // the well connector, which runs along x, at a clean corner) and its far end
+  // offset down its own normal. `A` is the far end, `B` the landing end.
+  const innerRake = (id, label, xCenter, A, B) => {
+    const n = dn(B[0] - A[0], B[1] - A[1])
+    const bA = [A[0] + H * n[0], A[1] + H * n[1]]
+    const bB = [B[0], B[1] - H]
+    return { id, label, xCenter: round(xCenter), thickness: X, polygon: [A, B, bB, bA].map(rp) }
+  }
+  // A straight box running along x, top at the landing surface, hanging H below.
+  const box = (id, label, cx, cz, sx, sz) => ({
+    id, label,
     center: [round(cx), round(landingY - H / 2), round(cz)],
     size: [round(sx), H, round(sz)],
-    quaternion: [0, 0, 0, 1],
   })
 
-  // The landing SIDES run past the landing into the flights (z beyond zTop) so
-  // they OVERLAP the flight beams' landing ends rather than butting against
-  // their angled faces, which left a wedge gap — the break the band showed at
-  // the foot of flight 2. `zSideEnd` is how far past zTop they reach.
-  const zSideEnd = zTop + H
-
-  const beams = [
-    // --- the OUTER band, all the way round ---------------------------------
-    // Flight 1 rakes from its foot on the floor up to the landing, on its +X
-    // edge; flight 2 from the landing up to the upper floor, on its −X edge.
-    rake('stair-f1-band', 'stair flight 1 band', f1x1 - X / 2, zBot, STAIR_LOWER_Y_CM, zTop, landingY),
-    rake('stair-f2-band', 'stair flight 2 band', f2x0 + X / 2, zTop, landingY, zBot, upperY),
-    flat('stair-landing-band-front', 'stair landing band (front)',
-      (landX0 + landX1) / 2, STAIR_LANDING_Z0_CM + X / 2, landX1 - landX0, X),
-    flat('stair-landing-band-left', 'stair landing band (left)',
-      landX0 + X / 2, (STAIR_LANDING_Z0_CM + zSideEnd) / 2, X, zSideEnd - STAIR_LANDING_Z0_CM),
-    flat('stair-landing-band-right', 'stair landing band (right)',
-      landX1 - X / 2, (STAIR_LANDING_Z0_CM + zSideEnd) / 2, X, zSideEnd - STAIR_LANDING_Z0_CM),
-
-    // --- the INNER band, on the well edges, matching the outer -------------
-    // Same rake as the outer beams but on the flights' well-facing edges, tied
-    // across the well at the landing so the inner line is continuous too.
-    rake('stair-f1-band-inner', 'stair flight 1 band (inner)', f1Inner + X / 2, zBot, STAIR_LOWER_Y_CM, zTop, landingY),
-    rake('stair-f2-band-inner', 'stair flight 2 band (inner)', f2Inner - X / 2, zTop, landingY, zBot, upperY),
-    flat('stair-landing-band-well', 'stair landing band (well)',
-      (f2Inner + f1Inner) / 2, zTop - X / 2, f1Inner - f2Inner + X, X),
+  const ribbons = [
+    // OUTER: each flight rakes to the landing, then turns along the landing side
+    // — one mitred L. Flight 1 on its +X edge, flight 2 on its −X edge.
+    outerL('stair-f1-band', 'stair flight 1 band', f1x1 - X / 2,
+      [[zBot, LOWER], [zTop, landingY], [Z0, landingY]]),
+    outerL('stair-f2-band', 'stair flight 2 band', f2x0 + X / 2,
+      [[Z0, landingY], [zTop, landingY], [zBot, upperY]]),
+    // INNER: the well-facing rake of each flight, squared at the landing so the
+    // well connector meets it cleanly.
+    innerRake('stair-f1-band-inner', 'stair flight 1 band (inner)', f1Inner + X / 2, [zBot, LOWER], [zTop, landingY]),
+    innerRake('stair-f2-band-inner', 'stair flight 2 band (inner)', f2Inner - X / 2, [zBot, upperY], [zTop, landingY]),
   ]
-  return { beams }
+  const boxes = [
+    // The landing FRONT ties the two outer L's across the window side.
+    box('stair-landing-band-front', 'stair landing band (front)',
+      (f2x0 + X / 2 + f1x1 - X / 2) / 2, Z0 + X / 2, (f1x1 - X / 2) - (f2x0 + X / 2), X),
+    // The WELL connector ties the two inner rakes across the well opening, its
+    // ends overlapping the squared rake ends by X/2 so there is no seam.
+    box('stair-landing-band-well', 'stair landing band (well)',
+      (f2Inner + f1Inner) / 2, zTop - X / 2, (f1Inner - f2Inner) + X, X),
+  ]
+  return { ribbons, boxes }
 }
 
 /**

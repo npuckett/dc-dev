@@ -733,17 +733,34 @@ function MeasuringBox() {
 // The <Canvas> — deliberately reads NO store state directly (see file header):
 // keeps the camera / OrbitControls instance stable across every toolbar toggle.
 // -----------------------------------------------------------------------------
-// The stair's white structural band — continuous raking beams, drawn opaque
-// white so it reads as the solid stringer it is. Not an obstacle (an obstacle
-// is axis-aligned and could only be stepped); the geometry comes from
-// `stairBands()`, each beam a box with its own centre / size / quaternion.
-const STAIR_BANDS = stairBands().beams
+// The stair's white structural band, drawn opaque white. Not an obstacle (which
+// is axis-aligned and could only be stepped): a `ribbon` is an extruded, MITRED
+// profile swept along x; a `box` is a straight connector. See `stairBands()`.
+const STAIR_BAND = stairBands()
+
+/** Extrude a ribbon's `[z, y]` polygon `thickness` along x at `xCenter`. The
+ *  shape is built in (z, y); rotating −90° about Y sends its extrude axis to
+ *  world x while its own axes land on world z and y. */
+function ribbonGeometry({ polygon, thickness, xCenter }) {
+  const shape = new THREE.Shape(polygon.map((p) => new THREE.Vector2(p[0], p[1])))
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false })
+  geo.rotateY(-Math.PI / 2)
+  geo.translate(xCenter + thickness / 2, 0, 0)
+  geo.computeVertexNormals()
+  return geo
+}
 
 function StairBands() {
+  const ribbons = useMemo(() => STAIR_BAND.ribbons.map((r) => ({ id: r.id, geometry: ribbonGeometry(r) })), [])
   return (
     <group>
-      {STAIR_BANDS.map((b) => (
-        <mesh key={b.id} position={b.center} quaternion={b.quaternion}>
+      {ribbons.map((r) => (
+        <mesh key={r.id} geometry={r.geometry}>
+          <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {STAIR_BAND.boxes.map((b) => (
+        <mesh key={b.id} position={b.center}>
           <boxGeometry args={b.size} />
           <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} />
         </mesh>

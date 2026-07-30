@@ -27,7 +27,7 @@ import {
 } from '../src/core/v4/obstacles.js'
 import { solveLattice } from '../src/core/v4/lattice.js'
 import { buildReportV4 } from '../src/core/v4/report.js'
-import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES, OBSTACLE_SIZE_MIN } from '../src/core/v4/schema.js'
+import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES, OBSTACLE_SIZE_MIN, stairBands } from '../src/core/v4/schema.js'
 import { obbPenetration } from '../src/core/v3/collide.js'
 
 let passed = 0
@@ -316,11 +316,18 @@ console.log('7. the switchback stair and the well it turns about')
   const M2 = M1 + 129.5
   const M5 = M1 + 129.5 + 152.4 * 3
 
-  // The two measured alignments: the stair spans mullion 2 to mullion 5.
+  // The two measured alignments: the stair spans mullion 2 to mullion 5. That
+  // span is now carried by the BAND (the outer edge), with the treads inset by
+  // the band width so they abut it rather than run through it.
+  const BW = 6 // STAIR_BAND_X_CM
+  const bands = stairBands()
+  const bandX = (id) => bands.ribbons.find((r) => r.id === id).xCenter
+  near(bandX('stair-f2-band') - BW / 2, M2, 1e-9, "the stair's outer band sits on mullion 2")
+  near(bandX('stair-f1-band') + BW / 2, M5, 1e-9, "and flight 1's outer band on mullion 5")
   const f2 = ext('stair-f2-step-1')
   const f1 = ext('stair-f1-step-1')
-  near(f2.min[0], M2, 1e-9, "the stair's close edge sits on mullion 2")
-  near(f1.max[0], M5, 1e-9, "and flight 1's far edge on mullion 5")
+  near(f2.min[0], M2 + BW, 1e-9, "the tread is inset one band width from mullion 2")
+  near(f1.max[0], M5 - BW, 1e-9, "and from mullion 5 — it abuts the band")
   near(f1.max[0] - f1.min[0], f2.max[0] - f2.min[0], 1e-9, 'both flights are the same width')
 
   // THE WELL, and the column standing in it. The column's own position was an
@@ -350,7 +357,7 @@ console.log('7. the switchback stair and the well it turns about')
     `so it is longer than the two flight widths (${landW.toFixed(1)} vs ${flightW.toFixed(1)})`)
   near(landW - flightW, well1 - well0, 1e-9,
     'and the difference is exactly the well — which is where the column comes through')
-  near(land.min[2], 96, 1e-9, "the landing's near Z edge is at 96")
+  near(land.min[2], 96 + BW, 1e-9, "the landing's near Z edge is inset a band width from 96")
 
   // THE FLIGHTS WRAP THE COLUMN, NOT THE LANDING. At z 271 the column starts
   // past the landing's back edge at 256, so nothing penetrates the slab — it is
@@ -395,7 +402,7 @@ console.log('7. the switchback stair and the well it turns about')
   near(f1top.max[1] - f1top.min[1], riser, 1e-9, 'and it is one riser tall like the rest')
   near(f1.max[1] - f1.min[1], riser, 1e-9, "step 1 is one standard rise off the lower floor")
   near(f1.min[1], -65, 1e-9, '...starting on the floor itself')
-  near(land.max[2] - land.min[2], 160, 1e-9, 'the landing is 160 deep in z')
+  near(land.max[2] - land.min[2], 160 - BW, 1e-9, 'the landing is 160 deep less the front band inset')
   near(f1.max[2] - f1top.min[2], 15 * 28, 1e-9,
     'and the flight runs 15 treads × 28 = 420')
   // THE FLIGHT MUST NOT INTRUDE INTO THE LANDING. Flush in height, adjacent in
