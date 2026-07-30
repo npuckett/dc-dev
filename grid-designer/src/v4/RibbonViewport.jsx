@@ -425,6 +425,9 @@ const WALL_TOP_FALLBACK_CM = 375 // the window head, when no glazing is present 
 const SLAT_WIDTHS_CM = [11, 6, 15, 8, 5, 13, 7, 9]
 const SLAT_GAP_CM = 5
 const SLAT_BROWNS = ['#6b4a2f', '#7a5636', '#5e4029', '#73502f']
+const SLAT_X_CM = 1 // measured: the slats are only 1cm deep in x, centred in the frame
+const FRAME_FACE_CM = 8 // ASSUMED — how wide each frame member reads; not measured
+const FRAME_COLOR = '#4a331f' // darker than the slats, so the frame reads as the frame
 
 /** The window head, read off the glazing so the wall follows it rather than
  *  carrying its own copy of 375. */
@@ -436,6 +439,10 @@ function windowHeadCm(report) {
   return Number.isFinite(top) ? top : WALL_TOP_FALLBACK_CM
 }
 
+// The interior slat screen: a FRAME carries the wall's full thickness `t` around
+// all four edges, and thin 1cm slats hang INSIDE it, centred in that depth.
+// Previously the slats themselves were the full thickness; the frame is where
+// the 8.9cm actually lives.
 function Wall() {
   const config = useStoreV4((s) => s.config)
   const { chain, report } = getDerived(config)
@@ -446,26 +453,51 @@ function Wall() {
   const t = config.room.wallThicknessCm
   const height = windowHeadCm(report) // same height as the windows
 
-  // Lay slats along z, cycling the width pattern, until the run is filled.
+  // The four frame members: top and bottom rails run the full depth in z; the
+  // two end posts run the inner height in y so they do not double up the corners.
+  const frame = useMemo(() => {
+    const f = FRAME_FACE_CM
+    const innerH = Math.max(height - 2 * f, 0)
+    return [
+      { pos: [-t / 2, f / 2, depth / 2], size: [t, f, depth] }, // bottom rail
+      { pos: [-t / 2, height - f / 2, depth / 2], size: [t, f, depth] }, // top rail
+      { pos: [-t / 2, height / 2, f / 2], size: [t, innerH, f] }, // near post (z = 0)
+      { pos: [-t / 2, height / 2, depth - f / 2], size: [t, innerH, f] }, // far post
+    ]
+  }, [depth, t, height])
+
+  // Slats fill the inner opening between the frame members, 1cm in x, centred at
+  // x = −t/2. The width rhythm and gaps run along z as before.
   const slats = useMemo(() => {
+    const f = FRAME_FACE_CM
+    const z0 = f
+    const z1 = depth - f
     const out = []
-    let z = 0
+    let z = z0
     let i = 0
-    while (z < depth) {
+    while (z < z1) {
       const w = SLAT_WIDTHS_CM[i % SLAT_WIDTHS_CM.length]
-      const cut = Math.min(w, depth - z) // last slat is clipped to the run, not overhung
-      out.push({ z: z + cut / 2, w: cut, color: SLAT_BROWNS[i % SLAT_BROWNS.length] })
+      const cut = Math.min(w, z1 - z) // last slat clipped to the opening, not overhung
+      if (cut > 0.1) out.push({ z: z + cut / 2, w: cut, color: SLAT_BROWNS[i % SLAT_BROWNS.length] })
       z += cut + SLAT_GAP_CM
       i += 1
     }
     return out
   }, [depth, t, height])
 
+  const innerH = Math.max(height - 2 * FRAME_FACE_CM, 0.01)
+
   return (
     <group>
+      {frame.map((m, k) => (
+        <mesh key={`f${k}`} position={m.pos}>
+          <boxGeometry args={[Math.max(m.size[0], 0.01), m.size[1], m.size[2]]} />
+          <meshStandardMaterial color={FRAME_COLOR} roughness={0.75} metalness={0} />
+        </mesh>
+      ))}
       {slats.map((s, k) => (
-        <mesh key={k} position={[-t / 2, height / 2, s.z]}>
-          <boxGeometry args={[Math.max(t, 0.01), height, s.w]} />
+        <mesh key={`s${k}`} position={[-t / 2, height / 2, s.z]}>
+          <boxGeometry args={[SLAT_X_CM, innerH, s.w]} />
           <meshStandardMaterial color={s.color} roughness={0.8} metalness={0} />
         </mesh>
       ))}
