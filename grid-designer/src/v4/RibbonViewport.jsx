@@ -61,7 +61,8 @@ import useStoreV4, { getDerived } from './store.js'
 import { ADVISORY_FLAGS, getConnectorKit } from './exportAdapter.js'
 import { buildPanelGeometry } from '../geometry/panelGeometry.js'
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
-import { stairBands, slatWall, wallDepthCm } from '../core/v4/schema.js'
+import { stairBands, slatWall, wallDepthCm, trackingCameras } from '../core/v4/schema.js'
+import { buildCameraGeometries } from '../geometry/cameraGeometry.js'
 
 // -----------------------------------------------------------------------------
 // Nominal framing — DEFAULT_CONFIG's nine-unit ribbon: 60cm wide, ~523cm deep.
@@ -718,6 +719,25 @@ function StairPartMaterial({ part }) {
   return <meshStandardMaterial color="#f4f4f2" roughness={0.5} metalness={0} side={THREE.DoubleSide} />
 }
 
+// The tracking cameras — a sphere per camera with an arc fanning out to show
+// the aim. Geometry from `buildCameraGeometries`, the same solid the export
+// builds. Placement is fixed room data, so it is built once.
+const CAMERA_MESHES = trackingCameras().map((cam) => ({ id: cam.id, geometries: buildCameraGeometries(cam) }))
+
+function TrackingCameras() {
+  return (
+    <group>
+      {CAMERA_MESHES.map((cam) =>
+        cam.geometries.map((g, k) => (
+          <mesh key={`${cam.id}-${k}`} geometry={g}>
+            <meshStandardMaterial color="#ff5a3c" roughness={0.4} metalness={0.3} />
+          </mesh>
+        )),
+      )}
+    </group>
+  )
+}
+
 function StairBands() {
   const ribbons = useMemo(
     () => STAIR_BAND.ribbons.map((r) => ({ id: r.id, part: r.part, geometry: ribbonGeometry(r) })),
@@ -757,6 +777,7 @@ function Scene() {
 
       <Obstacles />
       <StairBands />
+      <TrackingCameras />
       <OriginMarker />
 
       <Grid

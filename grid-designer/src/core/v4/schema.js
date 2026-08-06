@@ -1014,6 +1014,44 @@ export function slatWall({ thicknessCm, heightCm, depthCm }) {
   return { frame, slats }
 }
 
+// -----------------------------------------------------------------------------
+// TRACKING CAMERAS
+// -----------------------------------------------------------------------------
+/** Just outside the mullions' street face, and how far the aim tilts below
+ *  horizontal toward the street. */
+const CAMERA_STANDOFF_CM = 5
+const CAMERA_DOWN_DEG = 40
+
+/**
+ * Where the tracking cameras sit and which way they look — pure data; the
+ * sphere-and-arc geometry is built by `geometry/cameraGeometry.js` (it needs
+ * three's geometry classes, which this headless module does not import).
+ *
+ * On MULLIONS 2 and 4 of the main facade: centred on the mullion in x, at the
+ * landing rail height in y, just OUTSIDE the mullions' street face in z, aimed
+ * down toward the street (−z, and CAMERA_DOWN_DEG below horizontal). All of it
+ * derived from the mullion spacing and the landing, so it tracks them.
+ *
+ * @returns {{ id, label, position:[x,y,z], direction:[x,y,z] }[]}
+ */
+export function trackingCameras() {
+  const round = (v) => Math.round(v * 1e9) / 1e9
+  const m1 = CORNER_X_CM + MULLION_SECTION.acrossCm / 2
+  const centres = [m1]
+  for (const s of MULLION_SPACINGS_CM) centres.push(centres[centres.length - 1] + s)
+  const y = STAIR_LANDING_Y_CM + STAIR_BALUSTRADE_H_CM // level with the landing rail
+  const z = CORNER_Z_CM - CAMERA_STANDOFF_CM // just outside the street face
+  const th = (CAMERA_DOWN_DEG * Math.PI) / 180
+  const direction = [0, round(-Math.sin(th)), round(-Math.cos(th))]
+  const mk = (idx, n) => ({
+    id: `camera-m${n}`,
+    label: `tracking camera — mullion ${n}`,
+    position: [round(centres[idx]), round(y), round(z)],
+    direction,
+  })
+  return [mk(1, 2), mk(3, 4)] // centres[1] = mullion 2, centres[3] = mullion 4
+}
+
 /**
  * Obstacles ALWAYS come from the room as measured. A saved list cannot override
  * them.

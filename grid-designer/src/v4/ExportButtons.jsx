@@ -104,6 +104,25 @@ export default function ExportButtons() {
       <button
         type="button"
         className="preset-btn"
+        data-testid="export-cameras-glb"
+        title={
+          'the two tracking-camera markers ALONE, as one .glb — a sphere per camera on mullions 2 ' +
+          'and 4 with an arc showing the aim. Same world space as the model exports, so it drops ' +
+          'straight into one you already have'
+        }
+        onClick={async () => {
+          const buffer = await glbPayloadV4(config, chain, connectors, { camerasOnly: true })
+          downloadBlob(
+            new Blob([buffer], { type: 'model/gltf-binary' }),
+            `tracking-cameras_${timestamp()}.glb`,
+          )
+        }}
+      >
+        Export cameras
+      </button>
+      <button
+        type="button"
+        className="preset-btn"
         data-testid="export-connector-stl"
         title={`one of each of the ${summary.partTypes} unique connector types, in millimetres, laid out flat for printing`}
         onClick={() => exportConnectorPlateSTL(reportShape)}

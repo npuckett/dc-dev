@@ -76,7 +76,8 @@ import {
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
 import { obstacleExtents } from '../core/v4/obstacles.js'
-import { stairBands, slatWall, wallDepthCm } from '../core/v4/schema.js'
+import { stairBands, slatWall, wallDepthCm, trackingCameras } from '../core/v4/schema.js'
+import { buildCameraGeometries } from '../geometry/cameraGeometry.js'
 
 /** Object / material names. Kept as constants because they are the contract
  *  with whatever opens the file, not incidental strings. */
@@ -158,6 +159,9 @@ export const DEFAULT_MTL_NAME = 'drop-ceiling.mtl'
  * Set it to anything else and the extension appears with that value, so the
  * channel is there the moment a panel is actually driven.
  */
+/** The tracking-camera markers — a hot orange so they read against the room. */
+const CAMERA_LOOK = { color: 0xff5a3c, roughness: 0.4, metalness: 0.3 }
+
 const DIFFUSER_LOOK = {
   color: 0xf4f4f2,
   emissive: 0xffffff,
@@ -173,6 +177,7 @@ const GROUP_LOOKS = {
   // them is so they can be re-shaded in the DCC. Glass and heating are
   // translucent so the installation reads through them by default.
   env_wall: { color: 0x6b4a2f, roughness: 0.8, metalness: 0 },
+  env_cameras: { color: 0xff5a3c, roughness: 0.4, metalness: 0.3 },
   env_floor: { color: 0x6d5642, roughness: 0.9, metalness: 0 },
   env_column: { color: 0x8a8f96, roughness: 0.7, metalness: 0.1 },
   env_mullions: { color: 0x1f242b, roughness: 0.4, metalness: 0.6 },
@@ -200,7 +205,11 @@ const GROUP_LOOKS = {
  * is exactly one mesh each.
  */
 function materialFor(name) {
-  const look = name.startsWith(`${DIFFUSER_PREFIX}_`) ? DIFFUSER_LOOK : GROUP_LOOKS[name]
+  const look = name.startsWith(`${DIFFUSER_PREFIX}_`)
+    ? DIFFUSER_LOOK
+    : name.startsWith('camera_')
+      ? CAMERA_LOOK
+      : GROUP_LOOKS[name]
   return new THREE.MeshStandardMaterial({ name, ...(look ?? {}) })
 }
 
@@ -433,6 +442,28 @@ function addEnvironment(group, config, chain) {
 export function buildSceneGroup(config, chain, connectors, options = {}) {
   const group = new THREE.Group()
   group.name = 'drop_ceiling'
+
+  // CAMERAS ONLY — the tracking-camera markers on their own, so they can be
+  // imported alongside an existing export of the model rather than forcing a
+  // re-export of everything. One node per camera (`camera_m2`, `camera_m4`), in
+  // the same world space as every other export, so they drop straight in.
+  if (options.camerasOnly) {
+    group.name = 'tracking_cameras'
+    for (const cam of trackingCameras()) {
+      const merger = Merger()
+      for (const g of buildCameraGeometries(cam)) {
+        merger.add(g.index ? g.toNonIndexed() : g)
+        g.dispose()
+      }
+      if (merger.isEmpty()) continue
+      const geometry = merger.build()
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+      group.add(meshOf(geometry, cam.id.replace(/-/g, '_')))
+    }
+    group.updateMatrixWorld(true)
+    return group
+  }
 
   const frame = Merger()
   const supplies = Merger()
