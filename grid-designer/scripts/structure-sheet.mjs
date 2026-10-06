@@ -17,6 +17,8 @@
  *                             no doctype, see the template)
  *   index.html                the same page as a full document, for GitHub
  *                             Pages, with the STLs as download links
+ *   print.html                two US Letter pages on white, for printing;
+ *                             scripts/structure-sheet-pdf.mjs makes the PDF
  *
  * EVERYTHING IS COMPUTED FROM THE SAME CORE THE EDITOR RUNS. The panel corners,
  * station frames, connector profiles and STL meshes all come from
@@ -179,6 +181,11 @@ function signedArea2(poly) {
 }
 
 /**
+ * Every SVG root carries explicit width/height equal to its viewBox. Without an
+ * intrinsic size, `height: auto` has no aspect ratio to resolve against and a
+ * drawing's box fills whatever max-height it is given — the print plan sat in a
+ * 5.4in box with 1.3in of air above and below it.
+ *
  * Each SVG carries its own styles so the files stand alone, written against
  * CSS custom properties WITH fallbacks: inlined into the sheet page they pick
  * up its light/dark tokens, opened on their own they use the fallbacks.
@@ -191,16 +198,16 @@ const SVG_STYLE = `<style>
 .ctx-column{fill:var(--sheet-ctx,#d9d5cc);stroke:var(--sheet-warn,#b4562f);stroke-width:1.5;stroke-dasharray:4 3}
 .ctx-zone{fill:none;stroke:var(--sheet-faint,#b9b4aa);stroke-dasharray:3 3}
 .ctx-glass{fill:var(--sheet-glass,#b9d3dc)}
-.ctx-label{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-warn,#b4562f)}
+.ctx-label{font:500 19px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-warn,#b4562f)}
 .panel{stroke:#5d574d;stroke-width:0.8;stroke-linejoin:round}
 .panel-hit{stroke:var(--sheet-warn,#b4562f);stroke-width:2}
 .clash{fill:var(--sheet-warn,#b4562f);fill-opacity:.14;stroke:var(--sheet-warn,#b4562f);stroke-width:1.6;stroke-dasharray:5 3}
-.spot{font:500 10px var(--sheet-mono,ui-monospace,monospace);fill:#5d574d;text-anchor:middle}
+.spot{font:500 19px var(--sheet-mono,ui-monospace,monospace);fill:#5d574d;text-anchor:middle}
 .station{stroke:var(--sheet-accent,#c2531c);stroke-width:3.2;stroke-linecap:butt}
 .origin circle{fill:var(--sheet-ink,#24211c)}
-.origin text,.dim text{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.origin text,.dim text{font:500 21px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
 .dim line{stroke:var(--sheet-ink,#24211c);stroke-width:1}
-.edge-label{font:600 10px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.18em;fill:var(--sheet-muted,#6f695f)}
+.edge-label{font:600 19px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.18em;fill:var(--sheet-muted,#6f695f)}
 .exploded polygon,.sections polygon{stroke-width:.7;stroke-linejoin:round}
 .axis{stroke:var(--sheet-muted,#6f695f);stroke-width:1;stroke-dasharray:6 3 1.5 3}
 .leader{fill:none;stroke:var(--sheet-muted,#6f695f);stroke-width:.9}
@@ -230,14 +237,14 @@ function planSVG() {
   const z0 = Math.min(-70, bounds.min[2] - margin)
   const z1 = bounds.max[2] + margin
   const k = 1.6 // px per cm
-  const pad = { l: 64, r: 70, t: 56, b: 50 }
+  const pad = { l: 64, r: 84, t: 70, b: 62 }
   const W = (x1 - x0) * k + pad.l + pad.r
   const H = (z1 - z0) * k + pad.t + pad.b
   const sx = (x) => pad.l + (x1 - x) * k
   const sy = (z) => pad.t + (z1 - z) * k
 
   const out = []
-  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${fmt(W, 0)} ${fmt(H, 0)}" class="plan" role="img" aria-label="Plan view of the panel network from above">`, SVG_STYLE)
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W, 0)}" height="${fmt(H, 0)}" viewBox="0 0 ${fmt(W, 0)} ${fmt(H, 0)}" class="plan" role="img" aria-label="Plan view of the panel network from above">`, SVG_STYLE)
   out.push(`<defs><clipPath id="plan-clip"><rect x="${pad.l}" y="${pad.t}" width="${fmt((x1 - x0) * k)}" height="${fmt((z1 - z0) * k)}"/></clipPath>`)
   out.push(`<pattern id="plan-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="hatch"/></pattern></defs>`)
   out.push(`<rect x="${pad.l}" y="${pad.t}" width="${fmt((x1 - x0) * k)}" height="${fmt((z1 - z0) * k)}" class="plan-ground"/>`)
@@ -279,7 +286,7 @@ function planSVG() {
   // spot heights on the raised flat cells — a plan cannot otherwise tell a
   // high cell from a ground one, they face the same way
   for (const p of panels.filter((p) => p.role === 'high')) {
-    out.push(`<text x="${fmt(sx(p.position[0]))}" y="${fmt(sy(p.position[2]) + 4)}" class="spot">+${Math.round(p.position[1])}</text>`)
+    out.push(`<text x="${fmt(sx(p.position[0]))}" y="${fmt(sy(p.position[2]) + 7)}" class="spot">+${Math.round(p.position[1])}</text>`)
   }
 
   // --- connectors: one short bar per station, along its joint ---------------
@@ -291,24 +298,24 @@ function planSVG() {
   }
 
   // --- origin and dimensions ------------------------------------------------
-  out.push(`<g class="origin"><circle cx="${fmt(sx(0))}" cy="${fmt(sy(0))}" r="3.5"/><text x="${fmt(sx(0) - 7)}" y="${fmt(sy(0) - 7)}" text-anchor="end">0,0</text></g>`)
-  const dimX = pad.t - 22
+  out.push(`<g class="origin"><circle cx="${fmt(sx(0))}" cy="${fmt(sy(0))}" r="5"/><text x="${fmt(sx(0) - 9)}" y="${fmt(sy(0) - 9)}" text-anchor="end">0,0</text></g>`)
+  const dimX = pad.t - 26
   const xa = sx(bounds.max[0])
   const xb = sx(bounds.min[0])
   out.push(`<g class="dim"><line x1="${fmt(xa)}" y1="${dimX}" x2="${fmt(xb)}" y2="${dimX}"/><line x1="${fmt(xa)}" y1="${dimX - 5}" x2="${fmt(xa)}" y2="${dimX + 5}"/><line x1="${fmt(xb)}" y1="${dimX - 5}" x2="${fmt(xb)}" y2="${dimX + 5}"/>`)
-  out.push(`<text x="${fmt((xa + xb) / 2)}" y="${dimX - 7}" text-anchor="middle">${fmt(bounds.size[0])} cm</text></g>`)
-  const dimZ = W - pad.r + 26
+  out.push(`<text x="${fmt((xa + xb) / 2)}" y="${dimX - 9}" text-anchor="middle">${fmt(bounds.size[0])} cm</text></g>`)
+  const dimZ = W - pad.r + 30
   const za = sy(bounds.max[2])
   const zb = sy(bounds.min[2])
   out.push(`<g class="dim"><line x1="${dimZ}" y1="${fmt(za)}" x2="${dimZ}" y2="${fmt(zb)}"/><line x1="${dimZ - 5}" y1="${fmt(za)}" x2="${dimZ + 5}" y2="${fmt(za)}"/><line x1="${dimZ - 5}" y1="${fmt(zb)}" x2="${dimZ + 5}" y2="${fmt(zb)}"/>`)
-  out.push(`<text x="${dimZ + 10}" y="${fmt((za + zb) / 2)}" text-anchor="middle" transform="rotate(90 ${dimZ + 10} ${fmt((za + zb) / 2)})">${fmt(bounds.size[2])} cm</text></g>`)
+  out.push(`<text x="${dimZ + 14}" y="${fmt((za + zb) / 2)}" text-anchor="middle" transform="rotate(90 ${dimZ + 14} ${fmt((za + zb) / 2)})">${fmt(bounds.size[2])} cm</text></g>`)
 
   // --- edge labels ------------------------------------------------------------
-  out.push(`<text x="${fmt(pad.l + (x1 - x0) * k / 2)}" y="${fmt(H - 16)}" class="edge-label" text-anchor="middle">WINDOW</text>`)
+  out.push(`<text x="${fmt(pad.l + (x1 - x0) * k / 2)}" y="${fmt(H - 20)}" class="edge-label" text-anchor="middle">WINDOW</text>`)
   const col = config.obstacles.find((o) => o.id === 'column')
   if (col) {
     const e = obstacleExtents(col)
-    out.push(`<text x="${fmt(sx(e.max[0]) - 4)}" y="${fmt(sy(e.centre[2]) + 4)}" class="ctx-label" text-anchor="end">column</text>`)
+    out.push(`<text x="${fmt(sx(e.centre[0]))}" y="${fmt(sy(e.centre[2]) + 6)}" class="ctx-label" text-anchor="middle">column</text>`)
   }
   out.push('</svg>')
   return out.join('\n')
@@ -534,7 +541,7 @@ function explodedSVG() {
     })
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(vbX)} ${fmt(vbY)} ${fmt(vbW)} ${fmt(vbH)}" class="exploded" role="img" aria-label="Exploded view of one connector: front bar, bolts, inserts and back half">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(vbW, 0)}" height="${fmt(vbH, 0)}" viewBox="${fmt(vbX)} ${fmt(vbY)} ${fmt(vbW)} ${fmt(vbH)}" class="exploded" role="img" aria-label="Exploded view of one connector: front bar, bolts, inserts and back half">`,
     SVG_STYLE,
     ...axes,
     body,
@@ -581,7 +588,7 @@ function sectionsSVG() {
   const W = cellW * sections.length
   const H = drawH + labelH + 10
   const out = []
-  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${fmt(W, 0)} ${fmt(H, 0)}" class="sections" role="img" aria-label="Assembled sections of each back-half type">`, SVG_STYLE)
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W, 0)}" height="${fmt(H, 0)}" viewBox="0 0 ${fmt(W, 0)} ${fmt(H, 0)}" class="sections" role="img" aria-label="Assembled sections of each back-half type">`, SVG_STYLE)
   sections.forEach((sec, idx) => {
     const ox = idx * cellW + cellW / 2 - ((sec.box.pMax + sec.box.pMin) / 2) * k
     const oy = 6 + qTop * k
@@ -630,16 +637,47 @@ fs.writeFileSync(path.join(outDir, 'connector-sections.svg'), `${sectionsSVG()}\
 // THE PAGE — the template filled from `structure` and the drawings above
 // =============================================================================
 /**
- * Two renderings of one template:
+ * Three renderings of the same values:
  *   'artifact'    the page BODY (no doctype) for a claude.ai artifact, which
  *                 cannot offer downloads, so the files are named, not linked
  *   'standalone'  a full document for GitHub Pages, served next to `pieces/`,
  *                 so every STL is a real download link
+ *   'print'       two fixed US Letter pages on white, from its own template —
+ *                 a print layout is a different composition, not the screen
+ *                 page with the colours turned down. structure-sheet-pdf.mjs
+ *                 renders it to PDF.
  */
 const MODEL_URL = 'https://npuckett.github.io/dc-dev/grid-designer/'
 
+/**
+ * ON PAPER, EVERY DRAWING GETS AN EXACT SIZE. Left to `height: auto`, Chrome's
+ * PDF pass sized the plan differently from the on-screen layout — taller by
+ * ~0.3in, enough to run the legend into the page foot while the overflow check
+ * (which measures the on-screen layout) saw room to spare. A fixed width and
+ * height, fitted here from the drawing's own proportions, lays out the same in
+ * both, so the check measures what is printed. Inches, inside the 0.5in margin.
+ */
+const PRINT_BOX = {
+  pageW: 7.5,
+  planW: 5,
+  planH: 5.45, // the plan column's height, less the legend's lines below
+  legendLine: 0.17,
+  explodedH: 3.8,
+  sectionsH: 1.85,
+}
+
+function onPaper(svg, maxW, maxH) {
+  const w = Number(svg.match(/^<svg[^>]*\swidth="([\d.]+)"/)?.[1])
+  const h = Number(svg.match(/^<svg[^>]*\sheight="([\d.]+)"/)?.[1])
+  if (!w || !h) throw new Error('onPaper: drawing has no intrinsic width/height')
+  const scale = Math.min(maxW / w, maxH / h)
+  return svg.replace(/^<svg /, `<svg style="width:${(w * scale).toFixed(3)}in;height:${(h * scale).toFixed(3)}in" `)
+}
+const PDF_NAME = 'structure-sheet-letter.pdf'
+
 function sheetHTML(drawings, mode) {
-  const tpl = fs.readFileSync(new URL('./structure-sheet.template.html', import.meta.url), 'utf8')
+  const templateFile = mode === 'print' ? './structure-sheet.print.html' : './structure-sheet.template.html'
+  const tpl = fs.readFileSync(new URL(templateFile, import.meta.url), 'utf8')
   const c = structure.connectors
   const mm = (v) => fmt(v, 1).replace(/\.0$/, '')
   const size = (s) => s.map(mm).join(' × ')
@@ -658,6 +696,18 @@ function sheetHTML(drawings, mode) {
     `<tr class="s-total"><td>Printed pieces</td><td></td><td class="n">${printed}</td></tr>`,
   ].join('\n              ')
 
+  // On paper the schedule column is narrower, so the size moves under the name
+  // and the table is two columns rather than three.
+  const kitRowsPrint = [
+    ...c.backHalves.map((b) =>
+      `<tr><td><i class="s-swatch" style="background:var(--back)"></i>Back half ${b.id} · ${b.sense} ${signed(b.foldDeg)}<span class="k-sub">${size(pieceOf(b.id).sizeMm)} mm</span></td><td class="n">${b.count}</td></tr>`),
+    ...c.frontBars.map((b) =>
+      `<tr><td><i class="s-swatch" style="background:var(--accent)"></i>Front bar ${b.id}<span class="k-sub">${size(pieceOf(b.id).sizeMm)} mm</span></td><td class="n">${b.count}</td></tr>`),
+    `<tr><td>${c.bolts.size} countersunk bolt<span class="k-sub">${mm(c.bolts.lengthMm)} mm long</span></td><td class="n">${c.bolts.count}</td></tr>`,
+    `<tr><td>${c.inserts.size} heat-set insert<span class="k-sub">${mm(CONNECTOR_PROFILE.bolt.insertOdCm * MM_PER_CM)} mm OD</span></td><td class="n">${c.inserts.count}</td></tr>`,
+    `<tr class="s-total"><td>Printed pieces</td><td class="n">${printed}</td></tr>`,
+  ].join('\n            ')
+
   const standalone = mode === 'standalone'
   const fileRows = c.pieces
     .map((p) => {
@@ -668,7 +718,9 @@ function sheetHTML(drawings, mode) {
     .join('\n            ')
   const filesNote = standalone
     ? 'Millimetres, laid flat for printing. The editor\'s <b>Connector pieces</b> button exports the same files.'
-    : 'In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor\'s <b>Connector pieces</b> button exports the same files.'
+    : mode === 'print'
+      ? `Millimetres, laid flat for printing. In grid-designer/sheet/pieces/, or from the editor's Connector pieces button.`
+      : 'In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor\'s <b>Connector pieces</b> button exports the same files.'
 
   const hits = structure.obstaclesHit
   const describe = (h) => {
@@ -688,7 +740,7 @@ function sheetHTML(drawings, mode) {
   const concave = c.backHalves.filter((b) => b.foldDeg < 0)
   const worstConcave = Math.max(0, ...concave.map((b) => -b.foldDeg))
   const foulNote = !structure.envelope.frontBarClears && concave.length
-    ? `<div class="s-note s-note--warn"><strong>Front bar fouls on concave joints</strong>A flat bar clears the bezels up to ${structure.envelope.frontBarConcaveLimitDeg}° of concave fold. This design folds ${worstConcave}°, so the ${concave.reduce((n, b) => n + b.count, 0)} concave connectors (${concave.map((b) => b.id).join(', ')}) need a different bar section. The overlap shows in the ${concave[0].id} section below.</div>`
+    ? `<div class="s-note s-note--warn"><strong>Front bar fouls on concave joints</strong>A flat bar clears the bezels up to ${structure.envelope.frontBarConcaveLimitDeg}° of concave fold. This design folds ${worstConcave}°, so the ${concave.reduce((n, b) => n + b.count, 0)} concave connectors (${concave.map((b) => b.id).join(', ')}) need a different bar section. The overlap shows in the ${concave[0].id} section ${mode === 'print' ? 'above' : 'below'}.</div>`
     : ''
 
   // THE BIN. Kit parts are built at their bin's value, not the joints' own, so
@@ -704,6 +756,7 @@ function sheetHTML(drawings, mode) {
     : ''
 
   const shown = c.backHalves.find((b) => b.foldDeg > 0) ?? c.backHalves[0]
+  const legendLines = 3 + (hits.length ? 1 : 0)
   const values = {
     DESIGN_LINE: `Design “${esc(structure.design.name ?? 'unnamed')}”`,
     DATE: new Date().toISOString().slice(0, 10),
@@ -729,8 +782,10 @@ function sheetHTML(drawings, mode) {
     PIECES_TOTAL: printed,
     BOLTS: c.bolts.count,
     BOLT: c.bolts.size,
-    KIT_ROWS: kitRows,
+    KIT_ROWS: mode === 'print' ? kitRowsPrint : kitRows,
     MODEL_HREF: standalone ? '../' : MODEL_URL,
+    MODEL_TEXT: MODEL_URL.replace(/^https:\/\//, '').replace(/\/$/, ''),
+    PRINT_LINK: standalone ? `<a class="s-link" href="${PDF_NAME}">Print version, Letter PDF →</a>` : '',
     FILES_NOTE: filesNote,
     FILE_ROWS: fileRows,
     CLASH_NOTE: clashNote,
@@ -738,15 +793,15 @@ function sheetHTML(drawings, mode) {
     FOUL_NOTE: foulNote,
     BIN_NOTE: binNote,
     SHOWN_PART: `back half ${shown.id} (${shown.sense} ${signed(shown.foldDeg)}) with front bar ${c.frontBars[0]?.id ?? ''}`,
-    PLAN_SVG: drawings.plan,
-    EXPLODED_SVG: drawings.exploded,
-    SECTIONS_SVG: drawings.sections,
+    PLAN_SVG: mode === 'print' ? onPaper(drawings.plan, PRINT_BOX.planW, PRINT_BOX.planH - legendLines * PRINT_BOX.legendLine) : drawings.plan,
+    EXPLODED_SVG: mode === 'print' ? onPaper(drawings.exploded, PRINT_BOX.pageW, PRINT_BOX.explodedH) : drawings.exploded,
+    SECTIONS_SVG: mode === 'print' ? onPaper(drawings.sections, PRINT_BOX.pageW, PRINT_BOX.sectionsH) : drawings.sections,
   }
   const html = tpl.replace(/\{\{([A-Z_]+)\}\}/g, (m, key) => {
     if (!(key in values)) throw new Error(`structure-sheet template: no value for {{${key}}}`)
     return String(values[key])
   })
-  if (!standalone) return html
+  if (!standalone) return html // the artifact host adds the skeleton; the print template has its own
   // A full document for Pages. The artifact host supplies this skeleton itself;
   // a plain web server does not.
   return [
@@ -771,6 +826,7 @@ const drawings = {
 }
 fs.writeFileSync(path.join(outDir, 'structure-sheet.html'), sheetHTML(drawings, 'artifact'))
 fs.writeFileSync(path.join(outDir, 'index.html'), sheetHTML(drawings, 'standalone'))
+fs.writeFileSync(path.join(outDir, 'print.html'), sheetHTML(drawings, 'print'))
 
 console.log(`structure sheet → ${path.relative(process.cwd(), outDir) || '.'}`)
 console.log(`  design      ${structure.design.name ?? '(unnamed)'} (${structure.design.source})`)

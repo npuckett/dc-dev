@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1099 300" class="sections" role="img" aria-label="Assembled sections of each back-half type">
+<svg xmlns="http://www.w3.org/2000/svg" width="1099" height="300" viewBox="0 0 1099 300" class="sections" role="img" aria-label="Assembled sections of each back-half type">
 <style>
 .plan-ground{fill:var(--sheet-ground,#f3f1ec)}
 .hatch{stroke:var(--sheet-faint,#b9b4aa);stroke-width:1.2}
@@ -7,16 +7,16 @@
 .ctx-column{fill:var(--sheet-ctx,#d9d5cc);stroke:var(--sheet-warn,#b4562f);stroke-width:1.5;stroke-dasharray:4 3}
 .ctx-zone{fill:none;stroke:var(--sheet-faint,#b9b4aa);stroke-dasharray:3 3}
 .ctx-glass{fill:var(--sheet-glass,#b9d3dc)}
-.ctx-label{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-warn,#b4562f)}
+.ctx-label{font:500 19px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-warn,#b4562f)}
 .panel{stroke:#5d574d;stroke-width:0.8;stroke-linejoin:round}
 .panel-hit{stroke:var(--sheet-warn,#b4562f);stroke-width:2}
 .clash{fill:var(--sheet-warn,#b4562f);fill-opacity:.14;stroke:var(--sheet-warn,#b4562f);stroke-width:1.6;stroke-dasharray:5 3}
-.spot{font:500 10px var(--sheet-mono,ui-monospace,monospace);fill:#5d574d;text-anchor:middle}
+.spot{font:500 19px var(--sheet-mono,ui-monospace,monospace);fill:#5d574d;text-anchor:middle}
 .station{stroke:var(--sheet-accent,#c2531c);stroke-width:3.2;stroke-linecap:butt}
 .origin circle{fill:var(--sheet-ink,#24211c)}
-.origin text,.dim text{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.origin text,.dim text{font:500 21px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
 .dim line{stroke:var(--sheet-ink,#24211c);stroke-width:1}
-.edge-label{font:600 10px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.18em;fill:var(--sheet-muted,#6f695f)}
+.edge-label{font:600 19px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.18em;fill:var(--sheet-muted,#6f695f)}
 .exploded polygon,.sections polygon{stroke-width:.7;stroke-linejoin:round}
 .axis{stroke:var(--sheet-muted,#6f695f);stroke-width:1;stroke-dasharray:6 3 1.5 3}
 .leader{fill:none;stroke:var(--sheet-muted,#6f695f);stroke-width:.9}

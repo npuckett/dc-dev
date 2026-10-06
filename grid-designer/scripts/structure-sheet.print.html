@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drop Ceiling V2 Structure (Letter)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/*
+ * The structure sheet on US Letter, two pages, white paper.
+ *
+ * Each page is a fixed 8.5 × 11in box with its own 0.5in margin, and @page has
+ * no margin of its own — so what the screen shows IS the printed page, and the
+ * browser's print dialog and the PDF renderer cannot reflow it differently.
+ * scripts/structure-sheet-pdf.mjs refuses to write a PDF if any page's content
+ * overflows its box.
+ */
+@page { size: letter; margin: 0; }
+:root {
+  --ink: #141414;
+  --muted: #5a5a5a;
+  --rule: #c9c9c9;
+  --hair: #e3e3e3;
+  --accent: #c4511b;   /* connector orange: front bar, station ticks */
+  --back: #36709f;     /* back half */
+  --warn: #a8361a;
+  --display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  /* the drawings' tokens, set for paper */
+  --sheet-ink: var(--ink);
+  --sheet-muted: var(--muted);
+  --sheet-faint: #9d9d9d;
+  --sheet-ground: #ffffff;
+  --sheet-ctx: #dedede;
+  --sheet-glass: #c9dbe1;
+  --sheet-warn: var(--warn);
+  --sheet-accent: var(--accent);
+  --sheet-mono: var(--mono);
+  --sheet-sans: var(--display);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #ffffff; color: var(--ink); }
+body { font: 400 9pt/1.45 var(--display); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+.page {
+  width: 8.5in;
+  height: 11in;
+  padding: 0.5in;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22in;
+  overflow: hidden;
+  position: relative;
+  break-after: page;
+}
+.page:last-child { break-after: auto; }
+@media screen {
+  body { background: #d9d9d9; padding: 0.3in 0; }
+  .page { margin: 0 auto 0.3in; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+}
+
+/* --- shared type ------------------------------------------------------------ */
+.eyebrow, h3, .meta dt, .fig h2 {
+  font: 600 6.5pt/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0;
+}
+h1 { font: 760 25pt/1 var(--display); font-stretch: 80%; letter-spacing: -.01em; margin: 5pt 0 0; }
+h2 { font: 720 14pt/1.1 var(--display); font-stretch: 85%; margin: 0; }
+h2 span { font: 400 7.5pt var(--mono); color: var(--muted); margin-left: 8pt; letter-spacing: 0; }
+.mono { font-family: var(--mono); }
+
+/* --- page 1: title block ---------------------------------------------------- */
+.head { display: grid; grid-template-columns: 1fr auto; gap: 0.3in; align-items: end; padding-bottom: 0.12in; border-bottom: 1.5pt solid var(--ink); }
+.sub { margin: 3pt 0 0; color: var(--muted); font-size: 10pt; }
+.stamp { font: 400 7pt/1.55 var(--mono); color: var(--muted); text-align: right; }
+.stamp b { color: var(--ink); font-weight: 500; }
+.meta { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-bottom: 0.5pt solid var(--rule); }
+.meta div { padding: 0 0 0.09in; }
+.meta dt { margin-bottom: 4pt; }
+.meta dd { margin: 0; font: 500 9pt/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+
+.figs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 0.5pt solid var(--rule); padding-bottom: 0.12in; }
+.fig { padding-right: 0.15in; }
+.fig + .fig { padding-left: 0.18in; border-left: 0.5pt solid var(--rule); }
+.num { font: 780 52pt/.95 var(--display); font-stretch: 75%; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 5pt; }
+.num small { font-size: .45em; color: var(--muted); vertical-align: top; margin-left: 1pt; }
+.fig p { margin: 7pt 0 0; font: 400 7.5pt/1.5 var(--mono); color: var(--muted); }
+.fig p b { color: var(--ink); font-weight: 600; }
+.fig--conn .num { color: var(--accent); }
+
+/* --- page 1: plan + schedule -------------------------------------------------- */
+/* Layout classes here are p-prefixed: the drawings' own roots are class="plan",
+   "exploded" and "sections", and an unprefixed rule lands on the SVG too. */
+.p-plan { display: grid; grid-template-columns: 5in 1fr; gap: 0.25in; flex: 1; min-height: 0; }
+.p-plan figure { margin: 0; display: flex; flex-direction: column; gap: 6pt; min-height: 0; }
+/* Drawings carry an exact inline size, fitted by the generator (see
+   PRINT_BOX in structure-sheet.mjs) — never height: auto on paper. */
+.p-plan figure svg { display: block; flex: none; }
+.p-plan figure .legend { flex: 0 0 auto; }
+.legend { display: grid; gap: 2pt; font: 400 6.8pt/1.4 var(--mono); color: var(--muted); }
+.s-key { display: inline-block; width: 13pt; height: 7pt; vertical-align: -1pt; margin-right: 5pt; border: 0.5pt solid #8a8a8a; }
+.s-key--tick { height: 0; border: 0; border-top: 2pt solid var(--accent); vertical-align: 2pt; }
+.s-key--clash { border: 1pt dashed var(--warn); }
+.schedule { display: flex; flex-direction: column; gap: 0.18in; min-width: 0; }
+
+table { width: 100%; border-collapse: collapse; font: 400 7.5pt/1.35 var(--mono); font-variant-numeric: tabular-nums; margin-top: 4pt; }
+th, td { text-align: left; padding: 3.5pt 6pt 3.5pt 0; border-bottom: 0.5pt solid var(--hair); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 6.3pt; letter-spacing: .08em; text-transform: uppercase; border-bottom-color: var(--rule); }
+td.n, th.n { text-align: right; padding-right: 0; }
+td .k-sub { display: block; color: var(--muted); }
+tr.s-total td { font-weight: 600; border-bottom: 0; border-top: 1pt solid var(--ink); }
+.s-swatch { display: inline-block; width: 6pt; height: 6pt; margin-right: 5pt; }
+
+/* notes: a rule and a label, no fill — this is going to paper */
+.s-note { border-left: 2pt solid #9d9d9d; padding: 1pt 0 1pt 7pt; font-size: 7.8pt; line-height: 1.45; }
+.s-note strong { display: block; font: 600 6.5pt/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 2pt; }
+.s-note--warn { border-left-color: var(--warn); }
+.s-note--warn strong { color: var(--warn); }
+.s-note b { font-weight: 600; }
+
+/* --- page 2: connector -------------------------------------------------------- */
+.conn-head { padding-bottom: 0.1in; border-bottom: 1.5pt solid var(--ink); }
+.intro { margin: 4pt 0 0; color: var(--muted); max-width: 6.2in; }
+.p-exploded { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4pt; }
+.p-exploded svg { display: block; flex: none; }
+figcaption { font: 400 6.8pt/1.45 var(--mono); color: var(--muted); align-self: stretch; }
+.p-sections { border-top: 0.5pt solid var(--rule); padding-top: 0.1in; display: flex; flex-direction: column; gap: 5pt; }
+.p-sections svg { display: block; flex: none; align-self: center; }
+.bottom { display: grid; grid-template-columns: 1fr 2.6in; gap: 0.25in; border-top: 0.5pt solid var(--rule); padding-top: 0.1in; }
+.notes { display: flex; flex-direction: column; gap: 7pt; }
+.s-files { list-style: none; margin: 4pt 0 0; padding: 0; display: grid; gap: 4pt; }
+.s-files li { font: 500 7pt/1.4 var(--mono); padding: 3pt 0; border-bottom: 0.5pt solid var(--hair); overflow-wrap: anywhere; }
+.s-files li span { display: block; color: var(--muted); font-weight: 400; }
+
+/* --- running foot --------------------------------------------------------------- */
+.foot { margin-top: auto; padding-top: 6pt; border-top: 0.5pt solid var(--rule); display: flex; justify-content: space-between; gap: 0.2in; font: 400 6.5pt/1.4 var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+
+<section class="page" id="p1" aria-label="Page 1: structure and plan">
+  <header class="head">
+    <div>
+      <p class="eyebrow">Drop Ceiling V2 · folded panel network</p>
+      <h1>Structure summary</h1>
+      <p class="sub">{{DESIGN_LINE}}</p>
+    </div>
+    <div class="stamp">
+      Generated <b>{{DATE}}</b><br>
+      Commit <b>{{COMMIT}}</b> · Source <b>{{SOURCE}}</b><br>
+      3D model <b>{{MODEL_TEXT}}</b>
+    </div>
+  </header>
+
+  <dl class="meta">
+    <div><dt>Pattern</dt><dd>{{PATTERN}}</dd></div>
+    <div><dt>Footprint</dt><dd>{{FOOTPRINT}}</dd></div>
+    <div><dt>Height</dt><dd>{{HEIGHT}}</dd></div>
+    <div><dt>Panel gap</dt><dd>{{GAP}}</dd></div>
+  </dl>
+
+  <div class="figs">
+    <div class="fig">
+      <h2 class="eyebrow">Panels</h2>
+      <div class="num">{{PANELS}}</div>
+      <p><b>{{INCLINED}}</b> inclined · <b>{{FLAT}}</b> flat · 60 × 60 cm</p>
+    </div>
+    <div class="fig">
+      <h2 class="eyebrow">Incline angle</h2>
+      <div class="num">{{ANGLE}}<small>°</small></div>
+      <p>every inclined panel · connector limit <b>{{MAX_ANGLE}}°</b></p>
+    </div>
+    <div class="fig fig--conn">
+      <h2 class="eyebrow">Connectors</h2>
+      <div class="num">{{STATIONS}}</div>
+      <p><b>{{PER_JOINT}}</b> per joint · <b>{{JOINTS}}</b> joints · {{PIECES_TOTAL}} pieces · {{BOLTS}} bolts</p>
+    </div>
+  </div>
+
+  <h2>Plan<span>from above · window at the bottom, wall on the right</span></h2>
+  <div class="p-plan">
+    <figure>
+      {{PLAN_SVG}}
+      <div class="legend">
+        <span><i class="s-key" style="background:#ece6da"></i>panel lit face, shaded by which way it faces</span>
+        <span><i class="s-key s-key--tick"></i>connector, along its joint</span>
+        <span>+{{HIGH_Y}} &nbsp;top of a raised flat panel, cm</span>
+        {{CLASH_LEGEND}}
+      </div>
+    </figure>
+    <div class="schedule">
+      <div>
+        <h3>Panels</h3>
+        <table>
+          <thead><tr><th>Type</th><th>Lies</th><th class="n">Qty</th></tr></thead>
+          <tbody>
+            <tr><td>Ground</td><td>flat, on the floor</td><td class="n">{{GROUND}}</td></tr>
+            <tr><td>Raised</td><td>flat, top at +{{HIGH_Y}} cm</td><td class="n">{{HIGH}}</td></tr>
+            <tr><td>Rise</td><td>inclined {{ANGLE}}°</td><td class="n">{{RISE}}</td></tr>
+            <tr><td>Fall</td><td>inclined {{ANGLE}}°</td><td class="n">{{FALL}}</td></tr>
+            <tr class="s-total"><td>Total</td><td></td><td class="n">{{PANELS}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Connector kit</h3>
+        <table>
+          <thead><tr><th>Piece</th><th class="n">Qty</th></tr></thead>
+          <tbody>
+            {{KIT_ROWS}}
+          </tbody>
+        </table>
+      </div>
+      {{CLASH_NOTE}}
+    </div>
+  </div>
+
+  <footer class="foot"><span>Drop Ceiling V2 · Structure summary · {{DESIGN_LINE}}</span><span>1 / 2</span></footer>
+</section>
+
+<section class="page" id="p2" aria-label="Page 2: connector">
+  <header class="conn-head">
+    <h2>Connector<span>two printed pieces per joint station</span></h2>
+    <p class="intro">The back half reaches under both panel flanges. The front bar lies across both bezels. Three {{BOLT}} bolts pull the two together through heat-set inserts, clamping the panel rims between them.</p>
+  </header>
+
+  <figure class="p-exploded">
+    {{EXPLODED_SVG}}
+    <figcaption>Exploded along the bolt axis. Shown: {{SHOWN_PART}}. Bolt positions are indicative.</figcaption>
+  </figure>
+
+  <div class="p-sections">
+    <h3>Assembled, looking along the joint</h3>
+    {{SECTIONS_SVG}}
+  </div>
+
+  <div class="bottom">
+    <div class="notes">
+      {{FOUL_NOTE}}
+      {{BIN_NOTE}}
+      <div class="s-note"><strong>Holes not modelled</strong>The printable parts are solid. Bolt clearance holes and insert bores still need to be cut, and the three bolt positions along the part are not fixed yet.</div>
+    </div>
+    <div>
+      <h3>Printable pieces</h3>
+      <ul class="s-files">
+        {{FILE_ROWS}}
+      </ul>
+      <figcaption style="margin-top:5pt">{{FILES_NOTE}}</figcaption>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Computed by scripts/structure-sheet.mjs from {{SOURCE}}, using the editor's geometry code.</span><span>2 / 2</span></footer>
+</section>
+
+</body>
+</html>

@@ -135,6 +135,21 @@ tr.s-total td { font-weight: 600; border-bottom: 0; border-top: 1.5px solid var(
 
 footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; max-width: 90ch; }
 
+/* --- printed anyway ---------------------------------------------------------
+   The Letter PDF is the print version; this only keeps a direct print of the
+   screen page legible — light palette and white paper whatever the theme. */
+@media print {
+  :root, :root[data-theme="dark"], :root:not([data-theme="light"]) {
+    --paper: #ffffff; --sheet: #ffffff; --ink: #141414; --muted: #5a5a5a; --rule: #c9c9c9; --faint: #9d9d9d;
+    --accent: #c4511b; --back: #36709f; --warn: #a8361a; --warn-bg: #ffffff; --info-bg: #ffffff;
+    --ground: #ffffff; --ctx: #dedede; --glass: #c9dbe1; color-scheme: light;
+  }
+  body { padding: 0; }
+  .s-link { display: none; }
+  .s-sheet { border: 0; break-inside: avoid; }
+  .s-sheet + .s-sheet { border-top: 1px solid var(--rule); }
+}
+
 /* --- narrow ---------------------------------------------------------------- */
 @media (max-width: 900px) {
   .s-plan, .s-conn { grid-template-columns: minmax(0, 1fr); }
@@ -169,6 +184,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         <span>Commit <b>{{COMMIT}}</b></span>
         <span>Source <b>{{SOURCE}}</b></span>
         <a class="s-link" href="{{MODEL_HREF}}">Open the 3D model →</a>
+        {{PRINT_LINK}}
       </div>
     </header>
     <dl class="s-meta">
@@ -205,7 +221,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         <div class="s-legend">
           <span><i class="s-key" style="background:#ece6da"></i>panel lit face, shaded by which way it faces</span>
           <span><i class="s-key s-key--tick"></i>connector, along its joint</span>
-          <span>+35 &nbsp;top of a raised flat panel, cm</span>
+          <span>+{{HIGH_Y}} &nbsp;top of a raised flat panel, cm</span>
           {{CLASH_LEGEND}}
         </div>
       </figure>
