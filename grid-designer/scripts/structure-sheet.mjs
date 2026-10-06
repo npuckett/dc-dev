@@ -4,8 +4,9 @@
  *
  *   node scripts/structure-sheet.mjs [design.json | -] [outDir]
  *
- * Reads a design (the file the editor's "Download JSON" writes; the built-in
- * default when none is given) and writes, into `outDir` (default `sheet/`):
+ * Reads a design (the file the editor's "Download JSON" writes; by default the
+ * design of record, `design/current.json`) and writes, into `outDir` (default
+ * `sheet/`):
  *
  *   structure.json            the headline numbers — panels, angle, connectors
  *   plan.svg                  a flat-shaded plan view from above
@@ -40,17 +41,24 @@ import { connectorPieces, stlPayload, MM_PER_CM } from '../src/utils/connectorEx
 import {
   backHalfProfile,
   frontBarProfile,
+  frontBarWidthFor,
   flangeDepthAt,
   CONNECTOR_PROFILE,
 } from '../src/core/v3/connectors.js'
 import { PANEL_PROFILE } from '../src/config.js'
 
-// `-` (or nothing) for the design means the built-in default — so CI can name
-// an output folder without having to name a design file.
+// THE DESIGN OF RECORD is `design/current.json` — the editor's Download JSON of
+// the layout actually being built. `-` (or nothing) means that file, so CI can
+// name an output folder without naming a design. The built-in default is only
+// a last resort, and the sheet says so in its stamp: it is a different layout,
+// and a sheet that silently fell back to it would show the wrong structure.
+const RECORD = new URL('../design/current.json', import.meta.url)
 const [, , rawDesignArg, outArg] = process.argv
-const designArg = rawDesignArg && rawDesignArg !== '-' ? rawDesignArg : null
+const designPath = rawDesignArg && rawDesignArg !== '-'
+  ? path.resolve(rawDesignArg)
+  : fs.existsSync(RECORD) ? RECORD.pathname : null
 const outDir = path.resolve(outArg ?? 'sheet')
-const source = designArg ? JSON.parse(fs.readFileSync(designArg, 'utf8')) : DEFAULT_CONFIG
+const source = designPath ? JSON.parse(fs.readFileSync(designPath, 'utf8')) : DEFAULT_CONFIG
 
 const config = normalizeConfig(source)
 const lattice = solveLattice(config)
@@ -79,7 +87,9 @@ try {
 const structure = {
   design: {
     name: config.name ?? null,
-    source: designArg ? path.basename(designArg) : 'built-in default',
+    source: designPath
+      ? (designPath === RECORD.pathname ? 'design/current.json' : path.basename(designPath))
+      : 'built-in default (no design/current.json)',
     pattern: config.pattern.kind,
     cells: `${config.lattice.cols} × ${config.lattice.rows}`,
     commit,
@@ -134,6 +144,16 @@ const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], 
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const pts = (list) => list.map(([x, y]) => `${fmt(x, 2)},${fmt(y, 2)}`).join(' ')
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+
+const mmText = (v) => fmt(v, 1).replace(/\.0$/, '')
+/** The real gaps (mm, min and max) at the stations a kit part was binned from. */
+function jointSpansMm(part) {
+  const ids = new Set(part.stationIds)
+  const spans = connectors.stations.filter((st) => ids.has(st.id)).flatMap((st) => [st.spanMinCm * 10, st.spanMaxCm * 10])
+  const lo = Math.min(...spans)
+  const hi = Math.max(...spans)
+  return Math.abs(hi - lo) < 0.05 ? [lo] : [lo, hi]
+}
 
 /** Newell normal of a planar polygon — robust for any vertex count. */
 function newell(poly) {
@@ -573,7 +593,13 @@ function sectionsSVG() {
     out.push(`<line x1="${fmt(top[0])}" y1="${fmt(top[1])}" x2="${fmt(bot[0])}" y2="${fmt(bot[1])}" class="axis"/>`)
     const cx = idx * cellW + cellW / 2
     out.push(`<text x="${fmt(cx)}" y="${fmt(drawH + 36)}" class="sec-title" text-anchor="middle">${sec.part.partId} · ${sec.fold > 0 ? 'convex' : 'concave'} ${sec.fold > 0 ? '+' : '−'}${Math.abs(sec.fold)}°</text>`)
-    out.push(`<text x="${fmt(cx)}" y="${fmt(drawH + 60)}" class="sec-sub" text-anchor="middle">${sec.part.count} off · ${fmt(sec.span * 10, 0)} mm gap</text>`)
+    const real = jointSpansMm(sec.part)
+    const built = mmText(sec.span * 10)
+    const differs = real.some((v) => Math.abs(v - sec.span * 10) > 0.05)
+    const sub = differs
+      ? `${sec.part.count} off · built for ${built} mm · joints ${real.map(mmText).join('–')} mm`
+      : `${sec.part.count} off · ${built} mm gap`
+    out.push(`<text x="${fmt(cx)}" y="${fmt(drawH + 60)}" class="sec-sub" text-anchor="middle">${sub}</text>`)
     out.push('</g>')
   })
   // 10 mm scale bar, bottom left
@@ -665,6 +691,18 @@ function sheetHTML(drawings, mode) {
     ? `<div class="s-note s-note--warn"><strong>Front bar fouls on concave joints</strong>A flat bar clears the bezels up to ${structure.envelope.frontBarConcaveLimitDeg}° of concave fold. This design folds ${worstConcave}°, so the ${concave.reduce((n, b) => n + b.count, 0)} concave connectors (${concave.map((b) => b.id).join(', ')}) need a different bar section. The overlap shows in the ${concave[0].id} section below.</div>`
     : ''
 
+  // THE BIN. Kit parts are built at their bin's value, not the joints' own, so
+  // a coarse bin prints pieces for a gap the design does not have. Said on the
+  // sheet rather than left for the printer to discover.
+  const binErrMm = kit.summary.worstBinSpanErrorCm * MM_PER_CM
+  const gapMm = structure.gapCm * MM_PER_CM
+  const builtMm = (kit.kit[0]?.spanStartCm ?? structure.gapCm) * MM_PER_CM
+  const idealBarMm = frontBarWidthFor(structure.gapCm) * MM_PER_CM
+  const barMm = (kit.bars[0]?.widthCm ?? 0) * MM_PER_CM
+  const binNote = binErrMm > 0.05
+    ? `<div class="s-note s-note--warn"><strong>Pieces rounded to the connector bin</strong>Every joint here is ${mm(gapMm)} mm, but the kit rounds gaps to ${mm(kit.summary.binSpanCm * MM_PER_CM)} mm steps. The back halves are built for ${mm(builtMm)} mm and the bar is ${mm(barMm)} mm wide instead of ${mm(idealBarMm)}. Set the editor's <b>span bin</b> to ${Math.round(gapMm) % 2 === 0 ? '0.20' : '0.10'} cm or finer to build them at exactly ${mm(gapMm)} mm.</div>`
+    : ''
+
   const shown = c.backHalves.find((b) => b.foldDeg > 0) ?? c.backHalves[0]
   const values = {
     DESIGN_LINE: `Design “${esc(structure.design.name ?? 'unnamed')}”`,
@@ -698,6 +736,7 @@ function sheetHTML(drawings, mode) {
     CLASH_NOTE: clashNote,
     CLASH_LEGEND: clashLegend,
     FOUL_NOTE: foulNote,
+    BIN_NOTE: binNote,
     SHOWN_PART: `back half ${shown.id} (${shown.sense} ${signed(shown.foldDeg)}) with front bar ${c.frontBars[0]?.id ?? ''}`,
     PLAN_SVG: drawings.plan,
     EXPLODED_SVG: drawings.exploded,

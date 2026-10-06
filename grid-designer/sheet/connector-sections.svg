@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1131 314" class="sections" role="img" aria-label="Assembled sections of each back-half type">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1099 300" class="sections" role="img" aria-label="Assembled sections of each back-half type">
 <style>
 .plan-ground{fill:var(--sheet-ground,#f3f1ec)}
 .hatch{stroke:var(--sheet-faint,#b9b4aa);stroke-width:1.2}
@@ -32,22 +32,22 @@
 .sections .sec-sub{font-size:17px}
 </style>
 <g class="section">
-<polygon points="15.00,145.73 60.98,158.05 138.82,80.35 238.23,103.46 247.91,67.34 199.52,50.85 196.33,62.78 47.89,23.00" class="sec-panel"/>
-<polygon points="517.69,23.00 369.24,62.78 366.05,50.85 317.67,67.34 327.34,103.46 426.75,80.35 504.59,158.05 550.57,145.73" class="sec-panel"/>
-<polygon points="158.04,121.89 407.53,121.89 407.53,87.43 325.54,106.59 319.60,84.42 245.97,84.42 240.03,106.59 158.04,87.43" class="sec-back"/>
-<polygon points="214.79,61.50 350.79,61.50 350.79,47.90 214.79,47.90" class="sec-bar"/>
-<line x1="282.8" y1="33.5" x2="282.8" y2="133.8" class="axis"/>
-<text x="282.8" y="270.4" class="sec-title" text-anchor="middle">P00 · concave −30°</text>
-<text x="282.8" y="294.4" class="sec-sub" text-anchor="middle">44 off · 20 mm gap</text>
+<polygon points="63.41,219.21 110.29,210.95 148.00,107.63 247.86,86.57 241.37,49.74 190.55,55.24 192.69,67.40 41.35,94.08" class="sec-panel"/>
+<polygon points="508.20,94.08 356.86,67.40 359.00,55.24 308.19,49.74 301.69,86.57 401.55,107.63 439.26,210.95 486.14,219.21" class="sec-panel"/>
+<polygon points="168.42,121.23 381.14,121.23 381.14,105.93 298.74,88.64 302.72,66.04 246.83,66.04 250.82,88.64 168.42,105.93" class="sec-back"/>
+<polygon points="206.78,43.84 342.78,43.84 342.78,30.24 206.78,30.24" class="sec-bar"/>
+<line x1="274.8" y1="15.8" x2="274.8" y2="133.1" class="axis"/>
+<text x="274.8" y="255.6" class="sec-title" text-anchor="middle">P00 · convex +20°</text>
+<text x="274.8" y="279.6" class="sec-sub" text-anchor="middle">44 off · built for 20 mm · joints 22 mm</text>
 </g>
 <g class="section">
-<polygon points="652.73,251.68 698.71,239.36 727.27,133.15 824.92,103.46 815.24,67.34 765.09,77.25 768.29,89.17 619.84,128.95" class="sec-panel"/>
-<polygon points="1076.87,128.95 928.42,89.17 931.62,77.25 881.48,67.34 871.80,103.46 969.44,133.15 998.00,239.36 1043.98,251.68" class="sec-panel"/>
-<polygon points="747.46,144.97 949.25,144.97 949.25,129.67 868.67,105.27 874.61,83.10 822.10,83.10 828.04,105.27 747.46,129.67" class="sec-back"/>
-<polygon points="780.36,61.50 916.36,61.50 916.36,47.90 780.36,47.90" class="sec-bar"/>
-<line x1="848.4" y1="33.5" x2="848.4" y2="156.9" class="axis"/>
-<text x="848.4" y="270.4" class="sec-title" text-anchor="middle">P01 · convex +30°</text>
-<text x="848.4" y="294.4" class="sec-sub" text-anchor="middle">44 off · 20 mm gap</text>
+<polygon points="564.55,148.13 611.43,156.39 682.21,72.20 783.25,86.57 789.74,49.74 740.11,37.53 737.96,49.69 586.62,23.00" class="sec-panel"/>
+<polygon points="1062.04,23.00 910.70,49.69 908.56,37.53 858.92,49.74 865.42,86.57 966.46,72.20 1037.23,156.39 1084.11,148.13" class="sec-panel"/>
+<polygon points="701.97,104.82 946.69,104.82 946.69,77.59 863.35,89.52 859.36,66.92 789.30,66.92 785.31,89.52 701.97,77.59" class="sec-back"/>
+<polygon points="756.33,43.84 892.33,43.84 892.33,30.24 756.33,30.24" class="sec-bar"/>
+<line x1="824.3" y1="15.8" x2="824.3" y2="116.7" class="axis"/>
+<text x="824.3" y="255.6" class="sec-title" text-anchor="middle">P01 · concave −20°</text>
+<text x="824.3" y="279.6" class="sec-sub" text-anchor="middle">30 off · built for 20 mm · joints 22 mm</text>
 </g>
-<g class="scale"><line x1="8" y1="306.4" x2="42.0" y2="306.4"/><text x="25.0" y="298.4" text-anchor="middle">10 mm</text></g>
+<g class="scale"><line x1="8" y1="291.6" x2="42.0" y2="291.6"/><text x="25.0" y="283.6" text-anchor="middle">10 mm</text></g>
 </svg>

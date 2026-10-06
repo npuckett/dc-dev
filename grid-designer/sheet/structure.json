@@ -1,65 +1,65 @@
 {
   "design": {
     "name": "fold study 1",
-    "source": "built-in default",
+    "source": "design/current.json",
     "pattern": "trapezoid",
-    "cells": "3 × 5",
-    "commit": "1fe970c"
+    "cells": "5 × 4",
+    "commit": "63414ce"
   },
   "panels": {
-    "total": 37,
+    "total": 34,
     "inclined": 22,
-    "flat": 15,
+    "flat": 12,
     "byRole": {
-      "ground": 8,
+      "ground": 5,
       "high": 7,
-      "rise": 11,
-      "fall": 11
+      "rise": 9,
+      "fall": 13
     },
     "sizeCm": [
       60,
       60
     ]
   },
-  "angleDeg": 30,
-  "gapCm": 2,
+  "angleDeg": 20,
+  "gapCm": 2.2,
   "boundsCm": {
-    "x": 291.7,
-    "y": 35.1,
-    "z": 523.3
+    "x": 480.7,
+    "y": 25.4,
+    "z": 422.1
   },
   "connectors": {
-    "stations": 88,
-    "joints": 44,
+    "stations": 74,
+    "joints": 37,
     "perJoint": 2,
     "backHalves": [
       {
         "id": "P00",
         "count": 44,
-        "foldDeg": -30,
-        "sense": "concave"
+        "foldDeg": 20,
+        "sense": "convex"
       },
       {
         "id": "P01",
-        "count": 44,
-        "foldDeg": 30,
-        "sense": "convex"
+        "count": 30,
+        "foldDeg": -20,
+        "sense": "concave"
       }
     ],
     "frontBars": [
       {
         "id": "B00",
-        "count": 88,
+        "count": 74,
         "widthMm": 40
       }
     ],
     "bolts": {
-      "count": 264,
+      "count": 222,
       "size": "M3",
       "lengthMm": 12
     },
     "inserts": {
-      "count": 264,
+      "count": 222,
       "size": "M3"
     },
     "lengthMm": 100,
@@ -67,24 +67,24 @@
       {
         "id": "P00",
         "kind": "back-half",
-        "file": "pieces/P00_back-half_concave-30deg.stl",
+        "file": "pieces/P00_back-half_convex+20deg.stl",
         "sizeMm": [
-          73.3784,
+          62.5649,
           100,
-          11.02
+          16.2331
         ],
         "count": 44
       },
       {
         "id": "P01",
         "kind": "back-half",
-        "file": "pieces/P01_back-half_convex+30deg.stl",
+        "file": "pieces/P01_back-half_concave-20deg.stl",
         "sizeMm": [
-          59.3504,
+          71.9766,
           100,
-          18.1985
+          11.1475
         ],
-        "count": 44
+        "count": 30
       },
       {
         "id": "B00",
@@ -95,28 +95,14 @@
           100,
           4
         ],
-        "count": 88
+        "count": 74
       }
     ]
   },
   "envelope": {
-    "maxAngleDeg": 33.6,
+    "maxAngleDeg": 40.6,
     "frontBarConcaveLimitDeg": 12.4,
     "frontBarClears": false
   },
-  "obstaclesHit": [
-    {
-      "id": "column",
-      "panels": [
-        {
-          "id": "Ei2j2z",
-          "depthCm": 17.7
-        },
-        {
-          "id": "Ci2j2",
-          "depthCm": 4.1
-        }
-      ]
-    }
-  ]
+  "obstaclesHit": []
 }

@@ -247,6 +247,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
       </figure>
       <div class="s-conn-side">
         {{FOUL_NOTE}}
+        {{BIN_NOTE}}
         <div class="s-note"><strong>Holes not modelled</strong>The printable parts are solid. Bolt clearance holes and insert bores still need to be cut, and the three bolt positions along the part are not fixed yet.</div>
         <div>
           <h3>Printable pieces</h3>
@@ -263,5 +264,5 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
     </div>
   </section>
 
-  <footer>Every number and drawing on this sheet is computed by <code>scripts/structure-sheet.mjs</code> from the design file, using the same geometry code as the editor. To refresh it for another design, export its JSON from the editor and run <code>node scripts/structure-sheet.mjs design.json</code>.</footer>
+  <footer>Every number and drawing on this sheet is computed by <code>scripts/structure-sheet.mjs</code> from <code>design/current.json</code>, using the same geometry code as the editor. To update it, replace that file with the editor's Download JSON and run <code>node scripts/structure-sheet.mjs</code>.</footer>
 </main>
