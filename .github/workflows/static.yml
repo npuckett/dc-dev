@@ -1,8 +1,17 @@
-# Drop Ceiling — Deploy viewer + reports to GitHub Pages
+# Drop Ceiling — Deploy viewer + reports + grid-designer to GitHub Pages
+#
+# Pages serves ONE bundle for the whole site, so every deploy builds all of it:
+#   /                  the public viewer and daily reports, from main
+#   /grid-designer/    the planning tool and its structure sheet, built from the
+#                      v3-drift-tiling branch (it has not been merged to main)
+#
+# This must run on main: the github-pages environment only accepts deploys from
+# main. A push to v3-drift-tiling reaches it through grid-designer-pages.yml,
+# which lives on that branch and dispatches this workflow with --ref main.
 #
 # Triggers:
-#   1. Push to main (any change to viewer or reports)
-#   2. Manual dispatch from Actions tab
+#   1. Push to main (any change to viewer, reports, or this file)
+#   2. Manual dispatch from Actions tab — also how grid-designer redeploys
 #   3. Repository dispatch (called from device after generating reports)
 #      curl -X POST \
 #        -H "Authorization: token $GITHUB_TOKEN" \
@@ -18,6 +27,7 @@ on:
     paths:
       - 'IO/public-viewer/**'
       - 'IO/reports/daily/**'
+      - '.github/workflows/static.yml'
 
   repository_dispatch:
     types: [deploy-reports]
@@ -43,6 +53,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout grid-designer (v3-drift-tiling)
+        uses: actions/checkout@v4
+        with:
+          ref: v3-drift-tiling
+          path: gd-src
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gd-src/grid-designer/package-lock.json
+
+      - name: Build grid-designer and its structure sheet
+        working-directory: gd-src/grid-designer
+        run: |
+          npm ci
+          npx vite build
+          # the sheet, regenerated from the code being deployed so the public
+          # numbers and drawings cannot lag behind the public model
+          node scripts/structure-sheet.mjs - dist/sheet
+          # the artifact-body variant has no doctype; Pages serves index.html
+          rm -f dist/sheet/structure-sheet.html
+
       - name: Assemble site
         run: |
           mkdir -p _site/reports/daily
@@ -55,6 +89,9 @@ jobs:
 
           # Copy report JSON data
           cp IO/reports/daily/*.json _site/reports/daily/
+
+          # grid-designer at /grid-designer/ (relative asset base, see its vite.config.js)
+          cp -r gd-src/grid-designer/dist _site/grid-designer
 
       - name: Fix report paths for root-level hosting
         run: |

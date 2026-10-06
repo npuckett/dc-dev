@@ -2,7 +2,7 @@
 /**
  * grid-designer — the STRUCTURE SHEET generator.
  *
- *   node scripts/structure-sheet.mjs [design.json] [outDir]
+ *   node scripts/structure-sheet.mjs [design.json | -] [outDir]
  *
  * Reads a design (the file the editor's "Download JSON" writes; the built-in
  * default when none is given) and writes, into `outDir` (default `sheet/`):
@@ -14,6 +14,8 @@
  *   pieces/*.stl              the connector as separate printable pieces (mm)
  *   structure-sheet.html      all of the above as one page (the artifact body:
  *                             no doctype, see the template)
+ *   index.html                the same page as a full document, for GitHub
+ *                             Pages, with the STLs as download links
  *
  * EVERYTHING IS COMPUTED FROM THE SAME CORE THE EDITOR RUNS. The panel corners,
  * station frames, connector profiles and STL meshes all come from
@@ -43,7 +45,10 @@ import {
 } from '../src/core/v3/connectors.js'
 import { PANEL_PROFILE } from '../src/config.js'
 
-const [, , designArg, outArg] = process.argv
+// `-` (or nothing) for the design means the built-in default — so CI can name
+// an output folder without having to name a design file.
+const [, , rawDesignArg, outArg] = process.argv
+const designArg = rawDesignArg && rawDesignArg !== '-' ? rawDesignArg : null
 const outDir = path.resolve(outArg ?? 'sheet')
 const source = designArg ? JSON.parse(fs.readFileSync(designArg, 'utf8')) : DEFAULT_CONFIG
 
@@ -598,7 +603,16 @@ fs.writeFileSync(path.join(outDir, 'connector-sections.svg'), `${sectionsSVG()}\
 // =============================================================================
 // THE PAGE — the template filled from `structure` and the drawings above
 // =============================================================================
-function sheetHTML(drawings) {
+/**
+ * Two renderings of one template:
+ *   'artifact'    the page BODY (no doctype) for a claude.ai artifact, which
+ *                 cannot offer downloads, so the files are named, not linked
+ *   'standalone'  a full document for GitHub Pages, served next to `pieces/`,
+ *                 so every STL is a real download link
+ */
+const MODEL_URL = 'https://npuckett.github.io/dc-dev/grid-designer/'
+
+function sheetHTML(drawings, mode) {
   const tpl = fs.readFileSync(new URL('./structure-sheet.template.html', import.meta.url), 'utf8')
   const c = structure.connectors
   const mm = (v) => fmt(v, 1).replace(/\.0$/, '')
@@ -618,9 +632,17 @@ function sheetHTML(drawings) {
     `<tr class="s-total"><td>Printed pieces</td><td></td><td class="n">${printed}</td></tr>`,
   ].join('\n              ')
 
+  const standalone = mode === 'standalone'
   const fileRows = c.pieces
-    .map((p) => `<li>${esc(p.file.replace('pieces/', ''))}<span>${p.kind.replace('-', ' ')} · ${size(p.sizeMm)} mm · print ${p.count}</span></li>`)
+    .map((p) => {
+      const name = esc(p.file.replace('pieces/', ''))
+      const label = standalone ? `<a href="${esc(p.file)}" download>${name}</a>` : name
+      return `<li>${label}<span>${p.kind.replace('-', ' ')} · ${size(p.sizeMm)} mm · print ${p.count}</span></li>`
+    })
     .join('\n            ')
+  const filesNote = standalone
+    ? 'Millimetres, laid flat for printing. The editor\'s <b>Connector pieces</b> button exports the same files.'
+    : 'In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor\'s <b>Connector pieces</b> button exports the same files.'
 
   const hits = structure.obstaclesHit
   const describe = (h) => {
@@ -670,6 +692,8 @@ function sheetHTML(drawings) {
     BOLTS: c.bolts.count,
     BOLT: c.bolts.size,
     KIT_ROWS: kitRows,
+    MODEL_HREF: standalone ? '../' : MODEL_URL,
+    FILES_NOTE: filesNote,
     FILE_ROWS: fileRows,
     CLASH_NOTE: clashNote,
     CLASH_LEGEND: clashLegend,
@@ -683,7 +707,22 @@ function sheetHTML(drawings) {
     if (!(key in values)) throw new Error(`structure-sheet template: no value for {{${key}}}`)
     return String(values[key])
   })
-  return html
+  if (!standalone) return html
+  // A full document for Pages. The artifact host supplies this skeleton itself;
+  // a plain web server does not.
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
+    '</head>',
+    '<body>',
+    html,
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n')
 }
 
 const drawings = {
@@ -691,7 +730,8 @@ const drawings = {
   exploded: fs.readFileSync(path.join(outDir, 'connector-exploded.svg'), 'utf8').trim(),
   sections: fs.readFileSync(path.join(outDir, 'connector-sections.svg'), 'utf8').trim(),
 }
-fs.writeFileSync(path.join(outDir, 'structure-sheet.html'), sheetHTML(drawings))
+fs.writeFileSync(path.join(outDir, 'structure-sheet.html'), sheetHTML(drawings, 'artifact'))
+fs.writeFileSync(path.join(outDir, 'index.html'), sheetHTML(drawings, 'standalone'))
 
 console.log(`structure sheet → ${path.relative(process.cwd(), outDir) || '.'}`)
 console.log(`  design      ${structure.design.name ?? '(unnamed)'} (${structure.design.source})`)

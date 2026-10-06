@@ -69,6 +69,9 @@ h1 { font: 760 clamp(30px, 5vw, 46px)/1.02 var(--display); font-stretch: 80%; le
 .s-sub { margin: 8px 0 0; color: var(--muted); }
 .s-stamp { border-left: 1px solid var(--rule); padding: 22px 28px; display: grid; align-content: center; gap: 4px; font: 400 12px/1.5 var(--mono); color: var(--muted); }
 .s-stamp b { color: var(--ink); font-weight: 500; }
+.s-link { margin-top: 6px; color: var(--accent); font-weight: 600; text-decoration: none; }
+.s-link:hover, .s-link:focus-visible { text-decoration: underline; }
+.s-files a { color: var(--ink); }
 .s-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .s-meta div { padding: 12px 28px 14px; border-right: 1px solid var(--rule); min-width: 0; }
 .s-meta div:last-child { border-right: 0; }
@@ -165,6 +168,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         <span>Generated <b>{{DATE}}</b></span>
         <span>Commit <b>{{COMMIT}}</b></span>
         <span>Source <b>{{SOURCE}}</b></span>
+        <a class="s-link" href="{{MODEL_HREF}}">Open the 3D model →</a>
       </div>
     </header>
     <dl class="s-meta">
@@ -249,7 +253,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
           <ul class="s-files">
             {{FILE_ROWS}}
           </ul>
-          <figcaption>In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor's <b>Connector pieces</b> button exports the same files.</figcaption>
+          <figcaption>{{FILES_NOTE}}</figcaption>
         </div>
       </div>
     </div>

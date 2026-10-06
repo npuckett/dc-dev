@@ -1,3 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
 <title>Drop Ceiling V2 Structure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -168,7 +175,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         <span>Generated <b>2026-10-06</b></span>
         <span>Commit <b>1fe970c</b></span>
         <span>Source <b>built-in default</b></span>
-        <a class="s-link" href="https://npuckett.github.io/dc-dev/grid-designer/">Open the 3D model →</a>
+        <a class="s-link" href="../">Open the 3D model →</a>
       </div>
     </header>
     <dl class="s-meta">
@@ -609,11 +616,11 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         <div>
           <h3>Printable pieces</h3>
           <ul class="s-files">
-            <li>P00_back-half_concave-30deg.stl<span>back half · 73.4 × 100 × 11 mm · print 44</span></li>
-            <li>P01_back-half_convex+30deg.stl<span>back half · 59.4 × 100 × 18.2 mm · print 44</span></li>
-            <li>B00_front-bar_40mm.stl<span>front bar · 40 × 100 × 4 mm · print 88</span></li>
+            <li><a href="pieces/P00_back-half_concave-30deg.stl" download>P00_back-half_concave-30deg.stl</a><span>back half · 73.4 × 100 × 11 mm · print 44</span></li>
+            <li><a href="pieces/P01_back-half_convex+30deg.stl" download>P01_back-half_convex+30deg.stl</a><span>back half · 59.4 × 100 × 18.2 mm · print 44</span></li>
+            <li><a href="pieces/B00_front-bar_40mm.stl" download>B00_front-bar_40mm.stl</a><span>front bar · 40 × 100 × 4 mm · print 88</span></li>
           </ul>
-          <figcaption>In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor's <b>Connector pieces</b> button exports the same files.</figcaption>
+          <figcaption>Millimetres, laid flat for printing. The editor's <b>Connector pieces</b> button exports the same files.</figcaption>
         </div>
       </div>
     </div>
@@ -677,3 +684,6 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
 
   <footer>Every number and drawing on this sheet is computed by <code>scripts/structure-sheet.mjs</code> from the design file, using the same geometry code as the editor. To refresh it for another design, export its JSON from the editor and run <code>node scripts/structure-sheet.mjs design.json</code>.</footer>
 </main>
+
+</body>
+</html>

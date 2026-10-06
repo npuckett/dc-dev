@@ -1,0 +1,31 @@
+# grid-designer — redeploy GitHub Pages when the planning tool changes.
+#
+# Lives on v3-drift-tiling, where grid-designer is developed. It does not deploy
+# anything itself: the github-pages environment only accepts deploys from main,
+# and Pages serves one bundle for the whole site, which static.yml on main
+# assembles (viewer + reports from main, grid-designer from this branch). So
+# this just asks static.yml to run, on main.
+#
+# GITHUB_TOKEN may start a workflow_dispatch run — that is the one kind of event
+# it is allowed to trigger — so no personal token is needed.
+name: Redeploy grid-designer to Pages
+
+on:
+  push:
+    branches: ["v3-drift-tiling"]
+    paths:
+      - 'grid-designer/**'
+      - '.github/workflows/grid-designer-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the Pages deploy on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run static.yml --repo "${{ github.repository }}" --ref main
