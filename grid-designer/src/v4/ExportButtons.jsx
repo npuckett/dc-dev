@@ -22,7 +22,8 @@
  *   JSON      the config — the single source of truth; re-import restores the
  *             design exactly.
  *   STL       one of each unique connector type, in MILLIMETRES, oriented for
- *             printing. What goes to the slicer.
+ *             printing. What goes to the slicer. "Connector pieces" is the same
+ *             thing split one file per piece type (back halves, front bars).
  *   manifest  how many of each to run, and what each is forced to absorb by not
  *             getting its own exact geometry. What goes with the STL — the STL
  *             alone cannot say that P00 is needed sixteen times.
@@ -30,7 +31,7 @@
 
 import useStoreV4, { getDerived } from './store.js'
 import { downloadBlob, downloadText, exportConfigJSON, timestamp } from '../utils/exporters.js'
-import { exportConnectorPlateSTL, exportConnectorManifest } from '../utils/connectorExport.js'
+import { exportConnectorPlateSTL, exportConnectorPiecesSTL, exportConnectorManifest } from '../utils/connectorExport.js'
 import { getConnectorKit } from './exportAdapter.js'
 import { objMtlPairV4 } from './objExport.js'
 import { glbPayloadV4 } from './glbExport.js'
@@ -128,6 +129,19 @@ export default function ExportButtons() {
         onClick={() => exportConnectorPlateSTL(reportShape)}
       >
         Connector STL
+      </button>
+      <button
+        type="button"
+        className="preset-btn"
+        data-testid="export-connector-pieces"
+        title={
+          `the connector as separate pieces, one .stl each: ${summary.backHalfTypes} back-half ` +
+          `type(s) and ${summary.frontBarTypes} front-bar type(s), in millimetres, oriented for printing. ` +
+          'Bolt holes are not modelled yet'
+        }
+        onClick={() => exportConnectorPiecesSTL(reportShape)}
+      >
+        Connector pieces
       </button>
       <button
         type="button"

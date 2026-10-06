@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1131 314" class="sections" role="img" aria-label="Assembled sections of each back-half type">
+<style>
+.plan-ground{fill:var(--sheet-ground,#f3f1ec)}
+.hatch{stroke:var(--sheet-faint,#b9b4aa);stroke-width:1.2}
+.ctx-wall{fill:url(#plan-hatch);stroke:var(--sheet-faint,#b9b4aa)}
+.ctx-solid{fill:var(--sheet-ctx,#d9d5cc);stroke:var(--sheet-faint,#b9b4aa)}
+.ctx-column{fill:var(--sheet-ctx,#d9d5cc);stroke:var(--sheet-warn,#b4562f);stroke-width:1.5;stroke-dasharray:4 3}
+.ctx-zone{fill:none;stroke:var(--sheet-faint,#b9b4aa);stroke-dasharray:3 3}
+.ctx-glass{fill:var(--sheet-glass,#b9d3dc)}
+.ctx-label{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-warn,#b4562f)}
+.panel{stroke:#5d574d;stroke-width:0.8;stroke-linejoin:round}
+.panel-hit{stroke:var(--sheet-warn,#b4562f);stroke-width:2}
+.clash{fill:var(--sheet-warn,#b4562f);fill-opacity:.14;stroke:var(--sheet-warn,#b4562f);stroke-width:1.6;stroke-dasharray:5 3}
+.spot{font:500 10px var(--sheet-mono,ui-monospace,monospace);fill:#5d574d;text-anchor:middle}
+.station{stroke:var(--sheet-accent,#c2531c);stroke-width:3.2;stroke-linecap:butt}
+.origin circle{fill:var(--sheet-ink,#24211c)}
+.origin text,.dim text{font:500 11px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.dim line{stroke:var(--sheet-ink,#24211c);stroke-width:1}
+.edge-label{font:600 10px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.18em;fill:var(--sheet-muted,#6f695f)}
+.exploded polygon,.sections polygon{stroke-width:.7;stroke-linejoin:round}
+.axis{stroke:var(--sheet-muted,#6f695f);stroke-width:1;stroke-dasharray:6 3 1.5 3}
+.leader{fill:none;stroke:var(--sheet-muted,#6f695f);stroke-width:.9}
+.leader-dot{fill:var(--sheet-ink,#24211c)}
+.callout-title,.sec-title{font:600 13px var(--sheet-sans,system-ui,sans-serif);fill:var(--sheet-ink,#24211c)}
+.callout-sub,.sec-sub{font:400 12px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-muted,#6f695f)}
+.sec-panel{fill:var(--sheet-ctx,#d9d5cc);stroke:var(--sheet-faint,#9c968b)}
+.sec-back{fill:#4680b0;stroke:#284a66}
+.sec-bar{fill:#de7840;stroke:#7a3d1c}
+.scale line{stroke:var(--sheet-ink,#24211c);stroke-width:2}
+.scale text{font:500 15px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.sections .sec-title{font-size:21px}
+.sections .sec-sub{font-size:17px}
+</style>
+<g class="section">
+<polygon points="15.00,145.73 60.98,158.05 138.82,80.35 238.23,103.46 247.91,67.34 199.52,50.85 196.33,62.78 47.89,23.00" class="sec-panel"/>
+<polygon points="517.69,23.00 369.24,62.78 366.05,50.85 317.67,67.34 327.34,103.46 426.75,80.35 504.59,158.05 550.57,145.73" class="sec-panel"/>
+<polygon points="158.04,121.89 407.53,121.89 407.53,87.43 325.54,106.59 319.60,84.42 245.97,84.42 240.03,106.59 158.04,87.43" class="sec-back"/>
+<polygon points="214.79,61.50 350.79,61.50 350.79,47.90 214.79,47.90" class="sec-bar"/>
+<line x1="282.8" y1="33.5" x2="282.8" y2="133.8" class="axis"/>
+<text x="282.8" y="270.4" class="sec-title" text-anchor="middle">P00 · concave −30°</text>
+<text x="282.8" y="294.4" class="sec-sub" text-anchor="middle">44 off · 20 mm gap</text>
+</g>
+<g class="section">
+<polygon points="652.73,251.68 698.71,239.36 727.27,133.15 824.92,103.46 815.24,67.34 765.09,77.25 768.29,89.17 619.84,128.95" class="sec-panel"/>
+<polygon points="1076.87,128.95 928.42,89.17 931.62,77.25 881.48,67.34 871.80,103.46 969.44,133.15 998.00,239.36 1043.98,251.68" class="sec-panel"/>
+<polygon points="747.46,144.97 949.25,144.97 949.25,129.67 868.67,105.27 874.61,83.10 822.10,83.10 828.04,105.27 747.46,129.67" class="sec-back"/>
+<polygon points="780.36,61.50 916.36,61.50 916.36,47.90 780.36,47.90" class="sec-bar"/>
+<line x1="848.4" y1="33.5" x2="848.4" y2="156.9" class="axis"/>
+<text x="848.4" y="270.4" class="sec-title" text-anchor="middle">P01 · convex +30°</text>
+<text x="848.4" y="294.4" class="sec-sub" text-anchor="middle">44 off · 20 mm gap</text>
+</g>
+<g class="scale"><line x1="8" y1="306.4" x2="42.0" y2="306.4"/><text x="25.0" y="298.4" text-anchor="middle">10 mm</text></g>
+</svg>

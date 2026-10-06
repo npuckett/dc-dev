@@ -17,6 +17,7 @@
 import * as THREE from 'three'
 import {
   buildConnectorPlate,
+  connectorPieces,
   stlPayload,
   connectorManifest,
   partStation,
@@ -295,6 +296,52 @@ console.log('6. preset sweep')
     ok(m.parts.reduce((n, p) => n + p.quantity, 0) === R.connectors.summary.count,
       `${id}: manifest quantities are complete`)
   }
+}
+
+// -----------------------------------------------------------------------------
+// 7. The connector as separate pieces (v4 default design).
+//    Each piece file must be exactly its copy on the plate, moved to the origin:
+//    same triangle count, same size, same signed volume. A piece that drifted
+//    from the plate would mean two exports of one part disagree.
+// -----------------------------------------------------------------------------
+console.log('7. connector pieces')
+{
+  const S = await import('../src/core/v4/schema.js')
+  const L = await import('../src/core/v4/lattice.js')
+  const K = await import('../src/core/v4/connectors.js')
+  const { getConnectorKit } = await import('../src/v4/exportAdapter.js')
+  const cfg = S.normalizeConfig(S.DEFAULT_CONFIG)
+  const lat = L.solveLattice(cfg)
+  const v4kit = getConnectorKit(cfg, lat, K.solveConnectorsV4(cfg, lat))
+
+  const pieces = connectorPieces(v4kit.kit, v4kit.bars)
+  ok(pieces.length === v4kit.kit.length + v4kit.bars.length,
+    `one file per piece type (${pieces.length} = ${v4kit.kit.length} back halves + ${v4kit.bars.length} bars)`)
+  ok(new Set(pieces.map((p) => p.filename)).size === pieces.length, 'piece filenames are unique')
+  ok(pieces.filter((p) => p.kind === 'back-half').length === v4kit.kit.length, 'every back-half type is a piece')
+  ok(pieces.filter((p) => p.kind === 'front-bar').length === v4kit.bars.length, 'every bar type is a piece')
+
+  const plate = buildConnectorPlate(v4kit.kit, v4kit.bars)
+  const plateTris = readSTL(stlPayload(plate)).tris
+  const plateVol = signedVolume(plateTris)
+  let sumVol = 0
+  let sumTris = 0
+  for (const piece of pieces) {
+    const parsed = readSTL(stlPayload(piece.mesh))
+    const vol = signedVolume(parsed.tris)
+    sumVol += vol
+    sumTris += parsed.count
+    ok(vol > 0, `${piece.filename}: not mirrored (volume ${vol.toFixed(1)} mm³)`)
+    const onPlate = plate.parts.find((p) => p.partId === piece.partId)
+    ok(onPlate && piece.sizeMm.every((v, k) => Math.abs(v - onPlate.sizeMm[k]) < 1e-6),
+      `${piece.filename}: same size as its copy on the plate (${piece.sizeMm.join(' × ')} mm)`)
+    const zs = parsed.tris.flatMap((t) => t.v.map((v) => v[2]))
+    near(Math.min(...zs), 0, 1e-4, `${piece.filename}: seated on the bed`)
+  }
+  ok(sumTris === plateTris.length, `pieces carry exactly the plate's triangles (${sumTris})`)
+  near(sumVol, plateVol, 1e-2, 'pieces carry exactly the plate\'s volume')
+  const bar = pieces.find((p) => p.kind === 'front-bar')
+  near(bar.sizeMm[1], v4kit.kit[0].lengthCm * MM_PER_CM, 1e-4, 'the bar is as long as the back half it pairs with')
 }
 
 console.log(`\ntest-v3-connector-export: ${passed} checks passed, ${failed} failed`)

@@ -1,0 +1,263 @@
+<title>Drop Ceiling V2 Structure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a drawing sheet. Title block, three headline figures, the plan beside its schedule, then the connector detail. */
+:root {
+  --paper: #f3f5f4;
+  --sheet: #ffffff;
+  --ink: #1b2124;
+  --muted: #5c676c;
+  --rule: #d3d9da;
+  --faint: #a9b2b4;
+  --accent: #cf5a22;   /* connector orange: the front bar, the station ticks */
+  --back: #3d78a8;     /* the back half */
+  --warn: #b03f22;
+  --warn-bg: #fbeee8;
+  --info-bg: #edf2f4;
+  --ground: #eef1f0;
+  --ctx: #d7dcdc;
+  --glass: #b7d0d9;
+  --display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* the drawings read these, with their own fallbacks when opened alone */
+  --sheet-ink: var(--ink);
+  --sheet-muted: var(--muted);
+  --sheet-faint: var(--faint);
+  --sheet-ground: var(--ground);
+  --sheet-ctx: var(--ctx);
+  --sheet-glass: var(--glass);
+  --sheet-warn: var(--warn);
+  --sheet-accent: var(--accent);
+  --sheet-mono: var(--mono);
+  --sheet-sans: var(--display);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111517; --sheet: #181d20; --ink: #e4e9eb; --muted: #9aa6ab; --rule: #2c3438; --faint: #4f5a5f;
+    --accent: #ec7a3f; --back: #6aa3d1; --warn: #f0886a; --warn-bg: #2e1d18; --info-bg: #1c2428;
+    --ground: #1f2528; --ctx: #384146; --glass: #3c5964;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111517; --sheet: #181d20; --ink: #e4e9eb; --muted: #9aa6ab; --rule: #2c3438; --faint: #4f5a5f;
+  --accent: #ec7a3f; --back: #6aa3d1; --warn: #f0886a; --warn-bg: #2e1d18; --info-bg: #1c2428;
+  --ground: #1f2528; --ctx: #384146; --glass: #3c5964;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 15px/1.55 var(--display);
+  padding-block: 32px 56px;
+  padding-inline: 16px;
+}
+.s-page { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
+.s-page > * { min-width: 0; } /* grid items default to min-content: the scrolling diagrams would widen the page */
+.s-sheet { background: var(--sheet); border: 1px solid var(--rule); }
+
+/* --- title block ----------------------------------------------------------- */
+.s-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-bottom: 1px solid var(--rule); }
+.s-name { padding: 26px 28px 22px; min-width: 0; }
+.s-eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+h1 { font: 760 clamp(30px, 5vw, 46px)/1.02 var(--display); font-stretch: 80%; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+.s-sub { margin: 8px 0 0; color: var(--muted); }
+.s-stamp { border-left: 1px solid var(--rule); padding: 22px 28px; display: grid; align-content: center; gap: 4px; font: 400 12px/1.5 var(--mono); color: var(--muted); }
+.s-stamp b { color: var(--ink); font-weight: 500; }
+.s-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.s-meta div { padding: 12px 28px 14px; border-right: 1px solid var(--rule); min-width: 0; }
+.s-meta div:last-child { border-right: 0; }
+.s-meta dt { font: 500 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.s-meta dd { margin: 0; font: 500 14px/1.35 var(--mono); font-variant-numeric: tabular-nums; }
+
+/* --- headline figures ------------------------------------------------------ */
+.s-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.s-fig { padding: 24px 28px 26px; border-right: 1px solid var(--rule); min-width: 0; }
+.s-fig:last-child { border-right: 0; }
+.s-fig h2 { font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+.s-num { font: 780 clamp(56px, 9vw, 92px)/.9 var(--display); font-stretch: 75%; letter-spacing: -.02em; font-variant-numeric: tabular-nums; display: flex; align-items: flex-start; gap: 2px; }
+.s-num small { font-size: .42em; font-weight: 600; margin-top: .12em; color: var(--muted); }
+.s-fig p { margin: 12px 0 0; font: 400 13px/1.5 var(--mono); color: var(--muted); }
+.s-fig p b { color: var(--ink); font-weight: 600; }
+.s-fig--conn .s-num { color: var(--accent); }
+
+/* --- sections -------------------------------------------------------------- */
+.s-section-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 20px 28px 0; }
+.s-section-head h2 { font: 720 24px/1.1 var(--display); font-stretch: 85%; margin: 0; }
+.s-section-head span { font: 400 12px/1.4 var(--mono); color: var(--muted); }
+.s-intro { padding: 8px 28px 0; margin: 0; max-width: 72ch; color: var(--muted); }
+
+.s-plan { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 0; margin-top: 18px; border-top: 1px solid var(--rule); }
+.s-plan figure { margin: 0; padding: 20px 24px 22px 28px; border-right: 1px solid var(--rule); min-width: 0; }
+.s-plan figure svg { width: 100%; height: auto; display: block; }
+.s-schedule { padding: 20px 28px 26px 24px; display: grid; gap: 24px; align-content: start; min-width: 0; }
+
+figcaption, .s-legend { font: 400 12px/1.5 var(--mono); color: var(--muted); margin-top: 12px; }
+.s-legend { display: grid; gap: 6px; }
+.s-key { display: inline-block; width: 18px; height: 10px; vertical-align: -1px; margin-right: 8px; border: 1px solid var(--faint); }
+.s-key--tick { height: 0; border: 0; border-top: 3px solid var(--accent); vertical-align: 3px; }
+.s-key--clash { border: 1.5px dashed var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+h3 { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+table { width: 100%; border-collapse: collapse; font: 400 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+td.n, th.n { text-align: right; padding-right: 0; }
+tr.s-total td { font-weight: 600; border-bottom: 0; border-top: 1.5px solid var(--ink); }
+.s-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 8px; vertical-align: 0; }
+.s-table-wrap { overflow-x: auto; }
+
+/* --- connector ------------------------------------------------------------- */
+.s-conn { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); margin-top: 18px; border-top: 1px solid var(--rule); }
+.s-conn > figure { margin: 0; padding: 20px 24px 22px 28px; border-right: 1px solid var(--rule); min-width: 0; }
+.s-conn-side { padding: 20px 28px 24px 24px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.s-scroll { overflow-x: auto; }
+.s-scroll svg { width: 100%; height: auto; display: block; min-width: 520px; }
+.s-sections { border-top: 1px solid var(--rule); padding: 20px 28px 24px; }
+.s-sections .s-scroll svg { min-width: 560px; max-width: 860px; margin: 0 auto; }
+
+.s-note { border-left: 3px solid var(--faint); background: var(--info-bg); padding: 12px 14px; font-size: 13.5px; line-height: 1.5; }
+.s-note strong { display: block; font: 600 11px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 4px; }
+.s-note--warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.s-note--warn strong { color: var(--warn); }
+.s-note code, .s-files code { font: 400 12px/1.5 var(--mono); }
+.s-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.s-files li { font: 400 12px/1.45 var(--mono); padding: 8px 10px; border: 1px solid var(--rule); overflow-wrap: anywhere; }
+.s-files li span { color: var(--muted); display: block; }
+
+footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; max-width: 90ch; }
+
+/* --- narrow ---------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .s-plan, .s-conn { grid-template-columns: minmax(0, 1fr); }
+  .s-plan figure, .s-conn > figure { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .s-plan figure { max-width: 560px; }
+  .s-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .s-meta div:nth-child(2) { border-right: 0; }
+  .s-meta div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); }
+}
+@media (max-width: 640px) {
+  body { padding-block: 16px 40px; }
+  .s-head { grid-template-columns: minmax(0, 1fr); }
+  .s-stamp { border-left: 0; border-top: 1px solid var(--rule); padding: 14px 20px; }
+  .s-name, .s-meta div, .s-fig, .s-section-head, .s-intro { padding-left: 20px; padding-right: 20px; }
+  .s-figures { grid-template-columns: minmax(0, 1fr); }
+  .s-fig { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .s-fig:last-child { border-bottom: 0; }
+  .s-plan figure, .s-conn > figure, .s-schedule, .s-conn-side, .s-sections { padding-left: 20px; padding-right: 20px; }
+}
+</style>
+
+<main class="s-page">
+  <section class="s-sheet" aria-labelledby="title">
+    <header class="s-head">
+      <div class="s-name">
+        <p class="s-eyebrow">Drop Ceiling V2 · folded panel network</p>
+        <h1 id="title">Structure summary</h1>
+        <p class="s-sub">{{DESIGN_LINE}}</p>
+      </div>
+      <div class="s-stamp">
+        <span>Generated <b>{{DATE}}</b></span>
+        <span>Commit <b>{{COMMIT}}</b></span>
+        <span>Source <b>{{SOURCE}}</b></span>
+      </div>
+    </header>
+    <dl class="s-meta">
+      <div><dt>Pattern</dt><dd>{{PATTERN}}</dd></div>
+      <div><dt>Footprint</dt><dd>{{FOOTPRINT}}</dd></div>
+      <div><dt>Height</dt><dd>{{HEIGHT}}</dd></div>
+      <div><dt>Panel gap</dt><dd>{{GAP}}</dd></div>
+    </dl>
+  </section>
+
+  <section class="s-sheet s-figures" aria-label="Headline figures">
+    <div class="s-fig">
+      <h2>Panels</h2>
+      <div class="s-num">{{PANELS}}</div>
+      <p><b>{{INCLINED}}</b> inclined · <b>{{FLAT}}</b> flat<br>60 × 60 cm each</p>
+    </div>
+    <div class="s-fig">
+      <h2>Incline angle</h2>
+      <div class="s-num">{{ANGLE}}<small>°</small></div>
+      <p>shared by every inclined panel<br>connector limit <b>{{MAX_ANGLE}}°</b></p>
+    </div>
+    <div class="s-fig s-fig--conn">
+      <h2>Connectors</h2>
+      <div class="s-num">{{STATIONS}}</div>
+      <p><b>{{PER_JOINT}}</b> per joint · <b>{{JOINTS}}</b> joints<br>{{PIECES_TOTAL}} printed pieces · {{BOLTS}} bolts</p>
+    </div>
+  </section>
+
+  <section class="s-sheet" aria-labelledby="plan-title">
+    <div class="s-section-head"><h2 id="plan-title">Plan</h2><span>from above · window at the bottom, wall on the right</span></div>
+    <div class="s-plan">
+      <figure>
+        {{PLAN_SVG}}
+        <div class="s-legend">
+          <span><i class="s-key" style="background:#ece6da"></i>panel lit face, shaded by which way it faces</span>
+          <span><i class="s-key s-key--tick"></i>connector, along its joint</span>
+          <span>+35 &nbsp;top of a raised flat panel, cm</span>
+          {{CLASH_LEGEND}}
+        </div>
+      </figure>
+      <div class="s-schedule">
+        <div>
+          <h3>Panels</h3>
+          <div class="s-table-wrap"><table>
+            <thead><tr><th>Type</th><th>Lies</th><th class="n">Qty</th></tr></thead>
+            <tbody>
+              <tr><td>Ground</td><td>flat, on the floor</td><td class="n">{{GROUND}}</td></tr>
+              <tr><td>Raised</td><td>flat, top at +{{HIGH_Y}} cm</td><td class="n">{{HIGH}}</td></tr>
+              <tr><td>Rise</td><td>inclined {{ANGLE}}°</td><td class="n">{{RISE}}</td></tr>
+              <tr><td>Fall</td><td>inclined {{ANGLE}}°</td><td class="n">{{FALL}}</td></tr>
+              <tr class="s-total"><td>Total</td><td></td><td class="n">{{PANELS}}</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+        <div>
+          <h3>Connector kit</h3>
+          <div class="s-table-wrap"><table>
+            <thead><tr><th>Piece</th><th>Size, mm</th><th class="n">Qty</th></tr></thead>
+            <tbody>
+              {{KIT_ROWS}}
+            </tbody>
+          </table></div>
+        </div>
+        {{CLASH_NOTE}}
+      </div>
+    </div>
+  </section>
+
+  <section class="s-sheet" aria-labelledby="conn-title">
+    <div class="s-section-head"><h2 id="conn-title">Connector</h2><span>two printed pieces per joint station</span></div>
+    <p class="s-intro">The back half reaches under both panel flanges. The front bar lies across both bezels. Three {{BOLT}} bolts pull the two together through heat-set inserts, clamping the panel rims between them.</p>
+    <div class="s-conn">
+      <figure>
+        <div class="s-scroll">{{EXPLODED_SVG}}</div>
+        <figcaption>Exploded along the bolt axis. Shown: {{SHOWN_PART}}. Bolt positions are indicative.</figcaption>
+      </figure>
+      <div class="s-conn-side">
+        {{FOUL_NOTE}}
+        <div class="s-note"><strong>Holes not modelled</strong>The printable parts are solid. Bolt clearance holes and insert bores still need to be cut, and the three bolt positions along the part are not fixed yet.</div>
+        <div>
+          <h3>Printable pieces</h3>
+          <ul class="s-files">
+            {{FILE_ROWS}}
+          </ul>
+          <figcaption>In <code>grid-designer/sheet/pieces/</code>, millimetres, laid flat for printing. The editor's <b>Connector pieces</b> button exports the same files.</figcaption>
+        </div>
+      </div>
+    </div>
+    <div class="s-sections">
+      <h3>Assembled, looking along the joint</h3>
+      <div class="s-scroll">{{SECTIONS_SVG}}</div>
+    </div>
+  </section>
+
+  <footer>Every number and drawing on this sheet is computed by <code>scripts/structure-sheet.mjs</code> from the design file, using the same geometry code as the editor. To refresh it for another design, export its JSON from the editor and run <code>node scripts/structure-sheet.mjs design.json</code>.</footer>
+</main>

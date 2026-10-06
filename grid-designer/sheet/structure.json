@@ -1,0 +1,122 @@
+{
+  "design": {
+    "name": "fold study 1",
+    "source": "built-in default",
+    "pattern": "trapezoid",
+    "cells": "3 × 5",
+    "commit": "47387eb"
+  },
+  "panels": {
+    "total": 37,
+    "inclined": 22,
+    "flat": 15,
+    "byRole": {
+      "ground": 8,
+      "high": 7,
+      "rise": 11,
+      "fall": 11
+    },
+    "sizeCm": [
+      60,
+      60
+    ]
+  },
+  "angleDeg": 30,
+  "gapCm": 2,
+  "boundsCm": {
+    "x": 291.7,
+    "y": 35.1,
+    "z": 523.3
+  },
+  "connectors": {
+    "stations": 88,
+    "joints": 44,
+    "perJoint": 2,
+    "backHalves": [
+      {
+        "id": "P00",
+        "count": 44,
+        "foldDeg": -30,
+        "sense": "concave"
+      },
+      {
+        "id": "P01",
+        "count": 44,
+        "foldDeg": 30,
+        "sense": "convex"
+      }
+    ],
+    "frontBars": [
+      {
+        "id": "B00",
+        "count": 88,
+        "widthMm": 40
+      }
+    ],
+    "bolts": {
+      "count": 264,
+      "size": "M3",
+      "lengthMm": 12
+    },
+    "inserts": {
+      "count": 264,
+      "size": "M3"
+    },
+    "lengthMm": 100,
+    "pieces": [
+      {
+        "id": "P00",
+        "kind": "back-half",
+        "file": "pieces/P00_back-half_concave-30deg.stl",
+        "sizeMm": [
+          73.3784,
+          100,
+          11.02
+        ],
+        "count": 44
+      },
+      {
+        "id": "P01",
+        "kind": "back-half",
+        "file": "pieces/P01_back-half_convex+30deg.stl",
+        "sizeMm": [
+          59.3504,
+          100,
+          18.1985
+        ],
+        "count": 44
+      },
+      {
+        "id": "B00",
+        "kind": "front-bar",
+        "file": "pieces/B00_front-bar_40mm.stl",
+        "sizeMm": [
+          40,
+          100,
+          4
+        ],
+        "count": 88
+      }
+    ]
+  },
+  "envelope": {
+    "maxAngleDeg": 33.6,
+    "frontBarConcaveLimitDeg": 12.4,
+    "frontBarClears": false
+  },
+  "obstaclesHit": [
+    {
+      "id": "column",
+      "panels": [
+        {
+          "id": "Ei2j2z",
+          "depthCm": 17.7
+        },
+        {
+          "id": "Ci2j2",
+          "depthCm": 4.1
+        }
+      ]
+    }
+  ]
+}

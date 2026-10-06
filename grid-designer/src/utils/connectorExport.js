@@ -77,7 +77,7 @@ export function partStation(part) {
  * @param {Array} kit `report.connectors.kit`
  * @returns {{ positions: Float32Array, indices: Uint32Array, parts: Array }}
  */
-export function buildConnectorPlate(kit, bars = []) {
+export function buildConnectorPlate(kit, bars = [], { barLengthCm } = {}) {
   const positions = []
   const indices = []
   const parts = []
@@ -90,7 +90,7 @@ export function buildConnectorPlate(kit, bars = []) {
     ...kit.map((part) => ({ id: part.partId, quantity: part.count, kind: 'back-half',
       geo: () => buildConnectorGeometry(partStation(part)) })),
     ...bars.map((bar) => ({ id: bar.barId, quantity: bar.stationIds?.length ?? bar.count, kind: 'front-bar',
-      geo: () => buildFrontBarGeometry(bar.widthCm, kit[0]?.lengthCm ?? 10) })),
+      geo: () => buildFrontBarGeometry(bar.widthCm, barLengthCm ?? kit[0]?.lengthCm ?? 10) })),
   ]
 
   for (const part of items) {
@@ -295,6 +295,48 @@ export function connectorManifestPayload(config, report, plateParts) {
   return `${JSON.stringify(connectorManifest(config, report, plateParts), null, 2)}\n`
 }
 
+/**
+ * THE CONNECTOR AS ITS PIECES — one STL per piece type, rather than one plate.
+ *
+ * A station is two printed pieces: a BACK HALF (one type per fold bin) and a
+ * FRONT BAR (one type per width). The plate above puts one of each on a single
+ * bed; this splits them into separate files so each piece can be opened,
+ * checked and printed on its own. Same print orientation, same millimetres —
+ * each file is literally the plate builder run on a single item, so a piece can
+ * never differ from its copy on the plate.
+ *
+ * Bolt holes and insert bores are NOT modelled, here or on the plate: the parts
+ * are solid. That is a known gap in the geometry, not something this export
+ * drops.
+ *
+ * @param {Array} kit `report.connectors.kit` — the back-half types
+ * @param {Array} bars `report.connectors.bars` — the front-bar types
+ * @returns {Array<{ partId, kind, quantity, filename, sizeMm, mesh }>}
+ */
+export function connectorPieces(kit, bars = []) {
+  const barLengthCm = kit[0]?.lengthCm
+  const pieces = []
+  for (const part of kit) {
+    const plate = buildConnectorPlate([part], [])
+    const sense = part.foldDeg > 0 ? 'convex' : part.foldDeg < 0 ? 'concave' : 'flat'
+    const fold = `${part.foldDeg > 0 ? '+' : ''}${part.foldDeg}deg`
+    pieces.push({
+      ...plate.parts[0],
+      filename: `${part.partId}_back-half_${sense}${fold}.stl`,
+      mesh: plate,
+    })
+  }
+  for (const bar of bars) {
+    const plate = buildConnectorPlate([], [bar], { barLengthCm })
+    pieces.push({
+      ...plate.parts[0],
+      filename: `${bar.barId}_front-bar_${Math.round(bar.widthCm * MM_PER_CM)}mm.stl`,
+      mesh: plate,
+    })
+  }
+  return pieces
+}
+
 // -----------------------------------------------------------------------------
 // Browser: downloads
 // -----------------------------------------------------------------------------
@@ -303,6 +345,18 @@ export function exportConnectorPlateSTL(report, filename = `connectors_${timesta
   const plate = buildConnectorPlate(report.connectors.kit, report.connectors.bars)
   downloadBlob(new Blob([stlPayload(plate)], { type: 'model/stl' }), filename)
   return filename
+}
+
+/** Download each connector piece type as its own STL — see `connectorPieces`. */
+export function exportConnectorPiecesSTL(report, prefix = `connector_${timestamp()}`) {
+  const pieces = connectorPieces(report.connectors.kit, report.connectors.bars)
+  for (const piece of pieces) {
+    downloadBlob(
+      new Blob([stlPayload(piece.mesh, `grid-designer ${piece.partId} ${piece.kind} (mm)`)], { type: 'model/stl' }),
+      `${prefix}_${piece.filename}`,
+    )
+  }
+  return pieces.map((p) => `${prefix}_${p.filename}`)
 }
 
 /** Download the manifest that says how many of each to run. */
