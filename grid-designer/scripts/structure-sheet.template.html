@@ -115,6 +115,12 @@ tr.s-total td { font-weight: 600; border-bottom: 0; border-top: 1.5px solid var(
 .s-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 8px; vertical-align: 0; }
 .s-table-wrap { overflow-x: auto; }
 
+/* --- axonometric ------------------------------------------------------------ */
+.s-axo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; border-top: 1px solid var(--rule); }
+.s-axo figure { margin: 0; padding: 20px 28px 22px; min-width: 0; }
+.s-axo figure + figure { border-left: 1px solid var(--rule); }
+.s-axo svg { width: 100%; height: auto; display: block; }
+
 /* --- connector ------------------------------------------------------------- */
 .s-conn { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); margin-top: 18px; border-top: 1px solid var(--rule); }
 .s-conn > figure { margin: 0; padding: 20px 24px 22px 28px; border-right: 1px solid var(--rule); min-width: 0; }
@@ -152,7 +158,8 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
 
 /* --- narrow ---------------------------------------------------------------- */
 @media (max-width: 900px) {
-  .s-plan, .s-conn { grid-template-columns: minmax(0, 1fr); }
+  .s-plan, .s-conn, .s-axo { grid-template-columns: minmax(0, 1fr); }
+  .s-axo figure + figure { border-left: 0; border-top: 1px solid var(--rule); }
   .s-plan figure, .s-conn > figure { border-right: 0; border-bottom: 1px solid var(--rule); }
   .s-plan figure { max-width: 560px; }
   .s-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -167,7 +174,7 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
   .s-figures { grid-template-columns: minmax(0, 1fr); }
   .s-fig { border-right: 0; border-bottom: 1px solid var(--rule); }
   .s-fig:last-child { border-bottom: 0; }
-  .s-plan figure, .s-conn > figure, .s-schedule, .s-conn-side, .s-sections { padding-left: 20px; padding-right: 20px; }
+  .s-plan figure, .s-conn > figure, .s-schedule, .s-conn-side, .s-sections, .s-axo figure { padding-left: 20px; padding-right: 20px; }
 }
 </style>
 
@@ -250,6 +257,14 @@ footer { font: 400 12px/1.6 var(--mono); color: var(--muted); padding: 0 4px; ma
         </div>
         {{CLASH_NOTE}}
       </div>
+    </div>
+  </section>
+
+  <section class="s-sheet" aria-labelledby="axo-title">
+    <div class="s-section-head"><h2 id="axo-title">Axonometric</h2><span>parallel projection · panels drawn as their boxes</span></div>
+    <div class="s-axo">
+      <figure>{{AXO_WINDOW_SVG}}<figcaption>From the window side, wall on the right.</figcaption></figure>
+      <figure>{{AXO_ROOM_SVG}}<figcaption>From the room, wall on the left.</figcaption></figure>
     </div>
   </section>
 

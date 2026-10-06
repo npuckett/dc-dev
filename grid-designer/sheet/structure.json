@@ -4,7 +4,7 @@
     "source": "design/current.json",
     "pattern": "trapezoid",
     "cells": "5 × 4",
-    "commit": "80d5c5f"
+    "commit": "179c991"
   },
   "panels": {
     "total": 34,

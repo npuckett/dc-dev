@@ -219,6 +219,9 @@ const SVG_STYLE = `<style>
 .sec-bar{fill:#de7840;stroke:#7a3d1c}
 .scale line{stroke:var(--sheet-ink,#24211c);stroke-width:2}
 .scale text{font:500 15px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.v-floor{fill:var(--sheet-ground,#f3f1ec);stroke:var(--sheet-faint,#b9b4aa);stroke-width:1}
+.v-wall{fill:var(--sheet-ctx,#d9d5cc);fill-opacity:.55;stroke:var(--sheet-faint,#b9b4aa);stroke-width:1}
+.v-label{font:600 15px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.16em;fill:var(--sheet-muted,#6f695f)}
 .sections .sec-title{font-size:21px}
 .sections .sec-sub{font-size:17px}
 </style>`
@@ -616,6 +619,101 @@ function sectionsSVG() {
 }
 
 // =============================================================================
+// AXONOMETRIC VIEWS — the whole network, panels as their boxes
+// =============================================================================
+// Each panel is drawn as the 60 × 60 × 4.1cm box lattice.js emits as its eight
+// corners: a simple, honest volume for a view. The real housing tapers behind
+// the flange, so near the rim the box overstates the back — fine for seeing
+// the form, not for measuring a clearance (the report does that).
+const LIT_RGB = [238, 233, 222]
+const HOUSING_RGB = [150, 146, 138]
+
+function panelFaces() {
+  const quads = [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]
+  const avg = (vs) => vs.reduce((a, v) => [a[0] + v[0] / vs.length, a[1] + v[1] / vs.length, a[2] + v[2] / vs.length], [0, 0, 0])
+  return present.flatMap((p) => {
+    const centre = avg(p.corners)
+    const lit = p.flipped ? p.normal.map((v) => -v) : p.normal
+    return quads.map((q) => {
+      let poly = q.map((i) => p.corners[i])
+      let n = newell(poly)
+      // a box is convex: every face points away from its centre
+      if (dot3(n, sub3(avg(poly), centre)) < 0) {
+        poly = poly.reverse()
+        n = n.map((v) => -v)
+      }
+      return { poly, n, rgb: dot3(n, lit) > 0.99 ? LIT_RGB : HOUSING_RGB }
+    })
+  })
+}
+
+/** One painter's pass over loose faces, far to near; back faces culled. */
+function paintFaces(faces, cam, light, k = 1) {
+  return faces
+    .filter((f) => dot3(f.n, cam.toward) > 1e-6)
+    .map((f) => ({ ...f, d: f.poly.reduce((a, v) => a + cam.depth(v), 0) / f.poly.length }))
+    .sort((a, b) => a.d - b.d)
+    .map((f) => {
+      const shadeK = 0.55 + 0.45 * Math.max(0, dot3(f.n, light))
+      return `<polygon points="${pts(f.poly.map((v) => cam.project(v).map((c) => c * k)))}" fill="${shade(f.rgb, shadeK)}" stroke="${shade(f.rgb, 0.45)}" stroke-width="${fmt(0.35 * k, 2)}" stroke-linejoin="round"/>`
+    })
+    .join('\n')
+}
+
+const VIEW_LIGHT = norm3([0.45, 1, -0.6])
+
+/**
+ * An axonometric of the whole network: parallel projection, no perspective,
+ * from above one corner of the room.
+ *
+ * @param {number} yawDeg 145 = from the window side, room side to the left
+ *   (the wall lands on the right, as on the plan); 35 = from deep in the room,
+ *   looking back toward the window, wall on the left
+ */
+function axoSVG(yawDeg, label) {
+  const cam = camera(yawDeg, 30, 1)
+  const faces = panelFaces()
+  const margin = 30
+  const fx0 = 0
+  const fx1 = bounds.max[0] + margin
+  const fz0 = Math.min(0, bounds.min[2]) - margin
+  const fz1 = bounds.max[2] + margin
+  const floor = [[fx0, 0, fz0], [fx1, 0, fz0], [fx1, 0, fz1], [fx0, 0, fz1]]
+  const wallH = Math.max(40, bounds.max[1] + 20)
+  const wall = [[0, 0, fz0], [0, 0, fz1], [0, wallH, fz1], [0, wallH, fz0]]
+  const P = (v) => cam.project(v)
+  // The window edge's label goes just OUTSIDE the floor, pushed away from the
+  // floor's centre on screen: below the edge when it faces the viewer, above it
+  // when it is the far edge. Placed on the edge itself, the far-side label sat
+  // on top of the panels.
+  const windowEdge = [P([fx0, 0, fz0]), P([fx1, 0, fz0])]
+  const midWindow = [(windowEdge[0][0] + windowEdge[1][0]) / 2, (windowEdge[0][1] + windowEdge[1][1]) / 2]
+  const floorMid = P([(fx0 + fx1) / 2, 0, (fz0 + fz1) / 2])
+  const away = [midWindow[0] - floorMid[0], midWindow[1] - floorMid[1]]
+  const awayLen = Math.hypot(away[0], away[1]) || 1
+  const windowLabel = [midWindow[0] + (away[0] / awayLen) * 34, midWindow[1] + (away[1] / awayLen) * 34 + 5]
+  const midWall = P([0, wallH * 0.55, (fz0 + fz1) / 2])
+  const all = [...[...faces.flatMap((f) => f.poly), ...floor, ...wall].map(P), [windowLabel[0] - 60, windowLabel[1] - 14], [windowLabel[0] + 60, windowLabel[1] + 4]]
+  const pad = 30
+  const minX = Math.min(...all.map((v) => v[0])) - pad
+  const maxX = Math.max(...all.map((v) => v[0])) + pad
+  const minY = Math.min(...all.map((v) => v[1])) - pad
+  const maxY = Math.max(...all.map((v) => v[1])) + pad
+  const W = maxX - minX
+  const H = maxY - minY
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W, 0)}" height="${fmt(H, 0)}" viewBox="${fmt(minX)} ${fmt(minY)} ${fmt(W)} ${fmt(H)}" class="axo" role="img" aria-label="Axonometric view of the panel network ${esc(label)}">`,
+    SVG_STYLE,
+    `<polygon points="${pts(floor.map(P))}" class="v-floor"/>`,
+    `<polygon points="${pts(wall.map(P))}" class="v-wall"/>`,
+    paintFaces(faces, cam, VIEW_LIGHT),
+    `<text x="${fmt(windowLabel[0])}" y="${fmt(windowLabel[1])}" class="v-label" text-anchor="middle">WINDOW SIDE</text>`,
+    `<text x="${fmt(midWall[0])}" y="${fmt(midWall[1])}" class="v-label" text-anchor="middle">WALL</text>`,
+    '</svg>',
+  ].join('\n')
+}
+
+// =============================================================================
 // WRITE
 // =============================================================================
 fs.mkdirSync(path.join(outDir, 'pieces'), { recursive: true })
@@ -664,6 +762,7 @@ const PRINT_BOX = {
   legendLine: 0.17,
   explodedH: 3.8,
   sectionsH: 1.85,
+  axoH: 3.9, // two to a page
 }
 
 function onPaper(svg, maxW, maxH) {
@@ -796,6 +895,8 @@ function sheetHTML(drawings, mode) {
     PLAN_SVG: mode === 'print' ? onPaper(drawings.plan, PRINT_BOX.planW, PRINT_BOX.planH - legendLines * PRINT_BOX.legendLine) : drawings.plan,
     EXPLODED_SVG: mode === 'print' ? onPaper(drawings.exploded, PRINT_BOX.pageW, PRINT_BOX.explodedH) : drawings.exploded,
     SECTIONS_SVG: mode === 'print' ? onPaper(drawings.sections, PRINT_BOX.pageW, PRINT_BOX.sectionsH) : drawings.sections,
+    AXO_WINDOW_SVG: mode === 'print' ? onPaper(drawings.axoWindow, PRINT_BOX.pageW, PRINT_BOX.axoH) : drawings.axoWindow,
+    AXO_ROOM_SVG: mode === 'print' ? onPaper(drawings.axoRoom, PRINT_BOX.pageW, PRINT_BOX.axoH) : drawings.axoRoom,
   }
   const html = tpl.replace(/\{\{([A-Z_]+)\}\}/g, (m, key) => {
     if (!(key in values)) throw new Error(`structure-sheet template: no value for {{${key}}}`)
@@ -819,10 +920,15 @@ function sheetHTML(drawings, mode) {
   ].join('\n')
 }
 
+fs.writeFileSync(path.join(outDir, 'axo-window-side.svg'), `${axoSVG(145, 'from the window side')}\n`)
+fs.writeFileSync(path.join(outDir, 'axo-room-side.svg'), `${axoSVG(35, 'from the room')}\n`)
+
 const drawings = {
   plan: fs.readFileSync(path.join(outDir, 'plan.svg'), 'utf8').trim(),
   exploded: fs.readFileSync(path.join(outDir, 'connector-exploded.svg'), 'utf8').trim(),
   sections: fs.readFileSync(path.join(outDir, 'connector-sections.svg'), 'utf8').trim(),
+  axoWindow: fs.readFileSync(path.join(outDir, 'axo-window-side.svg'), 'utf8').trim(),
+  axoRoom: fs.readFileSync(path.join(outDir, 'axo-room-side.svg'), 'utf8').trim(),
 }
 fs.writeFileSync(path.join(outDir, 'structure-sheet.html'), sheetHTML(drawings, 'artifact'))
 fs.writeFileSync(path.join(outDir, 'index.html'), sheetHTML(drawings, 'standalone'))

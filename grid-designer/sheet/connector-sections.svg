@@ -28,6 +28,9 @@
 .sec-bar{fill:#de7840;stroke:#7a3d1c}
 .scale line{stroke:var(--sheet-ink,#24211c);stroke-width:2}
 .scale text{font:500 15px var(--sheet-mono,ui-monospace,monospace);fill:var(--sheet-ink,#24211c)}
+.v-floor{fill:var(--sheet-ground,#f3f1ec);stroke:var(--sheet-faint,#b9b4aa);stroke-width:1}
+.v-wall{fill:var(--sheet-ctx,#d9d5cc);fill-opacity:.55;stroke:var(--sheet-faint,#b9b4aa);stroke-width:1}
+.v-label{font:600 15px var(--sheet-mono,ui-monospace,monospace);letter-spacing:.16em;fill:var(--sheet-muted,#6f695f)}
 .sections .sec-title{font-size:21px}
 .sections .sec-sub{font-size:17px}
 </style>
