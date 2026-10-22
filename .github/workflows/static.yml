@@ -80,9 +80,10 @@ jobs:
           node scripts/structure-sheet.mjs - dist/sheet
           # the artifact-body variant has no doctype; Pages serves index.html
           rm -f dist/sheet/structure-sheet.html
-          # the Letter PDF, printed by the runner's Google Chrome. If it cannot
-          # be made (or would clip a page), ship the committed one instead.
-          node scripts/structure-sheet-pdf.mjs dist/sheet || cp sheet/structure-sheet-letter.pdf dist/sheet/
+          # the Letter PDFs (structure sheet, views page), printed by the
+          # runner's Google Chrome. If one cannot be made (or would clip a
+          # page), ship the committed copies instead.
+          node scripts/structure-sheet-pdf.mjs dist/sheet || cp -n sheet/*.pdf dist/sheet/
 
       - name: Assemble site
         run: |

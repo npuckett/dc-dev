@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * grid-designer — print the structure sheet to a US Letter PDF.
+ * grid-designer — print the sheets to US Letter PDFs.
  *
- *   node scripts/structure-sheet-pdf.mjs [sheetDir]
+ *   node scripts/structure-sheet-pdf.mjs [sheetDir] [print | views ...]
  *
- * Renders `print.html` (written by structure-sheet.mjs) to
- * `structure-sheet-letter.pdf` beside it, using Playwright driving the
- * installed Google Chrome (present on GitHub's ubuntu runners too), or
- * Playwright's own Chromium when there is none.
+ * Renders the print documents structure-sheet.mjs writes, each to a PDF beside
+ * it — all of them unless named:
+ *
+ *   print   print.html → structure-sheet-letter.pdf   the 3-page structure sheet
+ *   views   views.html → views-letter.pdf             top view + axonometric
+ *
+ * Uses Playwright driving the installed Google Chrome (present on GitHub's
+ * ubuntu runners too), or Playwright's own Chromium when there is none.
  *
  * REFUSES TO WRITE A PDF THAT CLIPS. The print layout is fixed pages with
  * `overflow: hidden`, so a design with a longer kit or an extra warning could
@@ -19,9 +23,16 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { chromium } from 'playwright'
 
-const sheetDir = path.resolve(process.argv[2] ?? 'sheet')
-const src = path.join(sheetDir, 'print.html')
-const out = path.join(sheetDir, 'structure-sheet-letter.pdf')
+const DOCUMENTS = {
+  print: { src: 'print.html', out: 'structure-sheet-letter.pdf' },
+  views: { src: 'views.html', out: 'views-letter.pdf' },
+}
+const [dirArg, ...names] = process.argv.slice(2)
+const sheetDir = path.resolve(dirArg ?? 'sheet')
+const wanted = names.length ? names : Object.keys(DOCUMENTS)
+for (const n of wanted) {
+  if (!DOCUMENTS[n]) throw new Error(`structure-sheet-pdf: unknown document "${n}" — one of ${Object.keys(DOCUMENTS).join(', ')}`)
+}
 
 let browser
 try {
@@ -31,6 +42,15 @@ try {
 }
 
 try {
+  for (const name of wanted) await renderOne(DOCUMENTS[name])
+} finally {
+  await browser.close()
+}
+
+async function renderOne({ src: srcName, out: outName }) {
+  const src = path.join(sheetDir, srcName)
+  const out = path.join(sheetDir, outName)
+  console.log(srcName)
   const page = await browser.newPage()
   await page.goto(pathToFileURL(src).href, { waitUntil: 'networkidle' })
   await page.evaluate(() => document.fonts.ready)
@@ -73,14 +93,13 @@ try {
       : `  ${p.id}: ${p.spareIn.toFixed(2)}in free above the foot`)
   }
   if (clipped.length) {
-    console.error(`structure-sheet-pdf: ${clipped.map((p) => p.id).join(', ')} overflow the page — no PDF written`)
+    console.error(`structure-sheet-pdf: ${srcName}: ${clipped.map((p) => p.id).join(', ')} overflow the page — no PDF written`)
     process.exitCode = 1
   } else {
     const fonts = pages[0]?.fonts ?? []
     if (!fonts.some((f) => /Archivo/.test(f))) console.warn('  warning: Archivo did not load — the PDF uses the fallback face')
     await page.pdf({ path: out, preferCSSPageSize: true, printBackground: true })
-    console.log(`structure sheet PDF → ${path.relative(process.cwd(), out)}`)
+    console.log(`  PDF → ${path.relative(process.cwd(), out)}`)
   }
-} finally {
-  await browser.close()
+  await page.close()
 }

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drop Ceiling V2 Views (Letter)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/*
+ * One US Letter page: the top view over the axonometric from the window side,
+ * panels in grey on plain white. Same fixed-page rules as the structure sheet
+ * (structure-sheet.print.html): an 8.5 × 11in box with its own 0.5in margin and
+ * @page margin 0, so the screen preview IS the printed page, and
+ * structure-sheet-pdf.mjs refuses to write a PDF whose content runs into the foot.
+ * The drawings arrive with exact inline sizes from the generator (VIEWS_BOX).
+ */
+@page { size: letter; margin: 0; }
+:root { --ink: #1a1a1a; --muted: #6b6b6b; --rule: #d4d4d4; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #ffffff; color: var(--ink); }
+body { font: 400 9pt/1.4 'Archivo', 'Helvetica Neue', Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page {
+  width: 8.5in; height: 11in; padding: 0.5in; background: #ffffff;
+  display: flex; flex-direction: column; gap: 0.2in; overflow: hidden;
+}
+@media screen {
+  body { background: #d9d9d9; padding: 0.3in 0; }
+  .page { margin: 0 auto; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+}
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.3in; padding-bottom: 0.08in; border-bottom: 0.5pt solid var(--rule); }
+h1 { font: 720 14pt/1 'Archivo', 'Helvetica Neue', Arial, sans-serif; font-stretch: 85%; margin: 0; }
+.head span, figcaption, .foot { font: 400 7pt/1.4 'IBM Plex Mono', ui-monospace, Menlo, monospace; color: var(--muted); }
+figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 5pt; }
+figure svg { display: block; flex: none; }
+figcaption { align-self: stretch; text-transform: uppercase; letter-spacing: .12em; }
+.foot { margin-top: auto; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<section class="page" id="views" aria-label="Top view and axonometric">
+  <header class="head">
+    <h1>Drop Ceiling V2</h1>
+    <span>{{DESIGN_LINE}} · {{SUMMARY}}</span>
+  </header>
+
+  <figure>
+    {{TOP_SVG}}
+    <figcaption>Top view · window at the bottom, wall on the right</figcaption>
+  </figure>
+
+  <figure>
+    {{AXO_SVG}}
+    <figcaption>Axonometric · from the window side</figcaption>
+  </figure>
+
+  <footer class="foot"><span>{{DATE}}</span><span>grid-designer</span></footer>
+</section>
+</body>
+</html>

@@ -17,8 +17,11 @@
  *                             no doctype, see the template)
  *   index.html                the same page as a full document, for GitHub
  *                             Pages, with the STLs as download links
- *   print.html                two US Letter pages on white, for printing;
+ *   print.html                three US Letter pages on white, for printing;
  *                             scripts/structure-sheet-pdf.mjs makes the PDF
+ *   views.html                one Letter page: top view over the window-side
+ *   views-top.svg             axonometric, panels in grey on white, and the
+ *   views-axo-window-side.svg two drawings on their own
  *
  * EVERYTHING IS COMPUTED FROM THE SAME CORE THE EDITOR RUNS. The panel corners,
  * station frames, connector profiles and STL meshes all come from
@@ -627,8 +630,10 @@ function sectionsSVG() {
 // the form, not for measuring a clearance (the report does that).
 const LIT_RGB = [238, 233, 222]
 const HOUSING_RGB = [150, 146, 138]
+/** Neutral greys, for the plain views page — no warm tint, no colour at all. */
+const GREY = { lit: [222, 222, 222], housing: [146, 146, 146] }
 
-function panelFaces() {
+function panelFaces({ lit: litRgb = LIT_RGB, housing: housingRgb = HOUSING_RGB } = {}) {
   const quads = [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]
   const avg = (vs) => vs.reduce((a, v) => [a[0] + v[0] / vs.length, a[1] + v[1] / vs.length, a[2] + v[2] / vs.length], [0, 0, 0])
   return present.flatMap((p) => {
@@ -642,7 +647,7 @@ function panelFaces() {
         poly = poly.reverse()
         n = n.map((v) => -v)
       }
-      return { poly, n, rgb: dot3(n, lit) > 0.99 ? LIT_RGB : HOUSING_RGB }
+      return { poly, n, rgb: dot3(n, lit) > 0.99 ? litRgb : housingRgb }
     })
   })
 }
@@ -670,9 +675,10 @@ const VIEW_LIGHT = norm3([0.45, 1, -0.6])
  *   (the wall lands on the right, as on the plan); 35 = from deep in the room,
  *   looking back toward the window, wall on the left
  */
-function axoSVG(yawDeg, label) {
+function axoSVG(yawDeg, label, { plain = false } = {}) {
   const cam = camera(yawDeg, 30, 1)
-  const faces = panelFaces()
+  const faces = panelFaces(plain ? GREY : undefined)
+  if (plain) return plainAxoSVG(cam, faces, label)
   const margin = 30
   const fx0 = 0
   const fx1 = bounds.max[0] + margin
@@ -711,6 +717,62 @@ function axoSVG(yawDeg, label) {
     `<text x="${fmt(midWall[0])}" y="${fmt(midWall[1])}" class="v-label" text-anchor="middle">WALL</text>`,
     '</svg>',
   ].join('\n')
+}
+
+// =============================================================================
+// THE PLAIN VIEWS — panels in grey on white, nothing else
+// =============================================================================
+// For the one-page views sheet: the same geometry as the plan and the
+// axonometric, stripped of floor, wall, connector ticks and labels.
+
+/** An axonometric of the panels alone, framed tight. */
+function plainAxoSVG(cam, faces, label) {
+  const all = faces.flatMap((f) => f.poly).map((v) => cam.project(v))
+  const pad = 12
+  const minX = Math.min(...all.map((v) => v[0])) - pad
+  const minY = Math.min(...all.map((v) => v[1])) - pad
+  const W = Math.max(...all.map((v) => v[0])) + pad - minX
+  const H = Math.max(...all.map((v) => v[1])) + pad - minY
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W, 0)}" height="${fmt(H, 0)}" viewBox="${fmt(minX)} ${fmt(minY)} ${fmt(W)} ${fmt(H)}" class="axo" role="img" aria-label="Axonometric view of the panels ${esc(label)}">`,
+    paintFaces(faces, cam, VIEW_LIGHT),
+    '</svg>',
+  ].join('\n')
+}
+
+/**
+ * The top view: every panel's lit face seen from directly above, lowest first,
+ * in grey shaded by which way it faces — so flats and the two slopes read as
+ * three tones. Window at the bottom, wall on the right, as on the plan. One SVG
+ * unit is one centimetre, which is what lets the scale bar be honest.
+ */
+function topViewSVG() {
+  const margin = 14
+  const scaleBarH = 46
+  const x0 = bounds.min[0] - margin
+  const x1 = bounds.max[0] + margin
+  const z0 = bounds.min[2] - margin
+  const z1 = bounds.max[2] + margin
+  const W = x1 - x0
+  const H = z1 - z0 + scaleBarH
+  const sx = (x) => x1 - x
+  const sy = (z) => z1 - z
+  const light = norm3([0.55, 1.25, 0.7])
+  const base = [226, 226, 226]
+  const out = []
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W, 0)}" height="${fmt(H, 0)}" viewBox="0 0 ${fmt(W)} ${fmt(H)}" class="top-view" role="img" aria-label="Top view of the panels">`)
+  for (const p of [...present].sort((a, b) => a.position[1] - b.position[1])) {
+    const n = p.flipped ? p.normal.map((v) => -v) : p.normal
+    const k = 0.5 + 0.5 * Math.max(0, dot3(n, light))
+    out.push(`<polygon points="${pts(p.corners.slice(0, 4).map((c) => [sx(c[0]), sy(c[2])]))}" fill="${shade(base, k)}" stroke="${shade(base, 0.42)}" stroke-width="0.8" stroke-linejoin="round"/>`)
+  }
+  // a one-metre scale bar, bottom left, in the drawing's own centimetres
+  const by = H - 18
+  const bx = margin
+  out.push(`<g fill="none" stroke="#5a5a5a" stroke-width="1.2"><line x1="${fmt(bx)}" y1="${fmt(by)}" x2="${fmt(bx + 100)}" y2="${fmt(by)}"/>${[0, 50, 100].map((t) => `<line x1="${fmt(bx + t)}" y1="${fmt(by - 5)}" x2="${fmt(bx + t)}" y2="${fmt(by + (t === 50 ? 0 : 5))}"/>`).join('')}</g>`)
+  out.push(`<text x="${fmt(bx + 106)}" y="${fmt(by + 4)}" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="12" fill="#5a5a5a">1 m</text>`)
+  out.push('</svg>')
+  return out.join('\n')
 }
 
 // =============================================================================
@@ -764,6 +826,9 @@ const PRINT_BOX = {
   sectionsH: 1.85,
   axoH: 3.9, // two to a page
 }
+
+/** The views page: two drawings stacked inside the 0.5in margin. */
+const VIEWS_BOX = { w: 7.5, topH: 4.55, axoH: 3.9 }
 
 function onPaper(svg, maxW, maxH) {
   const w = Number(svg.match(/^<svg[^>]*\swidth="([\d.]+)"/)?.[1])
@@ -933,6 +998,28 @@ const drawings = {
 fs.writeFileSync(path.join(outDir, 'structure-sheet.html'), sheetHTML(drawings, 'artifact'))
 fs.writeFileSync(path.join(outDir, 'index.html'), sheetHTML(drawings, 'standalone'))
 fs.writeFileSync(path.join(outDir, 'print.html'), sheetHTML(drawings, 'print'))
+
+// THE VIEWS PAGE — one Letter sheet: the top view over the window-side
+// axonometric, panels in grey on white.
+const plainTop = topViewSVG()
+const plainAxo = axoSVG(145, 'from the window side', { plain: true })
+fs.writeFileSync(path.join(outDir, 'views-top.svg'), `${plainTop}\n`)
+fs.writeFileSync(path.join(outDir, 'views-axo-window-side.svg'), `${plainAxo}\n`)
+{
+  const tpl = fs.readFileSync(new URL('./views-sheet.print.html', import.meta.url), 'utf8')
+  const values = {
+    TOP_SVG: onPaper(plainTop, VIEWS_BOX.w, VIEWS_BOX.topH),
+    AXO_SVG: onPaper(plainAxo, VIEWS_BOX.w, VIEWS_BOX.axoH),
+    DESIGN_LINE: `Design “${esc(structure.design.name ?? 'unnamed')}”`,
+    SUMMARY: `${structure.panels.total} panels · ${structure.angleDeg}° · ${fmt(structure.boundsCm.x)} × ${fmt(structure.boundsCm.z)} cm`,
+    DATE: new Date().toISOString().slice(0, 10),
+  }
+  const html = tpl.replace(/\{\{([A-Z_]+)\}\}/g, (m, key) => {
+    if (!(key in values)) throw new Error(`views template: no value for {{${key}}}`)
+    return String(values[key])
+  })
+  fs.writeFileSync(path.join(outDir, 'views.html'), html)
+}
 
 console.log(`structure sheet → ${path.relative(process.cwd(), outDir) || '.'}`)
 console.log(`  design      ${structure.design.name ?? '(unnamed)'} (${structure.design.source})`)
