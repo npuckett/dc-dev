@@ -399,5 +399,54 @@ console.log('6. env_* groups: opt-in, one mesh per family, every obstacle accoun
     'and each env_ mesh carries a material of its own')
 }
 
+// -----------------------------------------------------------------------------
+// 7. THE STREET-LEVEL BAYS ALONE — to add to a room export made before them
+// -----------------------------------------------------------------------------
+console.log('7. street-bays-only GLB: the new elements, nothing else, no overlap with the old room')
+{
+  const { ENV_GROUPS } = await import('../src/v4/objExport.js')
+  const { streetBayIds } = await import('../src/core/v4/schema.js')
+  const { obstacleExtents } = await import('../src/core/v4/obstacles.js')
+  const gltf = readGLB(await glbPayloadV4(base.cfg, base.chain, base.connectors, { streetBaysOnly: true })).json
+
+  // Four families, renamed apart from the room's so an import beside a room
+  // export does not collide with env_mullions & co., in ENV_GROUPS order.
+  const meshNodes = gltf.nodes.filter((n) => n.mesh !== undefined).map((n) => n.name)
+  const expected = ['env_mullions', 'env_mullion_caps', 'env_sills', 'env_glass']
+    .filter((g) => ENV_GROUPS.includes(g)).map((g) => g.replace('env_', 'env_street_'))
+  ok(meshNodes.join('|') === expected.join('|'), `exactly the four street families (got ${meshNodes.join('|')})`)
+  ok(!gltf.nodes.some((n) => /^diffuser_|^frame$|^connectors$|^camera_/.test(n.name || '')),
+    'no panels, frame, connectors or cameras ride along')
+  const glassMat = gltf.materials.find((m) => m.name === 'env_street_glass')
+  ok(glassMat && glassMat.alphaMode === 'BLEND', 'the glass is shaded as glass (transparent), like env_glass')
+
+  // Its extent is the four bays exactly: mullion 5's far face to mullion 9's,
+  // from the sidewalk sill's underside to the head, caps to mullion depth.
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  for (const mesh of gltf.meshes) {
+    for (const prim of mesh.primitives) {
+      const acc = gltf.accessors[prim.attributes.POSITION]
+      for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], acc.min[i]); hi[i] = Math.max(hi[i], acc.max[i]) }
+    }
+  }
+  const M5_FAR = -81.3 + 129.5 + 152.4 * 3 + 6.35
+  const M9_FAR = M5_FAR + 152.4 * 4
+  const within = (a, b) => Math.abs(a - b) < 1e-3
+  ok(within(lo[0], M5_FAR) && within(hi[0], M9_FAR), `x runs mullion 5 → mullion 9 (${lo[0]} → ${hi[0]})`)
+  ok(within(lo[1], -70) && within(hi[1], 375), `y runs −70 → 375 (${lo[1]} → ${hi[1]})`)
+  ok(within(lo[2], -60.7) && within(hi[2], -40.65), `z runs cap face → mullion depth (${lo[2]} → ${hi[2]})`)
+
+  // DROPS IN WITHOUT OVERLAP: no street element shares volume with anything
+  // the room had before it — they only touch.
+  const ids = new Set(streetBayIds())
+  const street = base.cfg.obstacles.filter((o) => ids.has(o.id)).map(obstacleExtents)
+  const before = base.cfg.obstacles.filter((o) => !ids.has(o.id)).map(obstacleExtents)
+  const overlap = (a, b) => [0, 1, 2].reduce((v, i) => v * Math.max(0, Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i])), 1)
+  let worst = 0
+  for (const a of street) for (const b of before) worst = Math.max(worst, overlap(a, b))
+  ok(street.length === 10 && worst < 1e-9, `no street element overlaps the earlier room (worst ${worst} cm³)`)
+}
+
 console.log(`\ntest-v4-export: ${passed} checks passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

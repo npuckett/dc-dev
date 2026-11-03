@@ -124,6 +124,25 @@ export default function ExportButtons() {
       <button
         type="button"
         className="preset-btn"
+        data-testid="export-street-bays-glb"
+        title={
+          'the four street-level window bays past mullion 5 ALONE, as one .glb — their mullions, caps, ' +
+          'glass and sidewalk sill, as env_street_* groups. Same world space as the room export, so it ' +
+          'drops into one made before the bays were added without overlapping it'
+        }
+        onClick={async () => {
+          const buffer = await glbPayloadV4(config, chain, connectors, { streetBaysOnly: true })
+          downloadBlob(
+            new Blob([buffer], { type: 'model/gltf-binary' }),
+            `street-bays_${timestamp()}.glb`,
+          )
+        }}
+      >
+        Export new bays
+      </button>
+      <button
+        type="button"
+        className="preset-btn"
         data-testid="export-connector-stl"
         title={`one of each of the ${summary.partTypes} unique connector types, in millimetres, laid out flat for printing`}
         onClick={() => exportConnectorPlateSTL(reportShape)}

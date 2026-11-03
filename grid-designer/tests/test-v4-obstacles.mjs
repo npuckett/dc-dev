@@ -27,7 +27,7 @@ import {
 } from '../src/core/v4/obstacles.js'
 import { solveLattice } from '../src/core/v4/lattice.js'
 import { buildReportV4 } from '../src/core/v4/report.js'
-import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES, OBSTACLE_SIZE_MIN, stairBands } from '../src/core/v4/schema.js'
+import { normalizeConfig, DEFAULT_CONFIG, DEFAULT_OBSTACLES, OBSTACLE_SIZE_MIN, stairBands, streetBayIds } from '../src/core/v4/schema.js'
 import { obbPenetration } from '../src/core/v3/collide.js'
 
 let passed = 0
@@ -303,15 +303,36 @@ console.log('5b. the street-level bays: same spacing, glass down to the sidewalk
   near(gs.max[0], M9_FAR, 1e-9, 'and ends at mullion 9\'s far face')
   ok(gs.min[2] === g.min[2] && gs.max[2] === g.max[2], 'same glazing plane, same 0.5 thickness')
   ok(gs.min[1] === -65 && gs.max[1] === g.max[1], 'down to the sidewalk, up to the shared head')
-  ok(gs.min[1] === ext('sill-sidewalk').max[1], 'it sits on the sidewalk sill')
-  near(ext('sill-sidewalk').max[0], M9_FAR, 1e-9, 'which now runs the whole facade')
+  // The sidewalk sill runs the whole facade, in two pieces that butt at
+  // mullion 5 — the raised run's piece exactly as it was before the bays.
+  const ss = ext('sill-sidewalk')
+  const sss = ext('sill-sidewalk-street')
+  near(ss.max[0], M5_FAR, 1e-9, 'the raised run\'s sidewalk sill still ends at mullion 5')
+  near(sss.min[0], ss.max[0], 1e-9, 'the street-level piece picks up where it stops')
+  near(sss.max[0], M9_FAR, 1e-9, '...and runs to mullion 9\'s far face')
+  ok(sss.min[1] === ss.min[1] && sss.max[1] === ss.max[1] && sss.min[2] === ss.min[2] && sss.max[2] === ss.max[2],
+    'same section as the raised piece')
+  ok(gs.min[1] === sss.max[1], 'the street glass sits on it')
 
   // Nothing new on the return, and nothing new in the room.
   ok(!all.some((o) => o.id === 'glass-street-return' || o.id === 'mullion-6-return'),
     'the return facade is untouched')
-  const added = all.filter((o) => /^(mullion-[6-9](-cap)?|glass-street)$/.test(o.id))
-  ok(added.length === 9, `nine new elements: four mullions, four caps, one glass (${added.length})`)
+  const added = all.filter((o) => /^(mullion-[6-9](-cap)?|glass-street|sill-sidewalk-street)$/.test(o.id))
+  ok(added.length === 10, `ten new elements: four mullions, four caps, glass, sill (${added.length})`)
   ok(added.every((o) => obstacleExtents(o).max[2] <= -40), 'all of them out in the facade, z ≤ −40.65')
+
+  // streetBayIds — what the "new bays only" export selects — names exactly
+  // those elements: every one exists, and every main-facade element past
+  // mullion 5's far face is in it while nothing before it is.
+  const ids = streetBayIds()
+  ok(ids.length === 10 && ids.every((id) => all.some((o) => o.id === id)),
+    `streetBayIds names ten elements and all of them exist (${ids.length})`)
+  ok(JSON.stringify([...ids].sort()) === JSON.stringify(added.map((o) => o.id).sort()),
+    'and they are exactly the new elements')
+  const mainFacade = all.filter((o) => obstacleExtents(o).max[2] <= -40 && !/-return/.test(o.id))
+  const past = mainFacade.filter((o) => obstacleExtents(o).min[0] >= M5_FAR - 1e-9).map((o) => o.id).sort()
+  ok(JSON.stringify(past) === JSON.stringify([...ids].sort()),
+    `every main-facade element past mullion 5 is a street-bay element, and only those (${past.length})`)
 }
 
 // -----------------------------------------------------------------------------

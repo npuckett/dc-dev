@@ -76,7 +76,7 @@ import {
 import { buildConnectorGeometry, buildFrontBarGeometry, connectorTransform } from '../geometry/connectorGeometry.js'
 import { getConnectorKit } from './exportAdapter.js'
 import { obstacleExtents } from '../core/v4/obstacles.js'
-import { stairBands, slatWall, wallDepthCm, trackingCameras } from '../core/v4/schema.js'
+import { stairBands, slatWall, wallDepthCm, trackingCameras, streetBayIds } from '../core/v4/schema.js'
 import { buildCameraGeometries } from '../geometry/cameraGeometry.js'
 
 /** Object / material names. Kept as constants because they are the contract
@@ -204,12 +204,12 @@ const GROUP_LOOKS = {
  * brightness with it. The merged groups gain nothing from sharing either — there
  * is exactly one mesh each.
  */
-function materialFor(name) {
-  const look = name.startsWith(`${DIFFUSER_PREFIX}_`)
+function materialFor(name, lookName = name) {
+  const look = lookName.startsWith(`${DIFFUSER_PREFIX}_`)
     ? DIFFUSER_LOOK
-    : name.startsWith('camera_')
+    : lookName.startsWith('camera_')
       ? CAMERA_LOOK
-      : GROUP_LOOKS[name]
+      : GROUP_LOOKS[lookName]
   return new THREE.MeshStandardMaterial({ name, ...(look ?? {}) })
 }
 
@@ -321,8 +321,10 @@ function Merger() {
   }
 }
 
-function meshOf(geometry, name) {
-  const mesh = new THREE.Mesh(geometry, materialFor(name))
+/** `lookName` borrows another group's look — the street-bay export names its
+ *  meshes apart from the room's but shades them like the families they join. */
+function meshOf(geometry, name, lookName = name) {
+  const mesh = new THREE.Mesh(geometry, materialFor(name, lookName))
   mesh.name = name
   mesh.updateMatrixWorld(true)
   return mesh
@@ -351,10 +353,12 @@ function wallHeightCm(config) {
   return Number.isFinite(top) ? top : 375
 }
 
-function addEnvironment(group, config, chain) {
+/** Obstacles as boxes, one Merger per environment family. Shared by the room
+ *  export and the street-bays-only export, so the two cannot box them differently. */
+function mergeObstacleFamilies(obstacles) {
   const mergers = new Map()
   const seenIds = new Set()
-  for (const obstacle of (config.obstacles ?? [])) {
+  for (const obstacle of obstacles) {
     const fam = environmentFamily(obstacle.id)
     if (fam === null) continue
     if (seenIds.has(obstacle.id)) continue
@@ -366,6 +370,11 @@ function addEnvironment(group, config, chain) {
     mergers.get(fam).add(box)
     box.dispose()
   }
+  return mergers
+}
+
+function addEnvironment(group, config, chain) {
+  const mergers = mergeObstacleFamilies(config.obstacles ?? [])
 
   // The stair edge assembly is not obstacles — a raking stringer cannot be
   // axis-aligned. Its mitred `ribbon` profiles are extruded along x; its
@@ -436,7 +445,7 @@ function addEnvironment(group, config, chain) {
  * @param {object} config normalized v4 config
  * @param {object} chain `solveLattice` output
  * @param {object} connectors `solveConnectorsV4` output
- * @param {{ includeEnvironment?: boolean }} [options]
+ * @param {{ includeEnvironment?: boolean, camerasOnly?: boolean, streetBaysOnly?: boolean }} [options]
  * @returns {THREE.Group}
  */
 export function buildSceneGroup(config, chain, connectors, options = {}) {
@@ -460,6 +469,27 @@ export function buildSceneGroup(config, chain, connectors, options = {}) {
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
       group.add(meshOf(geometry, cam.id.replace(/-/g, '_')))
+    }
+    group.updateMatrixWorld(true)
+    return group
+  }
+
+  // STREET-LEVEL BAYS ONLY — the four windows past mullion 5 (`streetBayIds`),
+  // on their own, for the same reason as the cameras: to add them to a room
+  // export made before they existed. One merged mesh per family, named
+  // `env_street_*` so they sit beside the room's `env_*` groups instead of
+  // colliding with them, and shaded like the family each one extends.
+  if (options.streetBaysOnly) {
+    group.name = 'street_bays'
+    const ids = new Set(streetBayIds())
+    const mergers = mergeObstacleFamilies((config.obstacles ?? []).filter((o) => ids.has(o.id)))
+    for (const fam of ENV_GROUPS) {
+      const m = mergers.get(fam)
+      if (!m || m.isEmpty()) continue
+      const geometry = m.build()
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+      group.add(meshOf(geometry, fam.replace(ENV_PREFIX, `${ENV_PREFIX}street_`), fam))
     }
     group.updateMatrixWorld(true)
     return group

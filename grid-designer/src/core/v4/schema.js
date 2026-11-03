@@ -572,10 +572,18 @@ function facade(axis) {
   })
   out.push(place(`sill${tag}`, `sill${suffix}`, 'solid',
     corner, runLen, outer, depthCm, SILL_TOP_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
-  // The sidewalk sill is the one piece that runs the WHOLE facade: under the
-  // raised run it carries the spandrel, under the street-level bays the glass.
+  // The sidewalk sill runs the whole facade — under the raised run it carries
+  // the spandrel, under the street-level bays the glass — but as TWO pieces
+  // that butt at mullion 5's far face, so the street-level bays are a closed
+  // set of elements (`streetBayIds`) that export on their own and drop into an
+  // existing room export without overlapping it.
   out.push(place(`sill-sidewalk${tag}`, `sill (sidewalk)${suffix}`, 'solid',
-    corner, fullLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+    corner, runLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  if (fullLen > runLen) {
+    out.push(place(`sill-sidewalk-street${tag}`, `sill (sidewalk, street level)${suffix}`, 'solid',
+      round(corner + runLen), round(fullLen - runLen), outer, depthCm,
+      SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  }
   // The SPANDREL — the solid wall below the glazing, from the mullion bottom
   // down to the sidewalk. This span was open; a curtain wall has a spandrel
   // panel here. Full run, on the glazing plane (the mullion depth).
@@ -599,6 +607,23 @@ function facade(axis) {
       SIDEWALK_Y_CM, MULLION_TOP_Y_CM - SIDEWALK_Y_CM, false))
   })
   return out
+}
+
+/**
+ * The ids of every element the street-level bays add — their mullions, caps,
+ * glass and sidewalk-sill piece — and nothing the raised run already had. What
+ * the "new bays only" export selects, so it can be imported beside a room
+ * export made before the bays existed.
+ *
+ * Derived from the same two spacing lists `facade` walks; the obstacle tests
+ * hold it against the elements actually emitted.
+ */
+export function streetBayIds() {
+  const ids = []
+  const first = MULLION_SPACINGS_CM.length + 2 // mullion 6
+  for (let n = first; n < first + STREET_BAY_SPACINGS_CM.length; n++) ids.push(`mullion-${n}`, `mullion-${n}-cap`)
+  ids.push('glass-street', 'sill-sidewalk-street')
+  return ids
 }
 
 /**
