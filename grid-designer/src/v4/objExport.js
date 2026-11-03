@@ -135,7 +135,7 @@ export function environmentFamily(id) {
   if (/^stair-f\d+-step-/.test(id)) return 'env_stair_treads'
   if (/-cap$/.test(id) && id.startsWith('mullion-')) return 'env_mullion_caps'
   if (id.startsWith('mullion-')) return 'env_mullions'
-  if (id === 'glass' || id === 'glass-return') return 'env_glass'
+  if (id === 'glass' || id === 'glass-return' || id === 'glass-street') return 'env_glass'
   if (id.startsWith('sill') || id.startsWith('spandrel')) return 'env_sills'
   return null
 }

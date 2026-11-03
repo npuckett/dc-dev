@@ -194,7 +194,7 @@ console.log('4. the report surfaces it, and never enforces it')
   ok(!stale.obstacles.some((o) => o.id === 'stair-f1-step-16'),
     'and a deleted element cannot come back as an unknown id')
   ok(stale.obstacles.some((o) => o.id === 'heating') &&
-    stale.obstacles.filter((o) => /^mullion-\d+$/.test(o.id)).length === 5,
+    stale.obstacles.filter((o) => /^mullion-\d+$/.test(o.id)).length === 9,
     'the whole room is present regardless of what was saved')
 
   // Garbage never throws. Nothing survives to be clamped now that a saved list
@@ -239,11 +239,12 @@ console.log('5. the return facade is the main one rotated about the corner')
   const mainC = centresOf(/^mullion-\d+$/, 0)
   const retC = centresOf(/^mullion-\d+-return$/, 2)
   const gaps = (v) => v.slice(1).map((x, i) => +(x - v[i]).toFixed(6))
-  ok(mainC.length === 5 && retC.length === 5, 'five mullions on each facade')
-  ok(JSON.stringify(gaps(mainC)) === JSON.stringify([129.5, 152.4, 152.4, 152.4]),
-    `main spacings are 129.5 then 152.4 × 3 (${gaps(mainC)})`)
-  ok(JSON.stringify(gaps(retC)) === JSON.stringify(gaps(mainC)),
-    `and the return repeats them exactly from the corner (${gaps(retC)})`)
+  ok(mainC.length === 9 && retC.length === 5,
+    'nine mullions on the main facade (five raised + four street-level), five on the return')
+  ok(JSON.stringify(gaps(mainC)) === JSON.stringify([129.5, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4]),
+    `main spacings are 129.5 then 152.4 × 7 (${gaps(mainC)})`)
+  ok(JSON.stringify(gaps(retC)) === JSON.stringify(gaps(mainC).slice(0, 4)),
+    `and the return repeats the raised run exactly from the corner (${gaps(retC)})`)
 
   // Heights are untouched by the turn — a corner changes plan, not section.
   for (const id of ['mullion-1', 'mullion-1-return']) {
@@ -263,6 +264,54 @@ console.log('5. the return facade is the main one rotated about the corner')
   ok(ext('mullion-1-cap').max[2] <= ext('glass').min[2], 'main caps are outside the main glass')
   ok(ext('mullion-1-return-cap').max[0] <= ext('glass-return').min[0],
     'and the return caps outside the return glass — the "outside" direction turned too')
+}
+
+// -----------------------------------------------------------------------------
+// 5b. THE STREET-LEVEL BAYS — four more windows past mullion 5, no spandrel
+// -----------------------------------------------------------------------------
+console.log('5b. the street-level bays: same spacing, glass down to the sidewalk')
+{
+  const all = normalizeConfig({}).obstacles
+  const ext = (id) => obstacleExtents(all.find((o) => o.id === id))
+  const M5_FAR = -81.3 + 129.5 + 152.4 * 3 + 6.35
+  const M9_FAR = M5_FAR + 152.4 * 4
+
+  // The raised floor stops at mullion 5, and so does everything that exists
+  // because of it — measured against the floor itself, not a typed number.
+  near(ext('floor').max[0], M5_FAR, 1e-9, 'the raised floor still ends at mullion 5')
+  near(ext('spandrel').max[0], M5_FAR, 1e-9, 'the spandrel stops with it')
+  near(ext('sill').max[0], M5_FAR, 1e-9, 'and so does the raised sill')
+  near(ext('glass').max[0], M5_FAR, 1e-9, 'the raised glass is unchanged')
+
+  // The new mullions: same section, down to the sidewalk, same head.
+  for (let n = 6; n <= 9; n++) {
+    const m = ext(`mullion-${n}`)
+    near(m.max[0] - m.min[0], 6.35, 1e-9, `mullion ${n} is 6.35 across`)
+    ok(m.min[1] === -65 && m.max[1] === 375, `mullion ${n} runs y −65 → 375 (${m.min[1]} → ${m.max[1]})`)
+    ok(all.some((o) => o.id === `mullion-${n}-cap`), `and carries a cap like the others`)
+  }
+  for (let n = 1; n <= 5; n++) {
+    ok(ext(`mullion-${n}`).min[1] === -25, `raised mullion ${n} still starts at −25`)
+  }
+  near(ext('mullion-9').max[0], M9_FAR, 1e-9, 'mullion 9 ends four bays past mullion 5')
+
+  // The street-level glass picks up exactly where the raised sheet stops, in
+  // the same plane, and runs down to the sidewalk sill.
+  const g = ext('glass')
+  const gs = ext('glass-street')
+  near(gs.min[0], g.max[0], 1e-9, 'the street glass starts where the raised glass stops')
+  near(gs.max[0], M9_FAR, 1e-9, 'and ends at mullion 9\'s far face')
+  ok(gs.min[2] === g.min[2] && gs.max[2] === g.max[2], 'same glazing plane, same 0.5 thickness')
+  ok(gs.min[1] === -65 && gs.max[1] === g.max[1], 'down to the sidewalk, up to the shared head')
+  ok(gs.min[1] === ext('sill-sidewalk').max[1], 'it sits on the sidewalk sill')
+  near(ext('sill-sidewalk').max[0], M9_FAR, 1e-9, 'which now runs the whole facade')
+
+  // Nothing new on the return, and nothing new in the room.
+  ok(!all.some((o) => o.id === 'glass-street-return' || o.id === 'mullion-6-return'),
+    'the return facade is untouched')
+  const added = all.filter((o) => /^(mullion-[6-9](-cap)?|glass-street)$/.test(o.id))
+  ok(added.length === 9, `nine new elements: four mullions, four caps, one glass (${added.length})`)
+  ok(added.every((o) => obstacleExtents(o).max[2] <= -40), 'all of them out in the facade, z ≤ −40.65')
 }
 
 // -----------------------------------------------------------------------------

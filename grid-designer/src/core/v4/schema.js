@@ -446,6 +446,22 @@ const CORNER_Z_CM = -59.7
 const MULLION_SECTION = { acrossCm: 6.35, depthCm: 19.05, heightCm: 400, baseYCm: -25 }
 /** Centre-to-centre, walking away FROM THE CORNER. Used on both facades. */
 const MULLION_SPACINGS_CM = [129.5, 152.4, 152.4, 152.4]
+/**
+ * THE STREET-LEVEL BAYS — four more windows on the MAIN elevation only, past
+ * mullion 5, at the same 152.4 spacing (stated, 2026-11-03: "the same mullion
+ * spacing and windows").
+ *
+ * The raised display floor stops at mullion 5, and past it the interior is at
+ * sidewalk level — the lower floor the stair starts from. So these bays have no
+ * spandrel and no raised sill: the glass and the mullions run down to the
+ * sidewalk sill, the full 440 from y −65 to the shared head at 375.
+ *
+ * Kept OUT of MULLION_SPACINGS_CM on purpose. That list is the raised run, and
+ * the floor, the heating run, the return facade, the stair (its far edge on
+ * mullion 5) and the column (centred in the stair's well) are all derived from
+ * it. Appending here would move every one of them.
+ */
+const STREET_BAY_SPACINGS_CM = [152.4, 152.4, 152.4, 152.4]
 
 const SILL_THICKNESS_CM = 5
 const SILL_TOP_Y_CM = MULLION_SECTION.baseYCm
@@ -454,8 +470,9 @@ const GLASS_THICKNESS_CM = 0.5
 const CAP_THICKNESS_CM = 1
 
 const SIDEWALK_Y_CM = SILL_TOP_Y_CM - SIDEWALK_DROP_CM
-/** How far a facade runs from the corner: last mullion's far face. Derived, so
- *  a change to the spacings moves the heating run with the glazing. */
+/** How far a facade's RAISED run goes from the corner: mullion 5's far face.
+ *  Derived, so a change to the spacings moves the heating run with the glazing.
+ *  The main facade's street-level bays continue past it (STREET_BAY_SPACINGS_CM). */
 const FACADE_RUN_CM = MULLION_SPACINGS_CM.reduce((a, b) => a + b, 0) + MULLION_SECTION.acrossCm
 /** The return elevation's inner face — where the floor of that bay begins. */
 const RETURN_INNER_X_CM = CORNER_X_CM + MULLION_SECTION.depthCm
@@ -523,16 +540,23 @@ function facade(axis) {
     anchor: 'corner',
   })
 
+  // The raised run first, then — on the main elevation only — the street-level
+  // bays continue from mullion 5 at their own spacing.
+  const streetSteps = along === 'x' ? STREET_BAY_SPACINGS_CM : []
   const centres = []
   let c = corner + acrossCm / 2
   centres.push(c)
-  for (const step of MULLION_SPACINGS_CM) {
+  for (const step of [...MULLION_SPACINGS_CM, ...streetSteps]) {
     c += step
     centres.push(c)
   }
   const round = (v) => Math.round(v * 1e9) / 1e9
   const starts = centres.map((v) => round(v - acrossCm / 2))
-  const runLen = round(starts[starts.length - 1] + acrossCm - corner)
+  const raisedCount = MULLION_SPACINGS_CM.length + 1
+  // The raised run ends at mullion 5's far face; the whole facade at the last
+  // mullion's. They are the same length on the return.
+  const runLen = round(starts[raisedCount - 1] + acrossCm - corner)
+  const fullLen = round(starts[starts.length - 1] + acrossCm - corner)
   const tag = along === 'x' ? '' : '-return'
   // Appended, so a label reads "sill (sidewalk) — return" rather than growing a
   // second bracket. The main facade's labels stay exactly as they were.
@@ -540,21 +564,34 @@ function facade(axis) {
 
   const out = []
   starts.forEach((a, k) => {
+    // A street-level bay's mullion runs down to the sidewalk sill, as its
+    // glass does; the head is shared.
+    const baseY = k < raisedCount ? MULLION_SECTION.baseYCm : SIDEWALK_Y_CM
     out.push(place(`mullion-${k + 1}${tag}`, `mullion ${k + 1}${suffix}`, 'solid',
-      a, acrossCm, outer, depthCm, MULLION_SECTION.baseYCm, MULLION_SECTION.heightCm))
+      a, acrossCm, outer, depthCm, baseY, MULLION_TOP_Y_CM - baseY))
   })
   out.push(place(`sill${tag}`, `sill${suffix}`, 'solid',
     corner, runLen, outer, depthCm, SILL_TOP_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+  // The sidewalk sill is the one piece that runs the WHOLE facade: under the
+  // raised run it carries the spandrel, under the street-level bays the glass.
   out.push(place(`sill-sidewalk${tag}`, `sill (sidewalk)${suffix}`, 'solid',
-    corner, runLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
+    corner, fullLen, outer, depthCm, SIDEWALK_Y_CM - SILL_THICKNESS_CM, SILL_THICKNESS_CM))
   // The SPANDREL — the solid wall below the glazing, from the mullion bottom
   // down to the sidewalk. This span was open; a curtain wall has a spandrel
   // panel here. Full run, on the glazing plane (the mullion depth).
+  // It exists because the floor behind it is raised, so it stops with the floor.
   out.push(place(`spandrel${tag}`, `spandrel${suffix}`, 'solid',
     corner, runLen, outer, depthCm, SIDEWALK_Y_CM, SILL_TOP_Y_CM - SIDEWALK_Y_CM))
   // Flush to the STREET face, so the mullion depth reads from inside.
   out.push(place(`glass${tag}`, `glass${suffix}`, 'glass',
     corner, runLen, outer, GLASS_THICKNESS_CM, SILL_TOP_Y_CM, MULLION_TOP_Y_CM - SILL_TOP_Y_CM))
+  // The street-level bays' glass: from mullion 5's far face, where the raised
+  // sheet stops, down to the sidewalk sill. Same plane, same head.
+  if (fullLen > runLen) {
+    out.push(place(`glass-street${tag}`, `glass (street level)${suffix}`, 'glass',
+      round(corner + runLen), round(fullLen - runLen), outer, GLASS_THICKNESS_CM,
+      SIDEWALK_Y_CM, MULLION_TOP_Y_CM - SIDEWALK_Y_CM))
+  }
   // One cap per mullion, just OUTSIDE the glazing plane, down to the sidewalk.
   starts.forEach((a, k) => {
     out.push(place(`mullion-${k + 1}${tag}-cap`, `mullion ${k + 1}${suffix} cap`, 'solid',

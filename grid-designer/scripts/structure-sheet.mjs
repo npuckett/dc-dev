@@ -259,7 +259,7 @@ function planSVG() {
   // network (its landing is ~2m up), so drawing it here would read as a clash.
   out.push('<g clip-path="url(#plan-clip)">')
   const want = (id) =>
-    /^(heating|heating-return|column|glass|sill)$/.test(id) || /^mullion-\d$/.test(id)
+    /^(heating|heating-return|column|glass|glass-street|sill)$/.test(id) || /^mullion-\d$/.test(id)
   for (const o of config.obstacles.filter((o) => want(o.id))) {
     const e = obstacleExtents(o)
     const cls = o.kind === 'zone' ? 'ctx-zone' : o.kind === 'glass' ? 'ctx-glass' : o.id === 'column' ? 'ctx-column' : 'ctx-solid'
